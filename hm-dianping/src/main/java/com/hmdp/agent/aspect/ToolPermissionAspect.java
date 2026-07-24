@@ -38,7 +38,7 @@ public class ToolPermissionAspect {
     /**
      * 切点：所有标注了 {@link RequiredDataPermission} 的方法
      */
-    @Pointcut("@annotation(com.hmdp.permission.annotation.RequiredDataPermission)")
+    @Pointcut("@annotation(com.hmdp.agent.permission.annotation.RequiredDataPermission)")
     public void permissionCheckPointcut() {
     }
 

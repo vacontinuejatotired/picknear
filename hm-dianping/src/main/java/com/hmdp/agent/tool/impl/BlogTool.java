@@ -7,10 +7,10 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.hmdp.annotation.TargetTool;
+import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.permission.annotation.RequiredDataPermission;
+import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.entity.Blog;
-import com.hmdp.permission.annotation.RequiredDataPermission;
-import com.hmdp.permission.enums.DataAction;
 import com.hmdp.service.IBlogService;
 
 import jakarta.annotation.Resource;

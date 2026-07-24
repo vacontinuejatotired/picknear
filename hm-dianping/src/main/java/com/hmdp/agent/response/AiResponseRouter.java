@@ -2,8 +2,8 @@ package com.hmdp.agent.response;
 
 import com.hmdp.agent.task.TaskPlanner;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.prompthook.ChatContext;
-import com.hmdp.prompthook.HookResult;
+import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.hook.HookResult;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

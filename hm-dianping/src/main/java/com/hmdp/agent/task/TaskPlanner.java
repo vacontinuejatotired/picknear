@@ -2,7 +2,7 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.prompthook.ChatContext;
+import com.hmdp.agent.hook.ChatContext;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;

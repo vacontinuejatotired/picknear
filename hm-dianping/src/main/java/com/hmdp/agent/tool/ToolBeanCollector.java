@@ -1,8 +1,8 @@
 package com.hmdp.agent.tool;
 
-import com.hmdp.annotation.TargetTool;
-import com.hmdp.promptguard.GuardedToolCallback;
-import com.hmdp.promptguard.ToolGuardManager;
+import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.guard.ToolGuardManager;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.support.ToolCallbacks;

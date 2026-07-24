@@ -1,6 +1,6 @@
 package com.hmdp.agent.tool.impl;
 
-import com.hmdp.annotation.TargetTool;
+import com.hmdp.agent.annotation.TargetTool;
 
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

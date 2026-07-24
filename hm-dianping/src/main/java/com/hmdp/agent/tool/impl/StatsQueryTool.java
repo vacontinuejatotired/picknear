@@ -1,6 +1,6 @@
 package com.hmdp.agent.tool.impl;
 
-import com.hmdp.annotation.TargetTool;
+import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.service.IBlogService;
 import com.hmdp.service.IShopService;
 import com.hmdp.service.IUserService;

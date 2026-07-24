@@ -4,10 +4,10 @@ import com.hmdp.agent.response.AiResponseRouter;
 import com.hmdp.agent.service.AiService;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.prompthook.AfterAiHookChain;
-import com.hmdp.prompthook.ChatContext;
-import com.hmdp.prompthook.HookResult;
-import com.hmdp.prompthook.PromptHookChain;
+import com.hmdp.agent.hook.AfterAiHookChain;
+import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.hook.HookResult;
+import com.hmdp.agent.hook.PromptHookChain;
 import com.hmdp.utils.UserHolder;
 
 import jakarta.annotation.Resource;
