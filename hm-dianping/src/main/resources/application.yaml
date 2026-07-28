@@ -83,7 +83,7 @@ hmdp:
     block-tools:
       - deleteBlog
     confirm-tools:
-      - publishBlog
+      - publishTestBlog
     block-patterns:
       - toolName: ".*[Dd]elete.*"
     confirm-patterns:
@@ -92,13 +92,26 @@ hmdp:
       max-per-session: 30
       window-seconds: 60
 
-logging:
-  level:
-    com.hmdp: WARN                            # 其他 hmdp 包安静
-    com.hmdp.agent: DEBUG                     # AI Agent 主链路
-    com.hmdp.agent.tool: DEBUG                # 工具调用细节
-    com.hmdp.promptguard: DEBUG               # 守卫拦截器
-    com.hmdp.prompthook: DEBUG                # Hook 链执行
+#logging:
+#  level:
+#    com.hmdp: debug                            # 其他 hmdp 包安静
+#    com.hmdp.agent: DEBUG                     # AI Agent 主链路
+#    com.hmdp.agent.tool: DEBUG                # 工具调用细节
+#    com.hmdp.promptguard: DEBUG               # 守卫拦截器
+#    com.hmdp.prompthook: DEBUG                # Hook 链执行
+#    com.hmdp.interceptor: DEBUG                       # 拦截器链执行
+
+agent:
+  subtask:
+    timeout: 30s                              # 子 Agent 单次 LLM 调用超时
+    total-timeout: 60s                        # 整个 execute() 总超时（含重试）
+    max-retries: 3                            # 最大重试次数
+    retry-backoff: 1s                         # 重试基础退避间隔
+
+feature:
+  subagent:
+    enabled: true                             # 子 Agent 功能开关
+
 server:
   servlet:
     encoding:
