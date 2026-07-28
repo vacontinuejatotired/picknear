@@ -52,7 +52,9 @@ public class PromptHookChain {
         for (PromptHook hook : hooks) {
             HookResult result;
             try {
+                log.info("HOOK[{}]正在准备执行",hook.hookName());
                 result = hook.beforePrompt(originalInput, currentInput, context);
+
             } catch (Exception e) {
                 log.error("Hook [{}] 执行异常，已降级为 PASS", hook.hookName(), e);
                 continue; // Fail-Open
