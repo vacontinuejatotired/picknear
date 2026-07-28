@@ -11,7 +11,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 子任务执行器。
+ * 子任务执行器（已废弃，保留供回退路径使用）。
+ * <p>
+ * 新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
+ * </p>
  * <p>
  * 按类型分发：
  * <ul>
@@ -20,6 +23,7 @@ import java.util.stream.Collectors;
  * </ul>
  * </p>
  */
+@Deprecated
 @Slf4j
 public class TaskExecutor {
 
