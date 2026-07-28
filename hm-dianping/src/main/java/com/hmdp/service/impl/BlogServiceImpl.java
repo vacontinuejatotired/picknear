@@ -108,10 +108,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     private void isLiked(Blog blog) {
-        Long userId = UserHolder.getUserId();
-        if (userId == null) {
+        UserDTO userDTO = UserHolder.getUserDTO();
+        if (userDTO == null) {
             return;
         }
+        Long userId = userDTO.getId();
         String userKey = RedisConstants.USER_LIKED_KEY + userId;
         Boolean isMember = stringRedisTemplate.opsForSet().isMember(userKey, String.valueOf(blog.getId()));
         blog.setIsLike(Boolean.TRUE.equals(isMember));

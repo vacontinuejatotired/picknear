@@ -334,10 +334,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public TokenPair changePassword(PasswordChangeDTO dto) {
-        Long userId = UserHolder.getUserId();
-        if (userId == null) {
+        UserDTO userDTO = UserHolder.getUserDTO();
+        if (userDTO == null) {
             throw new IllegalArgumentException("未登录");
         }
+        Long userId = userDTO.getId();
 
         String oldPassword = dto.getOldPassword();
         String newPassword = dto.getNewPassword();

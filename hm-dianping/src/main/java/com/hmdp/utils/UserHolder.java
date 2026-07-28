@@ -18,6 +18,7 @@ public class UserHolder {
 
     public static Long getUserId(){
         if(tl.get() == null){
+            log.warn("getUserId 被调用但 ThreadLocal 为空，调用栈如下：", new RuntimeException("debug stack"));
             throw new IllegalArgumentException("用户ID不存在");
         }
         log.info("getUserId: {}", tl.get());

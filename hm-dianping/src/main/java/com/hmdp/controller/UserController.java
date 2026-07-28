@@ -91,10 +91,11 @@ public class UserController {
     @PostMapping("/logout")
     @Operation(summary = "用户登出", description = "清除用户登出，清除Token记录")
     public Result logout(HttpServletResponse response) {
-        Long userId = UserHolder.getUserId();
-        if (userId == null) {
+        UserDTO userDTO = UserHolder.getUserDTO();
+        if (userDTO == null) {
             return Result.fail("未登录");
         }
+        Long userId = userDTO.getId();
         userService.logout(userId);
         UserHolder.remove();
         // 清除客户端 access_token（前端 localStorage 不再更新）

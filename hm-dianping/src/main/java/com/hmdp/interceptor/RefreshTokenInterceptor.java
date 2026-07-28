@@ -78,11 +78,13 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
 
             // ② 保存用户信息到 ThreadLocal
             Long userId = result.getUserId();
+
             if (userId == null) {
                 log.warn("【Token拦截】无法获取 userId, URI={}", requestURI);
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
+            
             if (!resolveAndSaveUser(userId)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
