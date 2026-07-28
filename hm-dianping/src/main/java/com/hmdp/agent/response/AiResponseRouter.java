@@ -32,16 +32,26 @@ public class AiResponseRouter {
     private TaskPlanner taskPlanner;
 
     /**
-     * 路由后处理决策。
-     *
-     * @param result     AfterAiHook 链的决策结果
-     * @param input      原始用户输入
-     * @param aiResponse LLM 回复内容
-     * @param ctx        对话上下文
-     * @param emitter    SSE 发射器
+     * 路由后处理决策（兼容旧调用方，默认 contentAlreadyStreamed=false）。
      */
     public void route(HookResult result, String input, String aiResponse,
                       ChatContext ctx, SseEmitter emitter) {
+        route(result, input, aiResponse, ctx, emitter, false);
+    }
+
+    /**
+     * 路由后处理决策（流式感知）。
+     *
+     * @param result              AfterAiHook 链的决策结果
+     * @param input               原始用户输入
+     * @param aiResponse          LLM 完整回复内容
+     * @param ctx                 对话上下文
+     * @param emitter             SSE 发射器
+     * @param contentStreamed     内容是否已通过流式逐 token 推送给客户端。
+     *                            true 时 PASS 决策不再重复发送内容。
+     */
+    public void route(HookResult result, String input, String aiResponse,
+                      ChatContext ctx, SseEmitter emitter, boolean contentStreamed) {
         try {
             switch (result.getDecision()) {
                 case BLOCK -> {
@@ -59,7 +69,10 @@ public class AiResponseRouter {
                     taskPlanner.planAndExecuteAsync(input, aiResponse, ctx, emitter);
                 }
                 default -> {
-                    emitter.send(SseEmitter.event().data(SseUtils.escapeJson(aiResponse)));
+                    // PASS：内容已流式推送则跳过，前端 already 有逐 token 拼接的文本
+                    if (!contentStreamed) {
+                        emitter.send(SseEmitter.event().data(SseUtils.escapeJson(aiResponse)));
+                    }
                     emitter.complete();
                 }
             }

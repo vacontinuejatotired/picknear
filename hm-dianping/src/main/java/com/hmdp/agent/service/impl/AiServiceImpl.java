@@ -3,6 +3,7 @@ package com.hmdp.agent.service.impl;
 import com.hmdp.agent.response.AiResponseRouter;
 import com.hmdp.agent.service.AiService;
 import com.hmdp.agent.tool.ToolBeanCollector;
+import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.agent.hook.AfterAiHookChain;
 import com.hmdp.agent.hook.ChatContext;
@@ -105,7 +106,7 @@ public class AiServiceImpl implements AiService {
             return;
         }
 
-        // 4. 异步执行 AI 调用（使用可能被替换后的 finalContent）
+        // 4. 流式调用 AI（真正的逐 token 推送）
         CompletableFuture.runAsync(() -> {
             int maxAttempts = 3;
             Exception lastError = null;
@@ -114,16 +115,27 @@ public class AiServiceImpl implements AiService {
                 try {
                     ChatClientRequestSpec prompt = chatClient.prompt()
                             .user(currentContent);
-                    String result = prompt.call().content();
-                    log.info("[Phase1] AI 初次回复, result={}", result);
+
+                    // 逐 token 流式推送：遍历 Flux，每收到一个 token 立即推 SSE
+                    StringBuilder buffer = new StringBuilder();
+                    for (String token : prompt.stream().content().toIterable()) {
+                        if (token != null && !token.isEmpty()) {
+                            buffer.append(token);
+                            SseUtils.safeSend(emitter, SseUtils.escapeJson(token));
+                        }
+                    }
+
+                    String fullResponse = buffer.toString();
+                    log.info("[Phase1] AI 流式回复完成, length={}", fullResponse.length());
 
                     // 后处理：AfterAiHookChain → AiResponseRouter
-                    HookResult afterResult = afterAiHookChain.execute(finalContent, result, ctx);
-                    responseRouter.route(afterResult, finalContent, result, ctx, emitter);
+                    HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
+                    // 内容已逐 token 推送，通知路由跳过重复发送
+                    responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
                     return; // 成功，退出
                 } catch (Exception e) {
                     lastError = e;
-                    log.warn("AI 调用失败 [attempt={}/{}]", attempt, maxAttempts, e);
+                    log.warn("AI 流式调用失败 [attempt={}/{}]", attempt, maxAttempts, e);
                     if (attempt < maxAttempts) {
                         // 把错误喂给 AI，让 AI 重试生成回复
                         currentContent = finalContent + "\n\n[系统提示] 上一步调用因以下异常失败，请重试："
@@ -133,7 +145,7 @@ public class AiServiceImpl implements AiService {
             }
             // 所有重试耗尽，给用户友好提示而非原始异常
             String friendlyMsg = "抱歉，AI 服务暂时不可用（" + lastError.getMessage() + "），请稍后再试。";
-            SseUtils.safeSend(emitter, SseUtils.progressEvent("merging", "结论生成完成"));
+            SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
             SseUtils.safeSend(emitter, SseUtils.errorEvent(friendlyMsg));
             emitter.complete();
         }, aiTaskExecutor);
