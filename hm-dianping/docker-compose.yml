@@ -1,0 +1,141 @@
+services:
+
+  # ==========================================
+  # MySQL 8
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: hmdp-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_DATABASE: heima
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/main/resources/db/heima-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - hmdp-net
+
+  # ==========================================
+  # Redis 7
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: hmdp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --requirepass 281458
+      --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "281458", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - hmdp-net
+
+  # ==========================================
+  # RabbitMQ 4 (含管理插件)
+  # ==========================================
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: hmdp-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: qyh
+      RABBITMQ_DEFAULT_PASS: 123321
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - hmdp-net
+
+  # ==========================================
+  # hm-dianping 后端应用
+  # ==========================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hmdp-app
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      # 激活的 profile
+      SPRING_PROFILES_ACTIVE: prod
+
+      # MySQL — 通过服务名访问
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/heima?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-123456}
+
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: 281458
+
+      # RabbitMQ
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: qyh
+      SPRING_RABBITMQ_PASSWORD: 123321
+
+      # 云服务（需从宿主机环境变量传入）
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - hmdp-net
+
+  # ==========================================
+  # 命名卷
+  # ==========================================
+volumes:
+  mysql-data:
+    name: hmdp-mysql-data
+  redis-data:
+    name: hmdp-redis-data
+  rabbitmq-data:
+    name: hmdp-rabbitmq-data
+
+  # ==========================================
+  # 网络
+  # ==========================================
+networks:
+  hmdp-net:
+    name: hmdp-net
+    driver: bridge
