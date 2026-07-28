@@ -6,6 +6,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -47,41 +48,14 @@ public class GuardedToolCallback implements ToolCallback {
 
     @Override
     public String call(String functionPayload) {
-        String toolName = delegate.getToolDefinition().name();
-
-        ToolInvocationContext context = ToolInvocationContext.builder()
-                .toolName(toolName)
-                .arguments(functionPayload)
-                .conversationId(conversationId)
-                .userId(userId)
-                .invocationCount(invokeCounter.incrementAndGet())
-                .build();
-
-        GuardResult result = guardManager.evaluate(context);
-
-        switch (result.getDecision()) {
-            case BLOCK -> {
-                String msg = result.getReason() != null
-                        ? result.getReason()
-                        : "操作已被安全策略拦截";
-                log.warn("工具调用被拦截 [tool={}, policy={}]", toolName, result.getPolicyName());
-                return returnDirect ? msg : "{\"error\":\"" + msg + "\"}";
-            }
-            case CONFIRM -> {
-                String msg = "该操作需要你的确认才能执行";
-                log.info("工具调用需确认 [tool={}, policy={}]", toolName, result.getPolicyName());
-                return returnDirect ? msg : "{\"confirm\":\"" + msg + "\"}";
-            }
-            case ALLOW -> {
-                log.debug("工具调用放行 [tool={}]", toolName);
-                return delegate.call(functionPayload);
-            }
-        }
-        return delegate.call(functionPayload);
+        return call(functionPayload, new ToolContext(Map.of()));
     }
 
     @Override
     public String call(String functionPayload, ToolContext toolContext) {
+        if (toolContext == null) {
+            toolContext = new ToolContext(Map.of());
+        }
         String toolName = delegate.getToolDefinition().name();
         Long effectiveUserId = userId;
 
