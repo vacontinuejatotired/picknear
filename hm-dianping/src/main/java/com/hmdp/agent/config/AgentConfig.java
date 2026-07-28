@@ -126,4 +126,41 @@ public class AgentConfig {
     //             .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
     //             .build();
     // }
+
+    /**
+     * 子 Agent ChatClient（不带默认工具）。
+     * <p>
+     * 与主 aliibabaChatClient 的区别：
+     * <ul>
+     *   <li>主 Client：Phase 1 纯文本回复，不绑工具</li>
+     *   <li>子 Agent Client：Phase 2 工具执行，运行时通过 {@code .tools(filteredCallbacks)} 动态绑定</li>
+     * </ul>
+     * </p>
+     * 注意：
+     * <ul>
+     *   <li>不在这里 .defaultTools() 绑定全部工具——由 SubTaskAgent 按 plan.tasks 动态筛选后传入</li>
+     *   <li>不加对话记忆（ChatMemory）——子 Agent 每次调用独立，上下文由 TaskPlanner 的 currentResponse 传递</li>
+     * </ul>
+     */
+    @Bean("subAgentChatClient")
+    public ChatClient subAgentChatClient(DashScopeChatModel chatModel) {
+        return ChatClient.builder(chatModel)
+                .defaultSystem("""
+                        你是任务执行助手，负责调用工具获取数据并汇总结果。
+
+                        核心职责：
+                        1. 根据任务描述，调用合适的工具获取数据
+                        2. 理解工具返回的数据
+                        3. 用中文汇总成一段完整的回答
+
+                        规则：
+                        - 每次只调用一个工具，等待返回结果后再调下一个
+                        - 工具参数必须严格遵守下方给出的约束，你无权修改参数值
+                        - 工具返回空数据时，如实说明"暂无数据"
+                        - 工具调用失败时，在摘要中说明原因，继续执行其他工具
+                        - 所有工具执行完毕后，用中文给出完整回答
+                        - 在回复末尾必须附加 JSON 数据快照（格式见用户 prompt）
+                        """)
+                .build();
+    }
 }
