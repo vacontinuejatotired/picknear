@@ -54,12 +54,12 @@ spring:
 mybatis-plus:
   type-aliases-package: com.hmdp.entity
 
-logging:
-  level:
-    com.hmdp: WARN
-    com.hmdp.agent: DEBUG                     # AI Agent 链路（含工具调用）
-    com.hmdp.agent.tool: DEBUG                # 工具注册细节
-    com.hmdp.promptguard: DEBUG               # 守卫策略评估日志
+# logging:
+#   level:
+#     com.hmdp: WARN
+#     com.hmdp.agent: DEBUG                     # AI Agent 链路（含工具调用）
+#     com.hmdp.agent.tool: DEBUG                # 工具注册细节
+#     com.hmdp.promptguard: DEBUG               # 守卫策略评估日志
   
 
 debug: false
