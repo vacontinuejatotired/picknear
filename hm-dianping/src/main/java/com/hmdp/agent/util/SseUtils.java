@@ -50,7 +50,7 @@ public final class SseUtils {
     public static String stepEvent(String toolName, String status) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "progress");
-        m.put("stage", "step");
+        m.put("stage", SseEventConstants.STAGE_STEP);
         m.put("toolName", toolName);
         m.put("status", status);
         return toJson(m);
@@ -58,7 +58,7 @@ public final class SseUtils {
 
     /** 进度事件（确认）：{"type":"progress","stage":"confirm","text":"..."} */
     public static String confirmEvent(String text) {
-        return progressEvent("confirm", text);
+        return progressEvent(SseEventConstants.STAGE_CONFIRM, text);
     }
 
     /** 对传入字符串做 JSON 字符串值转义（兼容老用法） */
