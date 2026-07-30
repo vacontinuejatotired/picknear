@@ -1,6 +1,6 @@
 # 阿里云 OSS 图片上传方案
 
-> 黑马点评（hm-dianping）图片上传接入阿里云 OSS\
+> 探点（picknear）图片上传接入阿里云 OSS\
 > 当前状态：设计方案（第3版 — 已全量实施）\
 > 最后更新：2026-07（第2轮实施）
 
@@ -636,14 +636,14 @@ function getImageUrl(path: string): string {
 
 #### P0-1 🔴 `application.yaml` 默认 Profile 为 `prod`
 
-| 位置 | `hm-dianping/src/main/resources/application.yaml:58-59`                                                                                     |
+| 位置 | `picknear/src/main/resources/application.yaml:58-59`                                                                                     |
 | :- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 问题 | `spring.profiles.active: prod` 是默认值。如果开发者没有通过 `--spring.profiles.active=dev` 指定，则激活 prod profile → 尝试创建 OSS 客户端 → 需要 OSS 环境变量 → 无环境变量时启动失败。 |
 | 建议 | 将默认值改为 `dev`，或在 README 中明确要求 IDE 启动参数配置。                                                                                                    |
 
 #### P0-2 🔴 `application-dev.yaml` 缺少 `spring.servlet.multipart` 配置
 
-| 位置 | `hm-dianping/src/main/resources/application-dev.yaml` |
+| 位置 | `picknear/src/main/resources/application-dev.yaml` |
 | :- | - |
 | 问题 | Spring Boot 默认 `spring.servlet.multipart.max-file-size` 为 **1MB**。大于 1MB 的文件在到达 Controller 前就被 Tomcat 拒绝，抛出 `MaxUploadSizeExceededException`。 |
 | 建议 | 在 `application-dev.yaml` 追加：`spring.servlet.multipart.max-file-size: 5MB` + `max-request-size: 5MB` |

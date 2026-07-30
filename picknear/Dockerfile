@@ -22,7 +22,7 @@ RUN java -Djarmode=layertools -jar target/*.jar extract --destination extracted
 # ==============================================
 FROM eclipse-temurin:17-jre-alpine
 
-LABEL org.opencontainers.image.title="hm-dianping"
+LABEL org.opencontainers.image.title="picknear"
 LABEL org.opencontainers.image.description="小众点评 — Spring Boot 后端服务"
 LABEL org.opencontainers.image.version="1.0.0"
 

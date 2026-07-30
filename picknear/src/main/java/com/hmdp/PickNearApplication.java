@@ -10,8 +10,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableAspectJAutoProxy(exposeProxy = true,proxyTargetClass = true)
 @EnableScheduling
-public class HmDianPingApplication {
+public class PickNearApplication {
     public static void main(String[] args) {
-        SpringApplication.run(HmDianPingApplication.class, args);
+        SpringApplication.run(PickNearApplication.class, args);
     }
 }

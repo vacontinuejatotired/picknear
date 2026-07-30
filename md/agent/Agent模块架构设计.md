@@ -2,7 +2,7 @@
 
 > **版本**: v2.0  
 > **最后更新**: 2026-07-24  
-> **对应代码路径**: `hm-dianping/src/main/java/com/hmdp/` 下的 `agent/`, `permission/`, `aspect/`, `promptguard/`, `prompthook/`, `exception/`  
+> **对应代码路径**: `picknear/src/main/java/com/hmdp/` 下的 `agent/`, `permission/`, `aspect/`, `promptguard/`, `prompthook/`, `exception/`  
 > **相关文档**: [Agent任务队列方案](./Agent任务队列方案.md), [Agent模块简历亮点](./Agent模块简历亮点.md), [SSE后端实现规范](./SSE后端实现规范.md)
 
 ---
@@ -22,7 +22,7 @@
 
 ## 1. 模块定位
 
-Agent 模块是 hm-dianping 的"智能层"，通过大语言模型（LLM）为用户提供自然语言驱动的交互体验。
+Agent 模块是 picknear 的"智能层"，通过大语言模型（LLM）为用户提供自然语言驱动的交互体验。
 
 ### 1.1 核心能力
 

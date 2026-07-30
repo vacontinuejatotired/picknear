@@ -5,9 +5,9 @@
 > **基于**: [Agent任务队列方案](./Agent任务队列方案.md) v3 的 Phase 2 改造  
 > **相关文档**: [Agent模块架构设计](./Agent模块架构设计.md), [Agent模块发展路线图](./Agent模块发展路线图.md)  
 > **对应代码路径**: 
-> - `hm-dianping/src/main/java/com/hmdp/agent/subagent/` — 子 Agent 新增组件
-> - `hm-dianping/src/main/java/com/hmdp/agent/task/` — TaskPlanner 等改造
-> - `hm-dianping/src/main/java/com/hmdp/agent/config/` — 配置类
+> - `picknear/src/main/java/com/hmdp/agent/subagent/` — 子 Agent 新增组件
+> - `picknear/src/main/java/com/hmdp/agent/task/` — TaskPlanner 等改造
+> - `picknear/src/main/java/com/hmdp/agent/config/` — 配置类
 
 ---
 

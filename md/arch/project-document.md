@@ -1,6 +1,6 @@
-﻿# hm-dianping 项目架构文档
+﻿# picknear 项目架构文档
 
-> 基于黑马点评 (hm-dianping) 的二次开发与高并发优化项目
+> 基于探点 (picknear) 的二次开发与高并发优化项目
 > 最后更新：2026-07-09
 
 ---
@@ -9,7 +9,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| **名称** | hm-dianping（高并发点评平台） |
+| **名称** | picknear（高并发点评平台） |
 | **技术栈** | Spring Boot 3.4.4 + MyBatis-Plus + MySQL + Redis + RabbitMQ + Caffeine |
 | **JDK** | 17 |
 | **构建工具** | Maven |
@@ -20,8 +20,8 @@
 ## 二、项目结构
 
 ```
-hm-dianping/
-├── hm-dianping/                     # Maven 模块（主代码）
+picknear/
+├── picknear/                     # Maven 模块（主代码）
 │   ├── pom.xml                      # 依赖管理（Spring Boot 3.4.4, JDK 17）
 │   └── src/
 │       ├── main/
