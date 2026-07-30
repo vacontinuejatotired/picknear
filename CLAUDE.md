@@ -1,4 +1,4 @@
-# hm-dianping (小众点评) — 项目架构说明
+# PickNear（探点） — 项目架构说明
 
 > **前后端分离架构**，但前端和后端代码都放在 `E:\heima\` 工作区下同一层级。
 
@@ -8,8 +8,8 @@
 
 ```
 E:\heima\                              # 工作区根目录
-├── hm-dianping\                       # 【Git 仓库】后端 Spring Boot 项目
-│   ├── hm-dianping\                   #   Spring Boot 3.4.4 + Maven + Java 17
+├── picknear\                          # 【Git 仓库】后端 Spring Boot 项目
+│   ├── picknear\                      #   Spring Boot 3.4.4 + Maven + Java 17
 │   │   ├── pom.xml
 │   │   └── src/
 │   ├── md\                            #   架构设计文档
@@ -29,23 +29,23 @@ E:\heima\                              # 工作区根目录
 | 层 | 技术栈 | 位置 | 端口 |
 |---|--------|------|------|
 | **前端** | Vue 3.5 + Vite 8 + TypeScript 6 + Element Plus | `E:\heima\nginx-1.18.0heima\frontend\` | 3000 (dev) |
-| **后端** | Spring Boot 3.4.4 + Maven + Java 17 | `E:\heima\hm-dianping\hm-dianping\` | 8081 |
+| **后端** | Spring Boot 3.4.4 + Maven + Java 17 | `E:\heima\picknear\picknear\` | 8081 |
 | **反向代理** | Nginx 1.18 | `E:\heima\nginx-1.18.0heima\nginx-1.18.0\` | 80 |
 
 ## Git 仓库
 
-- **本仓库** (`E:\heima\hm-dianping\`) — 仅跟踪**后端**代码，remote: `git@github.com:vacontinuejatotired/hm-dianping.git`
+- **本仓库** (`E:\heima\picknear\`) — 仅跟踪**后端**代码，remote: `git@github.com:vacontinuejatotired/picknear.git`
 - **前端仓库** (`E:\heima\nginx-1.18.0heima\frontend\`) — 独立 git 仓库，有单独的 `.git`
 
 ## 开发方式
 
 前后端通过 API 通信（axios 请求后端接口），典型工作流：
-1. 后端：在 `E:\heima\hm-dianping\hm-dianping\` 下启动 Spring Boot 服务
+1. 后端：在 `E:\heima\picknear\picknear\` 下启动 Spring Boot 服务
 2. 前端：在 `E:\heima\nginx-1.18.0heima\frontend\` 下 `npm run dev`
 3. 生产：Nginx 反向代理，前端静态文件由 Nginx 托管，API 请求转发到后端
 
 ## 注意事项
 
 - 修改前端代码请到 `E:\heima\nginx-1.18.0heima\frontend\`（那里有自己的 CLAUDE.md 详细说明前端的架构约定和代码规范）
-- 修改后端代码请在本目录下 `hm-dianping/` 子目录操作
+- 修改后端代码请在本目录下 `picknear/` 子目录操作
 - 不要混淆前后端的 git 仓库操作

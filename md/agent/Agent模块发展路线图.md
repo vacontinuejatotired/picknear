@@ -470,7 +470,7 @@ public class PromptTemplateRenderer {
 **模板示例**:
 
 ```text
-你是小众点评的智能助手，名叫"小黑助手"。
+你是探点的智能助手，名叫"小黑助手"。
 
 当前用户：{userName}（{city}）
 当前时间：{datetime}
@@ -627,13 +627,13 @@ Phase 5  ─── 智能数据结构
 
 #### ✅ Task 0.1 — 删除 `PromptGuard.java`
 
-**文件**: ~~`hm-dianping/src/main/java/com/hmdp/agent/tool/PromptGuard.java`~~（已删除）
+**文件**: ~~`picknear/src/main/java/com/hmdp/agent/tool/PromptGuard.java`~~（已删除）
 
 **验收结果**: 源文件已不存在，target 中的 `.class` 残留不影响运行，下次 `mvn clean` 后自动清除。
 
 #### ✅ Task 0.2 — 删除空端点
 
-**文件**: ~~`hm-dianping/src/main/java/com/hmdp/agent/controller/ChatController.java:103-108`~~（已删除）
+**文件**: ~~`picknear/src/main/java/com/hmdp/agent/controller/ChatController.java:103-108`~~（已删除）
 
 **验收结果**: `postMethodName()` 空方法已被移除，文件末尾于 `chat()` 方法正确结束后闭合。
 
@@ -793,7 +793,7 @@ AiServiceImpl 检测到用户确认意图
 hmdp:
   agent:
     system-prompt: |
-      你是小众点评的智能助手，名叫"小黑助手"。
+      你是探点的智能助手，名叫"小黑助手"。
       
       核心能力：
       - 店铺查询、推荐
