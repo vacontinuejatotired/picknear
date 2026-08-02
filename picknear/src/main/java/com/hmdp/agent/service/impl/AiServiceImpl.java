@@ -83,6 +83,25 @@ public class AiServiceImpl implements AiService {
     @Override
     public void chatWithToolcall(String content, String conversationId, SseEmitter emitter) {
         log.info("AI SSE 工具调用, content={}", content);
+        try {
+            doChatWithToolcall(content, conversationId, emitter);
+        } catch (Exception e) {
+            // 响应已提交为 SSE：异常不能抛回 WebExceptionAdvice（会污染已提交的流），
+            // 必须转为 SSE error 事件，否则前端收不到任何提示
+            log.error("AI SSE 会话初始化异常, content={}", content, e);
+            SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用（" + errorSummary(e) + "），请稍后再试。"));
+            emitter.complete();
+        }
+    }
+
+    /**
+     * 实际执行 SSE 流式逻辑：同步段（会话/Hook/决策）+ 异步段（逐 token 推送）。
+     * <p>
+     * 同步段任一环（会话 ID 同步、{@code chatMemory.get}、Hook 链、决策处理）抛异常时，
+     * 会向上传播到 {@link #chatWithToolcall} 统一转为 SSE 错误事件。
+     * </p>
+     */
+    private void doChatWithToolcall(String content, String conversationId, SseEmitter emitter) {
         Long userId = UserHolder.getUserId();
 
         // 0. 将会话 ID 同步到工具收集器
@@ -143,8 +162,8 @@ public class AiServiceImpl implements AiService {
                     }
                 }
             }
-            // 所有重试耗尽，给用户友好提示而非原始异常
-            String friendlyMsg = "抱歉，AI 服务暂时不可用（" + lastError.getMessage() + "），请稍后再试。";
+            // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）
+            String friendlyMsg = "抱歉，AI 服务暂时不可用（" + errorSummary(lastError) + "），请稍后再试。";
             SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
             SseUtils.safeSend(emitter, SseUtils.errorEvent(friendlyMsg));
             emitter.complete();
@@ -182,6 +201,26 @@ public class AiServiceImpl implements AiService {
                 return content;
             }
         }
+    }
+
+    /**
+     * 生成给用户的异常摘要：取根因消息首行并截断到 80 字符。
+     * <p>
+     * 完整堆栈只进日志，避免把内部 SQL/框架细节直接暴露给用户。
+     * </p>
+     */
+    private static String errorSummary(Throwable t) {
+        if (t == null) return "未知错误";
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String msg = root.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return root.getClass().getSimpleName();
+        }
+        String firstLine = msg.split("\n", 2)[0];
+        return firstLine.length() > 80 ? firstLine.substring(0, 80) : firstLine;
     }
 
 }

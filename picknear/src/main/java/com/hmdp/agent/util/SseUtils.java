@@ -27,9 +27,13 @@ public final class SseUtils {
     // JSON 事件构建
     // ════════════════════════════════════════════════════════════
 
-    /** 错误事件：{"error":"...","code":5001} */
+    /** 错误事件：{"type":"error","error":"...","code":5001} */
     public static String errorEvent(String message) {
-        return toJson(Map.of("error", message != null ? message : "", "code", 5001));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "error");
+        m.put("error", message != null ? message : "");
+        m.put("code", 5001);
+        return toJson(m);
     }
 
     /** 元事件：{"type":"meta","conversationId":"..."} */

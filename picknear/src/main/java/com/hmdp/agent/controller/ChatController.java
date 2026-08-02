@@ -2,6 +2,7 @@ package com.hmdp.agent.controller;
 
 import com.hmdp.dto.Result;
 import com.hmdp.agent.service.AiService;
+import com.hmdp.agent.util.SseUtils;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -86,8 +87,16 @@ public class ChatController {
                 return null;
             }
 
-            // 委托 AiService 异步推送
-            aiService.chatWithToolcall(content, conversationId, emitter);
+            // 委托 AiService 异步推送。
+            // 兜底 try/catch：SSE 响应已提交，任何异常都必须转为 SSE error 事件，
+            // 否则会逃逸到 WebExceptionAdvice 往已提交的流里写 JSON，前端收不到提示。
+            try {
+                aiService.chatWithToolcall(content, conversationId, emitter);
+            } catch (Exception e) {
+                log.error("SSE 会话初始化异常，content={}", content, e);
+                SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用，请稍后再试。"));
+                emitter.complete();
+            }
             return emitter;
         }
 
