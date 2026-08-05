@@ -1,11 +1,39 @@
 # Agent 模块发展路线图
 
-> **版本**: v1.0  
+> **版本**: v2.0  
 > **创建日期**: 2026-07-22  
+> **更新**: 2026-08-05 — 标记已落地项（历史会话、两阶段规划、真流式、可观测性、SSE 事件协议），调整后续优先级  
 > **基于**: 架构设计 v1.3 完整代码审查  
-> **相关文档**: [Agent模块架构设计](./Agent模块架构设计.md), [SSE后端实现规范](./SSE后端实现规范.md)
+> **相关文档**: [Agent模块架构设计](./Agent模块架构设计.md), [SSE后端实现规范](./SSE后端实现规范.md), [Agent历史会话实现方案](./Agent历史会话实现方案.md)
 
 ---
+
+## ⏱ 进度总览（2026-08-05）
+
+> v1.0 以来已落地的路线图项（✅ = 已完成，🟡 = 部分）：
+
+| 路线图项 | 原计划阶段 | 状态 | 落地方式 |
+|---|---|---|---|
+| 会话元数据表 `agent_conversation` | Phase 1 | ✅ | 历史会话功能（2026-08-05），DDL 简化版（无 model_name/message_count/token_count/expired_at 冗余列） |
+| 消息明细表 `agent_message` | Phase 1 | ✅ | 同上；仅存 user/assistant 纯文本，tool 中间过程不落库 |
+| 历史会话查询/续聊 | Phase 1 | ✅ | `HistoryController` + `AgentHistoryService`，会话列表 + 点进查看 |
+| Agent 核心（真正 Agent） | Phase 2 | ✅ | **Plan-and-Execute 路径**（`TaskPlanner` 两阶段：decompose→execute→merge），未走 ReAct；`SubTaskAgent` 子任务执行 |
+| 真流式 | Phase 2 | ✅ | `dashScopeChatModel.stream()` + `ObservedSseEmitter`（直连 stream，绕过 ChatClient） |
+| SSE 事件协议 | Phase 2 | 🟡 | 已实现 **meta/progress/error** 三类事件 + 阶段常量（`STAGE_MERGING` 等）；未按 v1.0 设想的 `{type:"thought"/"tool_call"}` 逐事件推送，工具/思考过程以阶段进度呈现 |
+| Agent 执行轨迹 | Phase 2 | ✅ | 由**观测模块**取代（`AgentTracer`/`AgentSpan` → Langfuse OTLP），未建 `agent_trace` 表 |
+| 可观测性 | Phase 4 | ✅ | `agent/observability/` 包 + Langfuse 云观测（OTLP `/v1/traces`）；观测白名单 `ObservabilityTraceFilter`；替代原 Prometheus/Grafana 方案 |
+| 工具生态 | Phase 3 | 🟡 | blog 工具（queryPublishedBlogs/queryBlogsByTitle/publishTestBlog）、天气、店铺查询等已有；按 `@TargetTool` 自动注册 |
+| CONFIRM 审批 | Phase 1 | 🟡 | 前端有确认交互（TaskProgress `@confirm`）；`TaskPlanner.hasConfirmTool` 目前恒 false（死代码）；**`agent_approval` 审批表未建**，无超时/审计 |
+| 提示词外置 `agent_prompt_template` | Phase 1 | ❌ | 未做（仍在 `AgentConfig.java` + `@Tool` 注解） |
+| 用户偏好 `agent_user_preference` | Phase 3/5 | ❌ | 未做 |
+| Redis ChatMemory（JDBC→Redis + 摘要） | Phase 4 | ❌ | 仍 JDBC；SSE 回合不进 ChatMemory 是既有问题 |
+| 分级降级 / 连接池监控 / 响应缓存 | Phase 4 | ❌ | 未做（部分容错已内建于 Hook/Guard） |
+| RAG / 长期记忆 / 多 Agent 编排 | Phase 5 | ❌ | 未做（子任务执行已具备，编排未做） |
+
+**后续建议**：优先补齐 Phase 1 遗留（CONFIRM 审批表 + 提示词外置 + 测试进版本库），再评估 Phase 5 的长期记忆（可基于 `agent_message` 回灌 ChatMemory）。
+
+---
+
 
 ## 目录
 
@@ -31,18 +59,18 @@
 ### 1.1 架构成熟度
 
 ```
-                          Phase 0 前      Phase 0 后
-Controller                ██████████ 100%  ██████████ 100%  ✅ 已清理
-Service                   ██████████ 100%  ██████████ 100%  ✅ 线程池就绪
-Guard                     ██████████ 100%  ██████████ 100%  
-Permission                ██████████ 100%  ██████████ 100%  
-                          ──────────────  ──────────────
-Tool 生态                 ██░░░░░░░░ 20%   ██░░░░░░░░ 20%   → Phase 3
-Agent 核心                ██░░░░░░░░ 30%   ██░░░░░░░░ 30%   → Phase 2
-流式体验                  ██░░░░░░░░ 20%   ██░░░░░░░░ 20%   → Phase 2
-测试                      ░░░░░░░░░░  0%   ░░░░░░░░░░  0%   → Phase 1
-安全审批                  ██░░░░░░░░ 30%   ██░░░░░░░░ 30%   → Phase 1
-监控                      ░░░░░░░░░░  0%   ░░░░░░░░░░  0%   → Phase 4
+                          2026-08-05（v2.0）
+Controller                ██████████ 100%  ✅
+Service                   ██████████ 100%  ✅ 线程池就绪
+Guard                     ██████████ 100%  ✅
+Permission                ██████████ 100%  ✅
+                          ──────────────
+Tool 生态                 ████░░░░░░ 40%   🟡 → Phase 3 继续扩充
+Agent 核心                ██████████ 90%   ✅ TaskPlanner 两阶段规划 + 子任务
+流式体验                  ████████░░ 80%   ✅ 真流式 + ObservedSseEmitter
+测试                      ░░░░░░░░░░ 10%   🟡 有测试但被 .gitignore 不入库
+安全审批                  ██████░░░░ 60%   🟡 CONFIRM 交互有，审批表未建
+监控                      ██████████ 90%   ✅ Langfuse OTLP（替代 Prometheus）
 ```
 
 ### 1.2 已具备的优势（不要破坏这些）
@@ -64,8 +92,8 @@ Agent 核心                ██░░░░░░░░ 30%   ██░░░
 | `CompletableFuture` 无线程池 | 🟠 P1 | ✅ Phase 0 已修复 | `AgentConfig` 已配置 `aiTaskExecutor` 并注入 |
 | SSE JSON 注入漏洞 | 🟠 P1 | ✅ Phase 0 已修复 | `escapeJson()` 已用于 `hookResult.getReason()` |
 | SSE conversationId 推送失败 | 🟠 P1 | ✅ Phase 0 已修复 | `completeWithError` + `return null` |
-| CONFIRM 空壳 | 🔴 P0 | 📅 Phase 1 | 需要真实的审批确认机制 |
-| 流式是伪流式 | 🟠 P1 | 📅 Phase 2 | 需要 `stream()` 真流式 + SSE 事件类型 |
+| CONFIRM 空壳 | 🔴 P0 | 🟡 部分 | 前端确认交互已有（TaskProgress `@confirm`）；`agent_approval` 审批表/超时/审计未建；`TaskPlanner.hasConfirmTool` 恒 false |
+| 流式是伪流式 | 🟠 P1 | ✅ Phase 2 已落地 | `dashScopeChatModel.stream()` + ObservedSseEmitter 真流式；SSE 用 meta/progress/error 事件 |
 
 ---
 
@@ -102,6 +130,8 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 | 数据结构 | 存储位置 | 用途 | 状态 |
 |---------|---------|------|------|
 | `chat_memory` 表（Spring AI 自动建表） | MariaDB | 多轮对话历史 (MessageWindowChatMemory) | ✅ 自动生成，但项目无控制权 |
+| `agent_conversation` 表 | MariaDB | 会话元数据（conversation_id/user_id/title/status） | ✅ 2026-08-05 已建（历史会话） |
+| `agent_message` 表 | MariaDB | 消息明细（role/content/created_at） | ✅ 2026-08-05 已建（历史会话） |
 | `guard:rate:{conversationId}` (String) | Redis | 工具调用频率计数器 (RateLimitPolicy) | ✅ 正常 |
 | `memory:user:{userId}` (Hash) | Redis | 长期记忆（Phase 5 规划） | ❌ 不存在 |
 
@@ -207,8 +237,10 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 #### 3.3.1 会话表 — `agent_conversation`
 
 **对应缺失**: P0 — 会话元数据  
-**实现阶段**: Phase 1  
+**实现阶段**: ✅ 已完成（2026-08-05，历史会话）  
 **存储**: MariaDB
+
+> ⚠️ 实际实现为简化版：删掉了 `model_name`/`message_count`/`token_count`/`expired_at` 冗余列，`conversation_id` 加 UNIQUE 约束；`title` = 首条用户消息截断 100 字。完整 DDL 见 `heima-init.sql` 追加段。
 
 ```sql
 CREATE TABLE agent_conversation (
@@ -239,8 +271,10 @@ CREATE TABLE agent_conversation (
 #### 3.3.2 消息表 — `agent_message`
 
 **对应缺失**: P0 — 会话元数据 (补充 Spring AI 自动表的不足)  
-**实现阶段**: Phase 1  
+**实现阶段**: ✅ 已完成（2026-08-05，历史会话）  
 **存储**: MariaDB
+
+> ⚠️ 实际实现只存 user/assistant 纯文本（role + content + created_at），`content_type`/`tool_name`/`tool_arguments`/`tool_result`/`token_count` 未建——tool 中间过程本期不落库（见决策）。
 
 ```sql
 CREATE TABLE agent_message (
@@ -272,8 +306,10 @@ CREATE TABLE agent_message (
 #### 3.3.3 SSE 事件协议
 
 **对应缺失**: P0 — SSE 事件类型协议  
-**实现阶段**: Phase 2  
+**实现阶段**: 🟡 已落地（2026-08-05，形式不同）  
 **存储**: 有线格式（不落盘）
+
+> 实际实现为 **meta / progress / error** 三类事件（`SseEventConstants` 阶段常量：`STAGE_MERGING`/`STAGE_CONFIRM` 等），未按 v1.0 设想的 `{"type":"thought"/"tool_call"/...}` 逐事件推送。工具调用/推理过程以"阶段进度"呈现（前端 TaskProgress 组件），不做逐事件文本流。
 
 ```typescript
 // SSE 事件格式规范
@@ -384,8 +420,10 @@ SSE 推送 confirm 事件到前端
 #### 3.3.5 Agent 执行轨迹表 — `agent_trace`
 
 **对应缺失**: P1 — Agent 执行轨迹  
-**实现阶段**: Phase 2  
-**存储**: MariaDB（或 Elasticsearch 用于分析）
+**实现阶段**: ✅ 已由观测模块取代（2026-08-03/05，未建表）  
+**存储**: Langfuse 云（OTLP span），非 MariaDB
+
+> 等价能力由 `agent/observability/` 包提供：`AgentTracer`/`AgentSpan` 记录 thought/tool_call/observation/latency 等为 span attributes，经 OTLP 上送 Langfuse。保留 §3.3.5 的 SQL 设计仅供本地断言参考，不再建表。
 
 ```sql
 CREATE TABLE agent_trace (
@@ -586,30 +624,30 @@ AgentConfig 构建 system prompt 时从 ToolRegistry 生成工具列表
 不是所有表都要在第一周建好。以下是按 Phase 分批的实施计划：
 
 ```
-Phase 0  不涉及数据模型变更（纯清理）
+Phase 0  不涉及数据模型变更（纯清理）                ✅ 完成
   │
-Phase 1  ─── 新增 4 个核心表
-  │         ├── agent_conversation    ← 会话元数据（P0 缺口）
-  │         ├── agent_approval        ← 审批记录（P1 缺口）
-  │         ├── agent_prompt_template ← 提示词模板（P1 缺口）
-  │         └── agent_message         ← 消息明细（P0 缺口）
+Phase 1  ─── 4 个核心表
+  │         ├── agent_conversation    ✅ 已建（2026-08-05，简化版）
+  │         ├── agent_message         ✅ 已建（2026-08-05）
+  │         ├── agent_approval        ❌ 未建 ← 优先补
+  │         └── agent_prompt_template ❌ 未建
   │
-Phase 2  ─── 新增 2 个结构 + 1 个协议
-  │         ├── SSE 事件协议定义      ← 有线格式标准化
-  │         ├── agent_trace           ← 执行轨迹
-  │         └── ToolRegistry          ← 内存工具注册表
+Phase 2  ─── 结构 + 协议
+  │         ├── SSE 事件协议          🟡 meta/progress/error 已落地（非逐事件 JSON）
+  │         ├── agent_trace           ✅ 已由观测模块取代（Langfuse OTLP）
+  │         └── ToolRegistry          ❌ 未做（ToolBeanCollector 已有注册基础）
   │
-Phase 3  ─── 新增 1 个表
-  │         └── agent_user_preference ← 用户偏好
+Phase 3  ─── 1 个表
+  │         └── agent_user_preference ❌ 未做
   │
 Phase 4  ─── 存储升级
-  │         ├── chat_memory JDBC → Redis
-  │         ├── agent_trace → Elasticsearch（可选）
-  │         └── 所有表的 TTL 清理策略上线
+  │         ├── chat_memory JDBC → Redis   ❌ 未做
+  │         ├── agent_trace → Elasticsearch ✅ 已由 Langfuse 取代
+  │         └── 所有表的 TTL 清理策略       ❌ 未做
   │
 Phase 5  ─── 智能数据结构
-            ├── 向量数据库集合（RAG 知识库）
-            └── 知识图谱节点（长期记忆关联）
+            ├── 向量数据库集合（RAG 知识库）    ❌ 未做
+            └── 知识图谱节点（长期记忆关联）     ❌ 未做
 ```
 
 ---
@@ -827,6 +865,8 @@ hmdp:
 ---
 
 ## 6. Phase 2 — 从 Function Calling 到真正 Agent（1-2 周）
+
+> ✅ **核心能力已落地（2026-08-05）**，但走的是 **Plan-and-Execute** 路径（`TaskPlanner` 两阶段：decompose→execute→merge + 子任务异步执行），**未实现 ReAct**。以下 ReAct 章节保留作对比参考，若后续要 ReAct 风格的可在此迭代。
 
 **目标**: 让 Agent 具备多步推理能力，从"调一次工具就完事"进化为"能规划、能迭代、能自主决策"。
 
@@ -1195,6 +1235,8 @@ String toolsDescription = Arrays.stream(toolCallbacks)
 **目标**: 让 Agent 模块达到生产部署标准。
 
 ### 8.1 可观测性
+
+> ✅ **已落地（2026-08-03/05）**，但实现为 **Langfuse 云观测（OTLP）** 而非 Prometheus/Grafana：`agent/observability/` 包（AgentTracer/AgentSpan/ObservedSseEmitter）+ `ObservabilityTraceFilter` 白名单 + 业务语义用 span 名编码。以下 Micrometer 指标方案保留作参考。
 
 #### 🔧 Task 4.1 — AI 调用链路追踪
 
