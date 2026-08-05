@@ -1,2 +1,2 @@
 [permissions]
-allow = ["Bash(cd hm-dianping; mvn compile -q 2>&1)"]
+allow = ["Bash(cd picknear; mvn compile -q 2>&1)"]

@@ -1,0 +1,143 @@
+#
+#server:
+#  port: ${server.port}
+#  tomcat:
+#    max-connections: ${server.tomcat.max-connections}
+#    accept-count: ${server.tomcat.accept-count}
+#    threads:
+#      max: ${server.tomcat.threads.max}
+#
+#management:
+#  health:
+#    rabbit:
+#      enabled: ${management.health.rabbit.enabled}
+#
+#spring:
+#  application:
+#    name: ${spring.application.name}
+#  profiles:
+#    active: dev
+#  datasource:
+#    driver-class-name: ${spring.datasource.driver-class-name}
+#    url: ${spring.datasource.url}
+#    username: ${spring.datasource.username}
+#    password: ${spring.datasource.password}
+#  sql:
+#    init:
+#      mode: ${spring.sql.init.mode}
+#  rabbitmq:
+#    host: ${spring.rabbitmq.host}
+#    port: ${spring.rabbitmq.port}
+#    username: ${spring.rabbitmq.username}
+#    password: ${spring.rabbitmq.password}
+#    virtual-host: ${spring.rabbitmq.virtual-host}
+#  jackson:
+#    default-property-inclusion: ${spring.jackson.default-property-inclusion}
+#  data:
+#    redis:
+#      host: ${spring.data.redis.host}
+#      port: ${spring.data.redis.port}
+#      password: ${spring.data.redis.password}
+#      lettuce:
+#        pool:
+#          max-active: ${spring.data.redis.lettuce.pool.max-active}
+#          max-idle: ${spring.data.redis.lettuce.pool.max-idle}
+#          min-idle: ${spring.data.redis.lettuce.pool.min-idle}
+#          time-between-eviction-runs: ${spring.data.redis.lettuce.pool.time-between-eviction-runs}
+#mybatis-plus:
+#  type-aliases-package: ${mybatis-plus.type-aliases-package}
+#
+#logging:
+#  level:
+#    com.hmdp: ${logging.level.com.hmdp}
+#    org.springframework.data.redis: ${logging.level.org.springframework.data.redis}
+#
+#debug: ${debug}
+
+spring:
+  profiles:
+    active: prod
+  application:
+    name: hmdp
+  task:
+    scheduling:
+      pool:
+        size: 4          # ObservedSseEmitter 兜底 guard 的调度线程数（Boot 默认 1，超时风暴时 guard 排队延迟兜底）
+  ai:
+    chat:
+      client:
+      ##允许多个模型，每个模型都有自己的配置
+        enabled: false
+    ##下面是阿里巴巴的配置
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY}
+      enabled: true
+
+      chat:
+        model: qwen-plus-2025-07-28
+        api-base: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+        memory:
+          repository:
+            jdbc:
+              initialize-schema: always
+              platform: mariadb
+
+management:
+  otlp:
+    tracing:
+      # OTLP 端点必须带 /v1/traces（实测：OTel SDK 1.43 不自动追加，不带则 404）
+      endpoint: ${LANGFUSE_BASE_URL}/api/public/otel/v1/traces
+      headers:
+        Authorization: Basic ${LANGFUSE_BASIC_AUTH}
+        x-langfuse-ingestion-version: "4"   # 实时摄取（v3 批量约 5s 延迟）
+  tracing:
+    sampling:
+      probability: 1.0               # 验证期全量；日常 0.1（架构文档 §6.6）
+
+hmdp:
+  ai-observability:
+    trace-enabled: true              # 业务埋点总开关（M2 使用）
+    trace-filter:
+      include-prefixes:              # 观测白名单：只放行这些前缀，其余 span 丢弃（省 Langfuse 配额）
+        - agent.                     # M2 业务 span（agent.session/phase1/round/tool_call...）
+        - spring.ai.                 # LLM client 层（spring.ai.chat.client）
+        - gen_ai.                    # LLM model 层（gen_ai.client.operation）
+  prompt-guard:
+    block-tools:
+      - deleteBlog
+    confirm-tools:
+      - publishTestBlog
+    block-patterns:
+      - toolName: ".*[Dd]elete.*"
+    confirm-patterns:
+      - arguments: ".*admin.*"
+    rate-limit:
+      max-per-session: 30
+      window-seconds: 60
+
+#logging:
+#  level:
+#    com.hmdp: debug                            # 其他 hmdp 包安静
+#    com.hmdp.agent: DEBUG                     # AI Agent 主链路
+#    com.hmdp.agent.tool: DEBUG                # 工具调用细节
+#    com.hmdp.promptguard: DEBUG               # 守卫拦截器
+#    com.hmdp.prompthook: DEBUG                # Hook 链执行
+#    com.hmdp.interceptor: DEBUG                       # 拦截器链执行
+
+agent:
+  subtask:
+    timeout: 30s                              # 子 Agent 单次 LLM 调用超时
+    total-timeout: 60s                        # 整个 execute() 总超时（含重试）
+    max-retries: 3                            # 最大重试次数
+    retry-backoff: 1s                         # 重试基础退避间隔
+
+feature:
+  subagent:
+    enabled: true                             # 子 Agent 功能开关
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
