@@ -5,35 +5,40 @@ services:
   # ==========================================
   mysql:
     image: mysql:8.0
-    container_name: hmdp-mysql
+    container_name: picknear-mysql
     restart: unless-stopped
+    # 内存上限：MySQL 8 默认 buffer pool 128MB，1G 够跑还能留余量
+    mem_limit: 1g
+    # 宿主机 43307 → 容器内 3306（内部端口不变，app 走服务名直连）
     ports:
-      - "3307:3306"
+      - "43307:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
       MYSQL_DATABASE: heima
       TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
       - ./src/main/resources/db/heima-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-123456}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
     networks:
-      - hmdp-net
+      - picknear-net
 
   # ==========================================
   # Redis 7
   # ==========================================
   redis:
     image: redis:7-alpine
-    container_name: hmdp-redis
+    container_name: picknear-redis
     restart: unless-stopped
+    # 内存上限：Redis 常驻 ~50MB，256M 富余
+    mem_limit: 256m
     ports:
-      - "6379:6379"
+      - "46379:6379"
     command: >
       redis-server
       --requirepass 281458
@@ -47,18 +52,20 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - hmdp-net
+      - picknear-net
 
   # ==========================================
   # RabbitMQ 4 (含管理插件)
   # ==========================================
   rabbitmq:
     image: rabbitmq:4-management-alpine
-    container_name: hmdp-rabbitmq
+    container_name: picknear-rabbitmq
     restart: unless-stopped
+    # 内存上限：Erlang VM 常驻 ~300MB，512M 留余量
+    mem_limit: 512m
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "45672:5672"
+      - "55672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: qyh
       RABBITMQ_DEFAULT_PASS: 123321
@@ -72,7 +79,7 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - hmdp-net
+      - picknear-net
 
   # ==========================================
   # picknear 后端应用
@@ -81,10 +88,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hmdp-app
+    image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest
+    container_name: picknear-app
     restart: unless-stopped
+    # 内存上限（关键）：JVM 按容器上限自动缩堆，MaxRAMPercentage=80 → 堆最大 ~800MB，防 OOM
+    mem_limit: 1g
     ports:
-      - "8082:8082"
+      - "48082:8082"
     environment:
       # 激活的 profile
       SPRING_PROFILES_ACTIVE: prod
@@ -92,7 +102,7 @@ services:
       # MySQL — 通过服务名访问
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/heima?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-123456}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
 
       # Redis
       SPRING_DATA_REDIS_HOST: redis
@@ -109,6 +119,24 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID}
       OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET}
+
+      # AI 观测：OTLP 导出到 Langfuse 云（application-prod.yaml 的 management.otlp.* 引用）
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_BASIC_AUTH: ${LANGFUSE_BASIC_AUTH}
+
+      # ===== 日志级别开关（启动时控制，默认 INFO 安静）=====
+      # 用法：LOG_LEVEL_AGENT=DEBUG docker compose up -d（一次性）
+      #       或写进 compose 同级 .env 持久生效：LOG_LEVEL_AGENT=DEBUG
+      # 对应：hmdp=全部  agent=AI 主链路  agent.guard=工具调用守卫（放行/拦截判定）
+      #       agent.tool=工具 Bean 收集  prompthook=Hook 链  interceptor=拦截器链
+      LOGGING_LEVEL_COM_HMDP: ${LOG_LEVEL_HMDP:-INFO}
+      LOGGING_LEVEL_COM_HMDP_AGENT: ${LOG_LEVEL_AGENT:-INFO}
+      LOGGING_LEVEL_COM_HMDP_AGENT_GUARD: ${LOG_LEVEL_AGENT_GUARD:-INFO}
+      LOGGING_LEVEL_COM_HMDP_AGENT_TOOL: ${LOG_LEVEL_AGENT_TOOL:-INFO}
+      LOGGING_LEVEL_COM_HMDP_PROMPTHOOK: ${LOG_LEVEL_PROMPTHOOK:-INFO}
+      LOGGING_LEVEL_COM_HMDP_INTERCEPTOR: ${LOG_LEVEL_INTERCEPTOR:-INFO}
     depends_on:
       mysql:
         condition: service_healthy
@@ -116,26 +144,51 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    volumes:
-      - ./config:/app/config:ro
     networks:
-      - hmdp-net
+      - picknear-net
+
+  # ==========================================
+  # picknear 前端（Vue + nginx）
+  # 构建上下文：../../ 从 picknear/picknear 上溯两层到工作区根
+  # （/opt 旧部署副本是 ../，共享文件夹布局是 ../../ —— 2026-08-03 修正）
+  # ==========================================
+  frontend:
+    build:
+      context: ../../nginx-1.18.0heima/frontend
+      dockerfile: Dockerfile
+    image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-frontend:latest
+    container_name: picknear-frontend
+    restart: unless-stopped
+    # 内存上限：nginx 常驻 ~20MB，128M 富余
+    mem_limit: 128m
+    # 宿主机 48080 → 容器内 80（80 只在容器内部，不直接暴露）
+    ports:
+      - "48080:80"
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ../../nginx-1.18.0heima/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - picknear-net
 
   # ==========================================
   # 命名卷
   # ==========================================
 volumes:
   mysql-data:
-    name: hmdp-mysql-data
+    name: picknear-mysql-data
   redis-data:
-    name: hmdp-redis-data
+    name: picknear-redis-data
   rabbitmq-data:
-    name: hmdp-rabbitmq-data
+    name: picknear-rabbitmq-data
 
   # ==========================================
   # 网络
   # ==========================================
 networks:
-  hmdp-net:
-    name: hmdp-net
+  picknear-net:
+    name: picknear-net
     driver: bridge

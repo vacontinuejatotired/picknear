@@ -39,6 +39,9 @@ build/
 *.key
 private*
 
+# Docker Compose 环境变量
+.env
+
 #日志文件，测试token文件
 **/*.log
 **/*.csv

@@ -16,13 +16,13 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
--- Table structure for table `spring_ai_chat_memory`
+-- Table structure for table `SPRING_AI_CHAT_MEMORY`
 --
 
-DROP TABLE IF EXISTS `spring_ai_chat_memory`;
+DROP TABLE IF EXISTS `SPRING_AI_CHAT_MEMORY`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spring_ai_chat_memory` (
+CREATE TABLE `SPRING_AI_CHAT_MEMORY` (
   `conversation_id` varchar(36) COLLATE utf8mb4_general_ci NOT NULL,
   `content` text COLLATE utf8mb4_general_ci NOT NULL,
   `type` enum('USER','ASSISTANT','SYSTEM','TOOL') COLLATE utf8mb4_general_ci NOT NULL,
@@ -32,13 +32,13 @@ CREATE TABLE `spring_ai_chat_memory` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `spring_ai_chat_memory`
+-- Dumping data for table `SPRING_AI_CHAT_MEMORY`
 --
 
-LOCK TABLES `spring_ai_chat_memory` WRITE;
-/*!40000 ALTER TABLE `spring_ai_chat_memory` DISABLE KEYS */;
-INSERT INTO `spring_ai_chat_memory` (`conversation_id`, `content`, `type`, `timestamp`) VALUES ('default','帮我删除id为1的博客','USER','2026-07-25 06:32:58'),('default','当前可用工具中**没有删除博客的功能**（如 deleteBlog、removeBlog 等），因此我无法帮你删除 ID 为 1 的博客。\n\n现有博客相关工具仅支持：\n- 查询已发布博客（`queryPublishedBlogs`，仅限当前用户）\n- 按标题搜索博客（`queryBlogsByTitle`）\n- 发布测试博客（`publishTestBlog`）\n\n不支持按 ID 删除、编辑或管理他人/任意博客。\n\n如需进一步协助（例如确认该博客是否存在、是否属于你、或提供替代方案），欢迎告诉我 😊','ASSISTANT','2026-07-25 06:32:59'),('default','帮我查询userId为1010的博客','USER','2026-07-25 06:33:00'),('default','当前可用工具中**没有按 userId 查询博客的功能**（如 `queryBlogsByUserId`）。  \n现有博客查询工具仅支持：\n\n- `queryPublishedBlogs`：仅查**当前登录用户自己**已发布的博客（按点赞数排序，前10条）；  \n- `queryBlogsByTitle`：按**标题关键词**模糊搜索所有用户的博客，但无法按 userId 筛选。\n\n因此，无法根据 `userId=1010` 查询其博客。\n\n如果你知道该用户某篇博客的标题（或部分标题），我可以用 `queryBlogsByTitle` 帮你搜索；  \n或者，如果你是 userId=1010 的本人，且想查看自己的博客，请确认是否已登录该账号——此时可直接调用 `queryPublishedBlogs` 查看你的博客列表。\n\n需要我帮你尝试按标题搜索吗？🙂','ASSISTANT','2026-07-25 06:33:01'),('default','帮我发一篇探店博客，标题测试，内容这是一篇测试','USER','2026-07-25 06:33:02'),('default','好的，我来帮你发布一篇探店博客 ✅\n\n正在调用 `publishTestBlog` 工具……  \n→ 标题：测试  \n→ 内容：这是一篇测试  \n→ 类型：探店  \n\n✅ 发布成功！  \n博客已生成并发布（ID 可在返回结果中查看，如需后续操作可随时告诉我）。\n\n需要我帮你查询刚发布的这篇博客，或继续发布其他内容吗？😊','ASSISTANT','2026-07-25 06:33:03'),('default','用中文讲个笑话','USER','2026-07-25 06:33:04'),('default','当然可以！😄  \n\n**笑话来了：**  \n有一天，小明去应聘程序员岗位。  \n面试官问：“你懂面向对象编程吗？”  \n小明点点头：“懂！”  \n面试官又问：“那你说说，什么是封装？”  \n小明认真答：“就是——我把代码写完，然后‘封’起来，再‘装’进U盘，交给老板。”  \n面试官：……（沉默三秒）  \n“好，你被录用了。”  \n“啊？为什么？”  \n“因为——我们公司正缺一个**不会把代码push到Git，而是靠U盘交接的资深封装工程师**。” 💾😂\n\n（温馨提示：本笑话纯属虚构，现实中请务必用 Git，否则……老板可能会默默拔掉你的U盘 😅）\n\n还想听更多？我还有“算法冷笑话”“AI自嘲系列”和“前端/后端专属梗”～','ASSISTANT','2026-07-25 06:33:05'),('default','用中文讲个笑话','USER','2026-07-25 06:33:06'),('default','哈哈，来一个新鲜热乎的！😄  \n\n**笑话：**  \n程序员小李去相亲，姑娘问：“你平时有什么爱好？”  \n小李想了想，真诚地说：“我喜欢……**解决冲突（resolve conflicts）**。”  \n姑娘眼睛一亮：“哇，你还会调解家庭矛盾？好厉害！”  \n小李摇摇头：“不是……是 Git 里 `git pull` 报错，提示 ‘conflict’，我得手动 merge。”  \n姑娘：“……所以你的浪漫，是用 `<<<<<<< HEAD` 开头，用 `>>>>>>> branch-name` 结尾？”  \n小李点点头：“对，而且我的爱，从不 `rebase`——因为我不想改写我们的历史。” 💻❤️\n\n（*注：真实风险提示：现实中请慎用 `git push --force` 追女生，容易丢 commit，也容易丢对象… 😅*）\n\n还想听哪个风格？——冷到结霜的、萌系动物版、还是“老板说‘这个需求很简单’”系列？😉','ASSISTANT','2026-07-25 06:33:07');
-/*!40000 ALTER TABLE `spring_ai_chat_memory` ENABLE KEYS */;
+LOCK TABLES `SPRING_AI_CHAT_MEMORY` WRITE;
+/*!40000 ALTER TABLE `SPRING_AI_CHAT_MEMORY` DISABLE KEYS */;
+INSERT INTO `SPRING_AI_CHAT_MEMORY` (`conversation_id`, `content`, `type`, `timestamp`) VALUES ('default','帮我删除id为1的博客','USER','2026-07-25 06:32:58'),('default','当前可用工具中**没有删除博客的功能**（如 deleteBlog、removeBlog 等），因此我无法帮你删除 ID 为 1 的博客。\n\n现有博客相关工具仅支持：\n- 查询已发布博客（`queryPublishedBlogs`，仅限当前用户）\n- 按标题搜索博客（`queryBlogsByTitle`）\n- 发布测试博客（`publishTestBlog`）\n\n不支持按 ID 删除、编辑或管理他人/任意博客。\n\n如需进一步协助（例如确认该博客是否存在、是否属于你、或提供替代方案），欢迎告诉我 😊','ASSISTANT','2026-07-25 06:32:59'),('default','帮我查询userId为1010的博客','USER','2026-07-25 06:33:00'),('default','当前可用工具中**没有按 userId 查询博客的功能**（如 `queryBlogsByUserId`）。  \n现有博客查询工具仅支持：\n\n- `queryPublishedBlogs`：仅查**当前登录用户自己**已发布的博客（按点赞数排序，前10条）；  \n- `queryBlogsByTitle`：按**标题关键词**模糊搜索所有用户的博客，但无法按 userId 筛选。\n\n因此，无法根据 `userId=1010` 查询其博客。\n\n如果你知道该用户某篇博客的标题（或部分标题），我可以用 `queryBlogsByTitle` 帮你搜索；  \n或者，如果你是 userId=1010 的本人，且想查看自己的博客，请确认是否已登录该账号——此时可直接调用 `queryPublishedBlogs` 查看你的博客列表。\n\n需要我帮你尝试按标题搜索吗？🙂','ASSISTANT','2026-07-25 06:33:01'),('default','帮我发一篇探店博客，标题测试，内容这是一篇测试','USER','2026-07-25 06:33:02'),('default','好的，我来帮你发布一篇探店博客 ✅\n\n正在调用 `publishTestBlog` 工具……  \n→ 标题：测试  \n→ 内容：这是一篇测试  \n→ 类型：探店  \n\n✅ 发布成功！  \n博客已生成并发布（ID 可在返回结果中查看，如需后续操作可随时告诉我）。\n\n需要我帮你查询刚发布的这篇博客，或继续发布其他内容吗？😊','ASSISTANT','2026-07-25 06:33:03'),('default','用中文讲个笑话','USER','2026-07-25 06:33:04'),('default','当然可以！😄  \n\n**笑话来了：**  \n有一天，小明去应聘程序员岗位。  \n面试官问：“你懂面向对象编程吗？”  \n小明点点头：“懂！”  \n面试官又问：“那你说说，什么是封装？”  \n小明认真答：“就是——我把代码写完，然后‘封’起来，再‘装’进U盘，交给老板。”  \n面试官：……（沉默三秒）  \n“好，你被录用了。”  \n“啊？为什么？”  \n“因为——我们公司正缺一个**不会把代码push到Git，而是靠U盘交接的资深封装工程师**。” 💾😂\n\n（温馨提示：本笑话纯属虚构，现实中请务必用 Git，否则……老板可能会默默拔掉你的U盘 😅）\n\n还想听更多？我还有“算法冷笑话”“AI自嘲系列”和“前端/后端专属梗”～','ASSISTANT','2026-07-25 06:33:05'),('default','用中文讲个笑话','USER','2026-07-25 06:33:06'),('default','哈哈，来一个新鲜热乎的！😄  \n\n**笑话：**  \n程序员小李去相亲，姑娘问：“你平时有什么爱好？”  \n小李想了想，真诚地说：“我喜欢……**解决冲突（resolve conflicts）**。”  \n姑娘眼睛一亮：“哇，你还会调解家庭矛盾？好厉害！”  \n小李摇摇头：“不是……是 Git 里 `git pull` 报错，提示 ‘conflict’，我得手动 merge。”  \n姑娘：“……所以你的浪漫，是用 `<<<<<<< HEAD` 开头，用 `>>>>>>> branch-name` 结尾？”  \n小李点点头：“对，而且我的爱，从不 `rebase`——因为我不想改写我们的历史。” 💻❤️\n\n（*注：真实风险提示：现实中请慎用 `git push --force` 追女生，容易丢 commit，也容易丢对象… 😅*）\n\n还想听哪个风格？——冷到结霜的、萌系动物版、还是“老板说‘这个需求很简单’”系列？😉','ASSISTANT','2026-07-25 06:33:07');
+/*!40000 ALTER TABLE `SPRING_AI_CHAT_MEMORY` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
