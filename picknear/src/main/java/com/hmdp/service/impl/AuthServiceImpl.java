@@ -25,7 +25,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 认证服务实现 — Token 生成/校验/刷新/注销/验证码消费，无 HTTP 依赖
@@ -44,6 +43,8 @@ public class AuthServiceImpl implements AuthService {
     private BatchLoadCache batchLoadCache;
     @Resource(name = "refreshDeadTokenScript")
     private DefaultRedisScript<Long> refreshDeadTokenScript;
+    @Resource(name = "readCurrentTokenScript")
+    private DefaultRedisScript<List> readCurrentTokenScript;
     @Resource(name = "refreshDeadlineTokenScript")
     private DefaultRedisScript<Long> refreshDeadlineTokenScript;
     @Resource(name = "userinfoCache")
@@ -160,55 +161,85 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public TokenPair refreshTokenPair(String accessToken, String refreshToken, Long userId, Long oldVersion, boolean isExpired) {
-        if (refreshToken == null) {
+        if (refreshToken == null || refreshToken.isEmpty()) {
             log.warn("refreshToken is null, cannot refresh userId={}", userId);
             return null;
         }
-        if (isExpired) {
-            return doExpiredRefresh(accessToken, refreshToken, userId, oldVersion);
-        } else {
-            return doDeadlineRefresh(accessToken, refreshToken, userId, oldVersion);
-        }
-    }
 
-    /**
-     * 临期刷新 — token 未过期但剩余时间 < 5-10 分钟
-     * 保持 version 不变，只换 access token
-     * 分布式锁由拦截器保证，此处只做刷新
-     */
-    private TokenPair doDeadlineRefresh(String accessToken, String refreshToken, Long userId, Long oldVersion) {
-        // 锁内生成 JWT + 直接写入 Redis（不调 Lua，避免重复校验）
+        // 生成新双 token（版本复用 oldVersion，版本一致性由 Lua 守卫保证）
         String newToken = jwtUtil.generateToken(userId,
                 RedisConstants.LOGIN_JWT_TTL_MINUTES, ChronoUnit.MINUTES, oldVersion);
         String newRefreshToken = cn.hutool.core.lang.UUID.randomUUID().toString().replace("-", "");
 
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_USER_KEY + userId,
-                newToken, 30, TimeUnit.MINUTES);
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_REFRESH_USER_KEY + userId,
-                newRefreshToken, 7, TimeUnit.DAYS);
+        // KEYS 顺序必须匹配 RefreshExpiredToken.lua
+        List<String> keys = Arrays.asList(
+                RedisConstants.LOGIN_REFRESH_USER_KEY + userId,   // KEYS[1] refreshKey
+                RedisConstants.LOGIN_USER_KEY + userId,           // KEYS[2] tokenKey
+                RedisConstants.LOGIN_VALID_VERSION_KEY + userId,  // KEYS[3] validVersionKey
+                RedisConstants.CURRENT_TOKEN_VERSION_KEY + userId // KEYS[4] newVersionKey
+        );
+        // ARGV 顺序必须匹配 RefreshExpiredToken.lua
+        List<String> argv = Arrays.asList(
+                refreshToken,                                             // ARGV[1] oldRefreshToken
+                newRefreshToken,                                          // ARGV[2] newRefreshToken
+                RedisConstants.LOGIN_REFRESHTOKEN_TTL_SECONDS.toString(), // ARGV[3] refreshExpire (7d)
+                newToken,                                                 // ARGV[4] newToken
+                String.valueOf(60L * RedisConstants.LOGIN_JWT_TTL_MINUTES), // ARGV[5] tokenExpire (30min)
+                oldVersion.toString(),                                    // ARGV[6] version
+                RedisConstants.LOGIN_REFRESHTOKEN_TTL_SECONDS.toString(), // ARGV[7] versionExpire（滑动 7d）
+                oldVersion.toString(),                                    // ARGV[8] newVersion = oldVersion（不 bump）
+                RedisConstants.NEW_VERSION_TTL_SECONDS.toString()         // ARGV[9] newVersionExpire (8d)
+        );
 
-        updateLocalVersionCache(userId, oldVersion);
-        log.info("临期刷新成功 userId={}", userId);
-        return new TokenPair(newToken, newRefreshToken, oldVersion);
-    }
+        Long code;
+        try {
+            code = stringRedisTemplate.execute(refreshDeadTokenScript, keys, argv.toArray());
+        } catch (Exception e) {
+            log.error("Lua 刷新执行失败 userId={}", userId, e);
+            return null;
+        }
 
-    /**
-     * 过期刷新 — JWT 已过期，生成新版本 + 新 refreshToken + 新 accessToken
-     */
-    private TokenPair doExpiredRefresh(String accessToken, String refreshToken, Long userId, Long oldVersion) {
-        String newRefreshToken = cn.hutool.core.lang.UUID.randomUUID().toString().replace("-", "");
-        Long newVersion = oldVersion;
-        String newToken = jwtUtil.generateToken(userId,
-                RedisConstants.LOGIN_JWT_TTL_MINUTES, ChronoUnit.MINUTES, newVersion);
-        // 不 bump version（复用旧版本），分布式锁已防并发竞态，直接 SET 无需 Lua
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_USER_KEY + userId,
-                newToken, 30, TimeUnit.MINUTES);
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_REFRESH_USER_KEY + userId,
-                newRefreshToken, 7, TimeUnit.DAYS);
+        if (code == null) {
+            log.warn("Lua 刷新返回 null userId={}", userId);
+            return null;
+        }
 
-        updateLocalVersionCache(userId, oldVersion);
-        log.info("过期刷新成功 userId={}, version={} (不变)", userId, oldVersion);
-        return new TokenPair(newToken, newRefreshToken, oldVersion);
+        // 返回码解释（状态码透传的基础）
+        if (code == 200L) {
+            updateLocalVersionCache(userId, oldVersion);
+            log.info("{}刷新成功 userId={}, version={}", isExpired ? "过期" : "临期", userId, oldVersion);
+            return new TokenPair(newToken, newRefreshToken, oldVersion);
+        }
+
+        if (code == 422L) {
+            // C2 并发容错：RT 不匹配，但同一会话可能已被并发刷新轮换 →
+            // 原子读取当前凭证自愈（ReadCurrentToken.lua 内含版本守卫，不会把新登录凭证交给旧会话）
+            List<String> current = stringRedisTemplate.execute(readCurrentTokenScript,
+                    Arrays.asList(
+                            RedisConstants.LOGIN_USER_KEY + userId,
+                            RedisConstants.LOGIN_REFRESH_USER_KEY + userId,
+                            RedisConstants.LOGIN_VALID_VERSION_KEY + userId
+                    ),
+                    accessToken, oldVersion);
+            if (current != null && !current.isEmpty()) {
+                log.info("并发已刷新，返回当前 token userId={}", userId);
+                return new TokenPair(current.get(0), current.get(1), oldVersion);
+            }
+            log.warn("refreshToken 不匹配且非并发刷新，拒绝 userId={}", userId);
+            return null;
+        }
+
+        if (code == 413L) {
+            log.warn("token 版本已被更新登录顶替，拒绝刷新 userId={}, oldVersion={}", userId, oldVersion);
+            return null;
+        }
+        if (code == 421L || code == 431L) {
+            log.warn("会话不存在/版本键缺失，拒绝刷新 userId={}, code={}", userId, code);
+            return null;
+        }
+
+        log.warn("未知刷新返回码 code={} userId={}", code, userId);
+        return null;
     }
 
     // ==================== 登出 ====================

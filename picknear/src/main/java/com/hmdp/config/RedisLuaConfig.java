@@ -8,6 +8,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Redis Lua 脚本配置 — 预加载所有 Lua 脚本，避免运行时懒加载
@@ -47,6 +48,11 @@ public class RedisLuaConfig {
     @Bean(name = "refreshDeadTokenScript")
     public DefaultRedisScript<Long> refreshTokenScript2() {
         return createScript("RefreshExpiredToken.lua", Long.class);
+    }
+
+    @Bean(name = "readCurrentTokenScript")
+    public DefaultRedisScript<List> readCurrentTokenScript() {
+        return createScript("ReadCurrentToken.lua", List.class);
     }
 
     @Bean(name = "consumeVerifyCodeScript")

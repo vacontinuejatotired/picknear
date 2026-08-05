@@ -9,6 +9,7 @@ import com.hmdp.service.AuthService;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.CaffeineConstants;
+import com.hmdp.utils.redis.RedisConstants;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -70,8 +71,11 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
             ValidationResult result = authService.validateAccessToken(token);
 
             if (!result.isValid() && !result.isNeedsRefresh()) {
-                // JWT 无效（签名错误、格式错误等）
-                log.warn("【Token拦截】JWT校验失败, URI={}", requestURI);
+                // JWT 无效（签名错误、格式错误等）或会话被更新登录顶替（版本校验不过）。
+                // 后者是"被顶替"最常见路径：AT 未过期、但 validVersion 已被新登录顶高。
+                boolean superseded = isSuperseded(result.getUserId(), result.getVersion());
+                response.setHeader("X-Auth-Reason", superseded ? "superseded" : "no-session");
+                log.warn("【Token拦截】JWT校验失败或会话被顶替, URI={}, superseded={}", requestURI, superseded);
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
@@ -122,6 +126,9 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 if (newPair == null) {
                     log.warn("【Token拦截】刷新失败 userId={}", userId);
                     response.setHeader("X-Token-Refresh", "failed");
+                    // 区分失败原因：被新登录顶替 vs 无有效会话，供前端决策提示文案
+                    boolean superseded = isSuperseded(userId, result.getVersion());
+                    response.setHeader("X-Auth-Reason", superseded ? "superseded" : "no-session");
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     return false;
                 }
@@ -162,6 +169,28 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 判定会话是否已被更新登录顶替：Redis validVersion > token 携带的 version。
+     * 供 401 响应透传 X-Auth-Reason，前端据此区分"账号已在其他设备登录"与"登录已过期"。
+     * version 为 null（签名错误等场景无版本可比）或 validVersion 缺失/非数字时一律视为未顶替。
+     */
+    private boolean isSuperseded(Long userId, Long version) {
+        if (version == null) {
+            return false;
+        }
+        String validVersion = stringRedisTemplate.opsForValue()
+                .get(RedisConstants.LOGIN_VALID_VERSION_KEY + userId);
+        if (validVersion == null) {
+            return false;
+        }
+        try {
+            return Long.parseLong(validVersion) > version;
+        } catch (NumberFormatException e) {
+            log.warn("validVersion 非数字 userId={}, validVersion={}", userId, validVersion);
+            return false;
+        }
     }
 
     /**
