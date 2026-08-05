@@ -23,12 +23,15 @@ public class TaskTriggerHook implements AfterAiHook {
 
     private static final List<String> TRIGGERS = List.of(
             "对比", "总结", "分析", "统计", "归纳", "报告",
-            "比较", "差异", "变化", "趋势", "分别"
+            "比较", "差异", "变化", "趋势", "分别",
+            "查", "查询", "天气", "看看", "找一下"
     );
 
     @Override
     public HookResult afterAi(String input, String response, ChatContext ctx) {
-        if (response == null || response.length() < 20
+        // 门槛 5：短回复（如"我来查一下"）恰是"需要动手"的信号，不应被拦；
+        // 原先 20 字门槛会把查天气/查数据类短回复全部 PASS
+        if (response == null || response.length() < 5
                 || response.contains("无法") || response.contains("不能") || response.contains("抱歉")) {
             return HookResult.pass();
         }
