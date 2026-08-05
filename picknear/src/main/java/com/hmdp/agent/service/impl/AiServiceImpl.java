@@ -12,6 +12,7 @@ import com.hmdp.agent.hook.AfterAiHookChain;
 import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
 import com.hmdp.agent.hook.PromptHookChain;
+import com.hmdp.agent.service.AgentHistoryService;
 import com.hmdp.utils.UserHolder;
 
 import io.micrometer.observation.Observation;
@@ -63,6 +64,9 @@ public class AiServiceImpl implements AiService {
     @Resource
     private com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel dashScopeChatModel;
 
+    @Resource
+    private AgentHistoryService historyService;
+
     @Override
     public String chatReturnStringResult(String content, String conversationId) {
         log.info("AI 调用：{}", content);
@@ -70,10 +74,13 @@ public class AiServiceImpl implements AiService {
         // 0. 将会话 ID 同步到工具收集器（供 GuardedToolCallback / RateLimitPolicy 使用）
         toolBeanCollector.setConversationId(conversationId);
 
+        Long userId = UserHolder.getUserId();
+
         // 1. 构造 Hook 上下文
         ChatContext ctx = ChatContext.builder()
-                .userId(UserHolder.getUserId())
+                .userId(userId)
                 .conversationId(conversationId)
+                .originalContent(content)
                 .history(chatMemory.get(conversationId))
                 .build();
 
@@ -90,6 +97,9 @@ public class AiServiceImpl implements AiService {
         // 4. 正常调用 LLM
         String result = chatClient.prompt().user(finalContent).call().content();
         log.info("AI 回复：{}", result);
+
+        // 历史会话：JSON 模式成功回合落库（BLOCK 已提前 return，不落库）
+        recordTurnBestEffort(userId, conversationId, content, result);
         return result;
     }
 
@@ -124,6 +134,7 @@ public class AiServiceImpl implements AiService {
         ChatContext ctx = ChatContext.builder()
                 .userId(userId)
                 .conversationId(conversationId)
+                .originalContent(content)
                 .history(chatMemory.get(conversationId))
                 .build();
         ctx.setRootSpan(rootSpan);
@@ -198,6 +209,14 @@ public class AiServiceImpl implements AiService {
                                 }
                                 // 内容已逐 token 推送，通知路由跳过重复发送
                                 responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
+
+                                // 历史会话：PASS/REPLACE 在此落库。
+                                // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
+                                if (afterResult.isPass()) {
+                                    recordTurnBestEffort(userId, conversationId, content, fullResponse);
+                                } else if (afterResult.isReplace()) {
+                                    recordTurnBestEffort(userId, conversationId, content, afterResult.getReplacedText());
+                                }
                             }
                             return; // 成功，退出
                         } catch (Exception e) {
@@ -227,6 +246,23 @@ public class AiServiceImpl implements AiService {
             if (rootSpan != null) {
                 rootSpan.closeRootScope();
             }
+        }
+    }
+
+    /**
+     * 最佳努力记录历史回合：失败只记日志、绝不向上抛。
+     * <p>
+     * 原因：SSE 模式下该方法位于重试循环内，抛异常会被 retry catch 捕获 → 重跑 LLM 浪费 token；
+     * JSON 模式下抛异常会中断整个响应。历史持久化是收尾附加能力，不能影响聊天主链路。
+     * </p>
+     */
+    private void recordTurnBestEffort(Long userId, String conversationId, String userContent, String assistantContent) {
+        try {
+            if (userId != null && assistantContent != null && !assistantContent.isBlank()) {
+                historyService.recordTurn(userId, conversationId, userContent, assistantContent);
+            }
+        } catch (Exception e) {
+            log.error("记录会话历史失败, conversationId={}", conversationId, e);
         }
     }
 

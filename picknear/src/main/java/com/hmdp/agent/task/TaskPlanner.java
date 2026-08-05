@@ -15,6 +15,7 @@ import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.service.AgentHistoryService;
 import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -70,6 +71,9 @@ public class TaskPlanner {
     @Resource
     private AgentTracer agentTracer;
 
+    @Resource
+    private AgentHistoryService historyService;
+
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
      * <p>
@@ -97,6 +101,16 @@ public class TaskPlanner {
                     : Observation.Scope.NOOP) {
                 try {
                     String result = planAndExecute(input, aiResponse, ctx, emitter);
+                    // 历史会话：PLANNING 回合在此记录最终合并答案（中间规划过程不落库）。
+                    // ctx == null（快照恢复路径）时跳过：无 userId 且该路径会再次完成，防止重复落库。
+                    if (ctx != null && ctx.getUserId() != null) {
+                        try {
+                            historyService.recordTurn(ctx.getUserId(), ctx.getConversationId(),
+                                    ctx.getOriginalContent(), result);
+                        } catch (Exception e) {
+                            log.error("记录 PLANNING 回合历史失败, conversationId={}", ctx.getConversationId(), e);
+                        }
+                    }
                     SseUtils.safeSend(emitter, SseUtils.escapeJson(result));
                     // 根 span 收敛由 ObservedSseEmitter 负责（complete/completeWithError/容器回调/兜底 TTL）
                     emitter.complete();

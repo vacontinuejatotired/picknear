@@ -24,6 +24,9 @@ public class ChatContext {
     /** 会话 ID（用于多轮对话标识） */
     private final String conversationId;
 
+    /** 用户原始输入（Hook 替换前，历史会话落库用） */
+    private final String originalContent;
+
     /** 全量对话历史（不含本轮输入），不可修改 */
     private final List<Message> history;
 
@@ -42,6 +45,7 @@ public class ChatContext {
     private ChatContext(Builder builder) {
         this.userId = builder.userId;
         this.conversationId = builder.conversationId;
+        this.originalContent = builder.originalContent;
         this.history = builder.history != null
                 ? Collections.unmodifiableList(builder.history)
                 : Collections.emptyList();
@@ -51,6 +55,7 @@ public class ChatContext {
 
     public Long getUserId() { return userId; }
     public String getConversationId() { return conversationId; }
+    public String getOriginalContent() { return originalContent; }
     public List<Message> getHistory() { return history; }
     public TaskSnapshot getPendingSnapshot() { return pendingSnapshot; }
     public AgentSpan getRootSpan() { return rootSpan; }
@@ -72,10 +77,12 @@ public class ChatContext {
     public static class Builder {
         private Long userId;
         private String conversationId;
+        private String originalContent;
         private List<Message> history;
 
         public Builder userId(Long userId) { this.userId = userId; return this; }
         public Builder conversationId(String conversationId) { this.conversationId = conversationId; return this; }
+        public Builder originalContent(String originalContent) { this.originalContent = originalContent; return this; }
         public Builder history(List<Message> history) { this.history = history; return this; }
         public ChatContext build() { return new ChatContext(this); }
     }
