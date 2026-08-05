@@ -29,6 +29,7 @@ md/
 | [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE 内容协商、数据格式、SseEmitter 配置、错误处理 |
 | [SSE 流式读取方案](agent/SSE流式读取方案.md) | 前端 fetch + ReadableStream 读取 SSE 流 |
 | [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
+| [Agent 历史会话实现方案](agent/Agent历史会话实现方案.md) | 历史会话：agent_conversation/agent_message 两表、会话列表 + 点进查看 |
 
 ### 🔐 认证与登录
 
@@ -66,7 +67,10 @@ md/
 | [前端开发文档](ops/前端开发文档.md) | 完整 API 接口文档（含数据模型、认证、分页） |
 | [阿里云 OSS 图片上传方案](ops/阿里云OSS图片上传方案.md) | FileService 接口设计、本地/OSS 双实现 |
 | [博客图片上传方案](ops/博客图片上传方案.md) | 博客图片上传流程 |
-| [虚拟机连接指南](ops/虚拟机连接指南.md) | 开发/测试环境连接说明 |
+| [虚拟机连接指南](../../vm-docs/虚拟机连接指南.md) | 开发/测试环境连接说明（VM 专属文档已归档到 `vm-docs/`） |
+| [日志查看与配置指南](ops/日志查看与配置指南.md) | 日志级别分层、启动时开关、调日志常见坑 |
+| [Docker 部署指南](ops/Docker部署指南.md) | 镜像构建 + 部署全流程（build.sh 本地构建、缓存管理、网桥排查） |
+| [服务器镜像部署指南](ops/服务器镜像部署指南.md) | 服务器不构建镜像，从阿里云 ACR 拉取现成镜像部署（Pull 模式） |
 
 ### 📐 开发规范
 
