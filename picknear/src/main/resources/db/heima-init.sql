@@ -394,3 +394,32 @@ UNLOCK TABLES;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2026-07-28 23:38:02
+
+-- ============================================================
+-- Agent 历史会话（2026-08-05 追加）
+-- 注意：heima-init.sql 只对全新部署生效；已初始化的开发库需手动执行同样 DDL。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `agent_conversation` (
+  `id`              bigint unsigned NOT NULL AUTO_INCREMENT,
+  `conversation_id` varchar(64)  NOT NULL COMMENT '全局唯一会话ID（UUID）',
+  `user_id`         bigint unsigned NOT NULL COMMENT '所属用户ID',
+  `title`           varchar(200) NOT NULL DEFAULT '' COMMENT '会话标题（首条用户消息截断）',
+  `status`          tinyint      NOT NULL DEFAULT 0 COMMENT '0-活跃 1-归档 2-删除',
+  `created_at`      datetime     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      datetime     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_conversation_id` (`conversation_id`),
+  KEY `idx_user_id` (`user_id`)
+) COMMENT 'AI 对话会话元数据';
+
+CREATE TABLE IF NOT EXISTS `agent_message` (
+  `id`              bigint unsigned NOT NULL AUTO_INCREMENT,
+  `conversation_id` varchar(64)  NOT NULL COMMENT '所属会话ID',
+  `user_id`         bigint unsigned NOT NULL COMMENT '所属用户ID',
+  `role`            varchar(16)  NOT NULL COMMENT 'user / assistant（本期只存这两种）',
+  `content`         text         NOT NULL COMMENT '消息内容',
+  `created_at`      datetime     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_conversation_id` (`conversation_id`),
+  KEY `idx_user_id` (`user_id`)
+) COMMENT 'AI 对话消息明细';
