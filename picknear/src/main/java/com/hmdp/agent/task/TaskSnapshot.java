@@ -26,4 +26,13 @@ public class TaskSnapshot {
 
     /** 当前轮次 */
     private int round;
+
+    /**
+     * 观测根 span（断链修复 2026-08-04）。
+     * <p>
+     * 快照恢复路径原实现传 null ctx → 异步线程 resume 跳过 → round 等 span 独立 trace。
+     * 快照保存时携带根 span，恢复时重新挂载，保证恢复执行仍挂在会话树内。
+     * </p>
+     */
+    private com.hmdp.agent.observability.api.AgentSpan rootSpan;
 }

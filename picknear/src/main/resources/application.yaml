@@ -59,6 +59,10 @@ spring:
     active: prod
   application:
     name: hmdp
+  task:
+    scheduling:
+      pool:
+        size: 4          # ObservedSseEmitter 兜底 guard 的调度线程数（Boot 默认 1，超时风暴时 guard 排队延迟兜底）
   ai:
     chat:
       client:
@@ -78,7 +82,26 @@ spring:
               initialize-schema: always
               platform: mariadb
 
+management:
+  otlp:
+    tracing:
+      # OTLP 端点必须带 /v1/traces（实测：OTel SDK 1.43 不自动追加，不带则 404）
+      endpoint: ${LANGFUSE_BASE_URL}/api/public/otel/v1/traces
+      headers:
+        Authorization: Basic ${LANGFUSE_BASIC_AUTH}
+        x-langfuse-ingestion-version: "4"   # 实时摄取（v3 批量约 5s 延迟）
+  tracing:
+    sampling:
+      probability: 1.0               # 验证期全量；日常 0.1（架构文档 §6.6）
+
 hmdp:
+  ai-observability:
+    trace-enabled: true              # 业务埋点总开关（M2 使用）
+    trace-filter:
+      include-prefixes:              # 观测白名单：只放行这些前缀，其余 span 丢弃（省 Langfuse 配额）
+        - agent.                     # M2 业务 span（agent.session/phase1/round/tool_call...）
+        - spring.ai.                 # LLM client 层（spring.ai.chat.client）
+        - gen_ai.                    # LLM model 层（gen_ai.client.operation）
   prompt-guard:
     block-tools:
       - deleteBlog

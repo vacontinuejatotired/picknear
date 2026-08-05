@@ -23,6 +23,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * - PLANNING → 委托 TaskPlanner 异步规划执行
  * - PASS     → 推送原始回复，结束 SSE
  * </pre>
+ * <p>
+ * 注意：本类不再显式结束根 span——SSE 结束收敛到 {@code ObservedSseEmitter}
+ * （complete/completeWithError/容器回调/兜底 TTL 任一路径统一结束，2026-08-04 断链修复）。
+ * </p>
  */
 @Slf4j
 @Component
@@ -56,12 +60,12 @@ public class AiResponseRouter {
             switch (result.getDecision()) {
                 case BLOCK -> {
                     log.info("路由: BLOCK [reason={}]", result.getReason());
-                    emitter.send(SseEmitter.event().data(SseUtils.errorEvent(result.getReason())));
+                    SseUtils.safeSend(emitter, SseUtils.errorEvent(result.getReason()));
                     emitter.complete();
                 }
                 case REPLACE -> {
                     log.info("路由: REPLACE");
-                    emitter.send(SseEmitter.event().data(SseUtils.escapeJson(result.getReplacedText())));
+                    SseUtils.safeSend(emitter, SseUtils.escapeJson(result.getReplacedText()));
                     emitter.complete();
                 }
                 case PLANNING -> {
@@ -71,19 +75,17 @@ public class AiResponseRouter {
                 default -> {
                     // PASS：内容已流式推送则跳过，前端 already 有逐 token 拼接的文本
                     if (!contentStreamed) {
-                        emitter.send(SseEmitter.event().data(SseUtils.escapeJson(aiResponse)));
+                        SseUtils.safeSend(emitter, SseUtils.escapeJson(aiResponse));
                     }
                     emitter.complete();
                 }
             }
         } catch (Exception e) {
+            // 终态后 send 抛 ISE/IO（连接已断）已被 safeSend 吞掉，不会走到这；
+            // 此处兜底非 send 类异常，避免逃逸到 AiServiceImpl 重试循环（浪费 token）
             log.error("AiResponseRouter 异常", e);
-            try {
-                emitter.send(SseEmitter.event().data(SseUtils.errorEvent(e.getMessage())));
-                emitter.complete();
-            } catch (Exception ignored) {
-                emitter.completeWithError(e);
-            }
+            SseUtils.safeSend(emitter, SseUtils.errorEvent(e.getMessage()));
+            emitter.complete();
         }
     }
 }

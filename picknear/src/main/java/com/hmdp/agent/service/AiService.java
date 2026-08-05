@@ -1,5 +1,6 @@
 package com.hmdp.agent.service;
 
+import com.hmdp.agent.observability.api.AgentSpan;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -21,6 +22,7 @@ public interface AiService {
     * @param content 用户输入
     * @param conversationId 会话 ID（多轮对话标识，预留，暂传 "default"）
     * @param emitter SSE 发射器，用于推送逐段结果
+    * @param rootSpan 观测根 span（由 Controller 创建，随调用显式传递，异步线程 resume 挂载）
     */
-   void chatWithToolcall(String content, String conversationId, SseEmitter emitter);
+   void chatWithToolcall(String content, String conversationId, SseEmitter emitter, AgentSpan rootSpan);
 }

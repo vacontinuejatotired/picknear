@@ -1,6 +1,6 @@
-package com.hmdp.agent.hook
-;
+package com.hmdp.agent.hook;
 
+import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.task.TaskSnapshot;
 import org.springframework.ai.chat.messages.Message;
 
@@ -30,6 +30,15 @@ public class ChatContext {
     /** 任务快照（CONFIRM 续跑用，可变） */
     private volatile TaskSnapshot pendingSnapshot;
 
+    /**
+     * 观测根 span（跨线程传播载体，架构文档 §6.2）。
+     * <p>
+     * 由 ChatController 创建会话根 span 后随 ChatContext 显式传递，
+     * 异步线程入口 {@code agentTracer.resume(span)} 重新 openScope 挂载。
+     * </p>
+     */
+    private volatile AgentSpan rootSpan;
+
     private ChatContext(Builder builder) {
         this.userId = builder.userId;
         this.conversationId = builder.conversationId;
@@ -44,11 +53,16 @@ public class ChatContext {
     public String getConversationId() { return conversationId; }
     public List<Message> getHistory() { return history; }
     public TaskSnapshot getPendingSnapshot() { return pendingSnapshot; }
+    public AgentSpan getRootSpan() { return rootSpan; }
 
     // ---- setters（仅 mutable 字段） ----
 
     public void setPendingSnapshot(TaskSnapshot pendingSnapshot) {
         this.pendingSnapshot = pendingSnapshot;
+    }
+
+    public void setRootSpan(AgentSpan rootSpan) {
+        this.rootSpan = rootSpan;
     }
 
     // ---- builder ----

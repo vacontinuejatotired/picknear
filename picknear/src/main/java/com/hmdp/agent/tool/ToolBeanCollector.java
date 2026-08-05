@@ -3,6 +3,7 @@ package com.hmdp.agent.tool;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolGuardManager;
+import com.hmdp.agent.observability.api.AgentTracer;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.support.ToolCallbacks;
@@ -45,12 +46,14 @@ public class ToolBeanCollector implements ApplicationContextAware {
 
     private ToolCallback[] toolCallbacks = new ToolCallback[0];
     private ToolGuardManager guardManager;
+    private AgentTracer agentTracer;
 
     /** 每轮对话分配一个 conversationId，AiServiceImpl 可在调用前更新 */
     private volatile String conversationId = UUID.randomUUID().toString().replace("-", "");
 
-    public ToolBeanCollector(ToolGuardManager guardManager) {
+    public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer) {
         this.guardManager = guardManager;
+        this.agentTracer = agentTracer;
     }
 
     @Override
@@ -71,7 +74,7 @@ public class ToolBeanCollector implements ApplicationContextAware {
                             raw, guardManager, conversationId, null,
                             /* returnDirect 由 @Tool 上的 returnDirect 决定
                                此处无法直接获取，Spring AI 内部处理，默认 false */
-                            false
+                            false, agentTracer
                     );
                     collected.add(guarded);
                     log.info("注册工具 [{}] -> GuardedToolCallback",

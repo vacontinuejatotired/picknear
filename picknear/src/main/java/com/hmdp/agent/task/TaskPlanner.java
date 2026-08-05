@@ -2,6 +2,9 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.observability.api.AgentSpan;
+import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
@@ -12,6 +15,7 @@ import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.agent.hook.ChatContext;
+import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -63,20 +67,44 @@ public class TaskPlanner {
     @Resource
     private SubTaskProperties subTaskProperties;
 
+    @Resource
+    private AgentTracer agentTracer;
+
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
+     * <p>
+     * 观测：入口 resume 根 span（跨线程传播，架构文档 §6.2）——
+     * 之后主循环内的 round/plan/subagent 等 span 自动挂到会话树。
+     * </p>
      */
     public void planAndExecuteAsync(String input, String aiResponse, ChatContext ctx,
                                     SseEmitter emitter) {
+        planAndExecuteAsync(input, aiResponse, ctx, null, emitter);
+    }
+
+    /**
+     * 异步入口重载：显式携带根 span（快照恢复路径 ctx=null，靠此参数恢复挂载）。
+     */
+    public void planAndExecuteAsync(String input, String aiResponse, ChatContext ctx,
+                                    AgentSpan explicitRootSpan, SseEmitter emitter) {
         CompletableFuture.runAsync(() -> {
-            try {
-                String result = planAndExecute(input, aiResponse, ctx, emitter);
-                SseUtils.safeSend(emitter, SseUtils.escapeJson(result));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("TaskPlanner 执行异常", e);
-                SseUtils.safeSend(emitter, SseUtils.escapeJson("处理中断：" + e.getMessage()));
-                emitter.completeWithError(e);
+            // 快照恢复路径 ctx=null 时无根 span，跳过 resume（Fail-Open，span 变孤儿仅 WARN）
+            AgentSpan rootSpan = ctx != null ? ctx.getRootSpan() : null;
+            if (rootSpan == null && explicitRootSpan != null) {
+                rootSpan = explicitRootSpan; // 断链修复（2026-08-04）：快照携带的根 span 兜底
+            }
+            try (Observation.Scope scope = rootSpan != null ? agentTracer.resume(rootSpan)
+                    : Observation.Scope.NOOP) {
+                try {
+                    String result = planAndExecute(input, aiResponse, ctx, emitter);
+                    SseUtils.safeSend(emitter, SseUtils.escapeJson(result));
+                    // 根 span 收敛由 ObservedSseEmitter 负责（complete/completeWithError/容器回调/兜底 TTL）
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("TaskPlanner 执行异常", e);
+                    SseUtils.safeSend(emitter, SseUtils.escapeJson("处理中断：" + e.getMessage()));
+                    emitter.completeWithError(e);
+                }
             }
         }, subtaskExecutor);
     }
@@ -95,106 +123,118 @@ public class TaskPlanner {
             int r = round + 1;
             log.info("========== [Round {}] 1) 规划拆解 ==========", r);
 
-            // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
-            List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history);
-            if (tasks.isEmpty()) {
-                log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
-                return currentResponse;
-            }
+            // 观测：每轮一个 round span（名称固定，semantic 区分轮次，架构文档 §5.1）
+            try (AgentSpan roundSpan = agentTracer.start(AgentSpanSpec.ROUND, String.valueOf(r))) {
+                // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
+                List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history);
+                roundSpan.attribute("tool_count", String.valueOf(tasks.size()));
+                if (tasks.isEmpty()) {
+                    roundSpan.attribute("plan_valid", "false");
+                    log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
+                    return currentResponse;
+                }
+                roundSpan.attribute("plan_valid", "true");
 
-            // 推送：规划阶段
-            String planDesc = tasks.stream()
-                    .map(SubTask::getDescription)
-                    .collect(Collectors.joining("、"));
-            SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_PLANNING,
-                    SseEventConstants.TEXT_PLANNING_PREFIX + planDesc));
+                // 推送：规划阶段
+                String planDesc = tasks.stream()
+                        .map(SubTask::getDescription)
+                        .collect(Collectors.joining("、"));
+                SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_PLANNING,
+                        SseEventConstants.TEXT_PLANNING_PREFIX + planDesc));
 
-            // CONFIRM 工具 -> 保存快照，提示用户
-            if (hasConfirmTool(tasks)) {
-                TaskSnapshot snapshot = new TaskSnapshot();
-                snapshot.setOriginalInput(input);
-                snapshot.setPartialResponse(currentResponse);
-                snapshot.setCompletedTools(history.getCompleted().stream()
-                        .map(SubTask::getToolName).toList());
-                snapshot.setRound(round);
-                ctx.setPendingSnapshot(snapshot);
+                // CONFIRM 工具 -> 保存快照，提示用户
+                if (hasConfirmTool(tasks)) {
+                    TaskSnapshot snapshot = new TaskSnapshot();
+                    snapshot.setOriginalInput(input);
+                    snapshot.setPartialResponse(currentResponse);
+                    snapshot.setCompletedTools(history.getCompleted().stream()
+                            .map(SubTask::getToolName).toList());
+                    snapshot.setRound(round);
+                    // 观测：快照携带根 span，恢复执行时 resume 重新挂载（否则 round 独立 trace）
+                    snapshot.setRootSpan(ctx != null ? ctx.getRootSpan() : null);
+                    ctx.setPendingSnapshot(snapshot);
 
-                currentResponse += "\n\n⚠️ 部分操作需要你确认后才能执行，请明确告知是否继续。";
-                SseUtils.safeSend(emitter, SseUtils.confirmEvent(SseEventConstants.TEXT_CONFIRM_WAIT));
-                break;
-            }
-
-            if (useSubAgent) {
-                // ================================================
-                // 子 Agent 路径
-                // ================================================
-                log.info("========== [Round {}] 2) 子 Agent 执行 ==========", r);
-
-                SubTaskPlan plan = SubTaskPlan.builder()
-                        .userInput(input)
-                        .currentResponse(currentResponse)
-                        .tasks(tasks)
-                        .historySummary(buildHistorySummary(history))
-                        .userId(ctx != null ? ctx.getUserId() : null)
-                        .round(round)
-                        .build();
-
-                SubTaskExecution execution = SubTaskExecution.builder()
-                        .plan(plan)
-                        .callback(new SseSubAgentCallback(emitter))
-                        .properties(subTaskProperties)
-                        .startTimeMs(System.currentTimeMillis())
-                        .build();
-
-                SubTaskResult result = subTaskAgent.execute(execution);
-
-                currentResponse = result.getSummary();
-                recordHistory(history, result);
-            } else {
-                // ================================================
-                // 回退路径：原 TaskExecutor 串行直调
-                // ================================================
-                log.info("========== [Round {}] 2) 回退模式：TaskExecutor 执行 ==========", r);
-
-                // 手动追加 LLM_REASON（validatePlan 已不再追加）
-                List<SubTask> execTasks = new ArrayList<>(tasks);
-                execTasks.add(SubTask.builder()
-                        .id(UUID.randomUUID().toString())
-                        .description("基于以上数据生成最终结论")
-                        .type(TaskType.LLM_REASON)
-                        .dependsOn(tasks.stream().map(SubTask::getId).toList())
-                        .status(SubTaskStatus.PENDING)
-                        .build());
-
-                // 推送：逐任务 RUNNING
-                for (SubTask t : execTasks) {
-                    if (t.getType() != TaskType.TOOL_CALL) continue;
-                    SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), SseEventConstants.TOOL_RUNNING));
+                    currentResponse += "\n\n⚠️ 部分操作需要你确认后才能执行，请明确告知是否继续。";
+                    SseUtils.safeSend(emitter, SseUtils.confirmEvent(SseEventConstants.TEXT_CONFIRM_WAIT));
+                    break;
                 }
 
-                TaskQueue queue = new TaskQueue(execTasks);
-                TaskExecutor executor = new TaskExecutor(toolCallbacks,
-                        ctx != null ? ctx.getUserId() : null,
-                        chatClient, TASK_TIMEOUT_MS);
-                executor.executeAll(queue);
+                if (useSubAgent) {
+                    // ================================================
+                    // 子 Agent 路径（观测：agent.subagent，整段）
+                    // ================================================
+                    log.info("========== [Round {}] 2) 子 Agent 执行 ==========", r);
 
-                // 推送：逐任务完成/失败
-                for (SubTask t : queue.getAllTasks()) {
-                    if (t.getToolName() == null) continue;
-                    String st = t.getStatus() == SubTaskStatus.COMPLETED
-                            ? SseEventConstants.TOOL_COMPLETED
-                            : SseEventConstants.TOOL_FAILED;
-                    SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), st));
+                    try (AgentSpan subagentSpan = agentTracer.start(AgentSpanSpec.SUBAGENT, null)) {
+                        SubTaskPlan plan = SubTaskPlan.builder()
+                                .userInput(input)
+                                .currentResponse(currentResponse)
+                                .tasks(tasks)
+                                .historySummary(buildHistorySummary(history))
+                                .userId(ctx != null ? ctx.getUserId() : null)
+                                .round(round)
+                                .build();
+
+                        SubTaskExecution execution = SubTaskExecution.builder()
+                                .plan(plan)
+                                .callback(new SseSubAgentCallback(emitter))
+                                .properties(subTaskProperties)
+                                .startTimeMs(System.currentTimeMillis())
+                                .build();
+
+                        SubTaskResult result = subTaskAgent.execute(execution);
+
+                        subagentSpan.attribute("tool_count", String.valueOf(result.getRawResults() != null
+                                ? result.getRawResults().size() : 0));
+                        currentResponse = result.getSummary();
+                        recordHistory(history, result);
+                    }
+                } else {
+                    // ================================================
+                    // 回退路径：原 TaskExecutor 串行直调（工具级 span 在 TaskExecutor 内）
+                    // ================================================
+                    log.info("========== [Round {}] 2) 回退模式：TaskExecutor 执行 ==========", r);
+
+                    // 手动追加 LLM_REASON（validatePlan 已不再追加）
+                    List<SubTask> execTasks = new ArrayList<>(tasks);
+                    execTasks.add(SubTask.builder()
+                            .id(UUID.randomUUID().toString())
+                            .description("基于以上数据生成最终结论")
+                            .type(TaskType.LLM_REASON)
+                            .dependsOn(tasks.stream().map(SubTask::getId).toList())
+                            .status(SubTaskStatus.PENDING)
+                            .build());
+
+                    // 推送：逐任务 RUNNING
+                    for (SubTask t : execTasks) {
+                        if (t.getType() != TaskType.TOOL_CALL) continue;
+                        SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), SseEventConstants.TOOL_RUNNING));
+                    }
+
+                    TaskQueue queue = new TaskQueue(execTasks);
+                    TaskExecutor executor = new TaskExecutor(toolCallbacks,
+                            ctx != null ? ctx.getUserId() : null,
+                            chatClient, TASK_TIMEOUT_MS, agentTracer);
+                    executor.executeAll(queue);
+
+                    // 推送：逐任务完成/失败
+                    for (SubTask t : queue.getAllTasks()) {
+                        if (t.getToolName() == null) continue;
+                        String st = t.getStatus() == SubTaskStatus.COMPLETED
+                                ? SseEventConstants.TOOL_COMPLETED
+                                : SseEventConstants.TOOL_FAILED;
+                        SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), st));
+                    }
+
+                    // 记录历史
+                    history.record(execTasks);
+
+                    // 聚合
+                    log.info("========== [Round {}] 3) 聚合结论 ==========", r);
+                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_FALLBACK));
+                    currentResponse = merge(currentResponse, queue);
+                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
                 }
-
-                // 记录历史
-                history.record(execTasks);
-
-                // 聚合
-                log.info("========== [Round {}] 3) 聚合结论 ==========", r);
-                SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_FALLBACK));
-                currentResponse = merge(currentResponse, queue);
-                SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
             }
         }
 
@@ -222,15 +262,25 @@ public class TaskPlanner {
      */
     List<SubTask> decompose(String input, String response,
                             ToolCallback[] toolCallbacks, TaskReport history) {
-        // 1) 优先尝试从 AI 初次回复中解析工具调用（Phase1 可能已输出 JSON 规划）
-        List<SubTask> fromResponse = validatePlan(response, toolCallbacks, history);
-        if (!fromResponse.isEmpty()) {
-            log.info("  [规划] 从 AI 初次回复中解析到 {} 个工具调用", fromResponse.size());
-            return fromResponse;
+        // 观测：agent.plan（decompose 校验后结束，plan.tools[] 摘要 + 校验结论）
+        try (AgentSpan planSpan = agentTracer.start(AgentSpanSpec.PLAN, null)) {
+            // 1) 优先尝试从 AI 初次回复中解析工具调用（Phase1 可能已输出 JSON 规划）
+            List<SubTask> fromResponse = validatePlan(response, toolCallbacks, history);
+            if (!fromResponse.isEmpty()) {
+                log.info("  [规划] 从 AI 初次回复中解析到 {} 个工具调用", fromResponse.size());
+                planSpan.attribute("validate_result", "from_response");
+                planSpan.attribute("plan.tools", fromResponse.stream()
+                        .map(SubTask::getToolName).collect(Collectors.joining(",")));
+                return fromResponse;
+            }
+            // 2) 回退：让 AI 做规划推理
+            String planJson = askAiForPlan(input, response, toolCallbacks, history);
+            List<SubTask> tasks = validatePlan(planJson, toolCallbacks, history);
+            planSpan.attribute("validate_result", tasks.isEmpty() ? "empty" : "ai_plan");
+            planSpan.attribute("plan.tools", tasks.stream()
+                    .map(SubTask::getToolName).collect(Collectors.joining(",")));
+            return tasks;
         }
-        // 2) 回退：让 AI 做规划推理
-        String planJson = askAiForPlan(input, response, toolCallbacks, history);
-        return validatePlan(planJson, toolCallbacks, history);
     }
 
     /**
@@ -510,7 +560,10 @@ public class TaskPlanner {
      */
     public void resumeFromSnapshot(TaskSnapshot snapshot, SseEmitter emitter) {
         log.info("从快照恢复执行 [round={}]", snapshot.getRound());
+        // 断链修复（2026-08-04）：恢复执行需重新挂载根 span（原实现传 null ctx，
+        // 异步线程 resume 跳过 → round 等 span 独立 trace）。快照中 rootSpan 为 null
+        // 时（旧快照/降级）保持 Fail-Open，span 变孤儿仅 WARN。
         planAndExecuteAsync(snapshot.getOriginalInput(), snapshot.getPartialResponse(),
-                null, emitter);
+                null, snapshot.getRootSpan(), emitter);
     }
 }

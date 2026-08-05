@@ -1,6 +1,9 @@
 package com.hmdp.agent.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.observability.api.AgentSpan;
+import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.util.SseUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -31,13 +34,15 @@ public class TaskExecutor {
     private final Long userId;
     private final ChatClient chatClient;
     private final long timeoutMs;
+    private final AgentTracer agentTracer;
 
     public TaskExecutor(ToolCallback[] toolCallbacks, Long userId,
-                        ChatClient chatClient, long timeoutMs) {
+                        ChatClient chatClient, long timeoutMs, AgentTracer agentTracer) {
         this.toolCallbacks = toolCallbacks;
         this.userId = userId;
         this.chatClient = chatClient;
         this.timeoutMs = timeoutMs;
+        this.agentTracer = agentTracer;
     }
 
     /**
@@ -71,15 +76,21 @@ public class TaskExecutor {
             queue.markFailed(task.getId(), "未知工具: " + task.getToolName());
             return;
         }
-        try {
-            String jsonArgs = serializeParams(task.getParams());
-            String result = callback.call(jsonArgs,
-                    new ToolContext(Map.of("userId", userId)));
-            queue.markDone(task.getId(), result);
-            log.info("    TOOL_CALL ✅ [tool={}]", task.getToolName());
-        } catch (Exception e) {
-            queue.markFailed(task.getId(), e.getMessage());
-            log.warn("    TOOL_CALL ❌ [tool={}, err={}]", task.getToolName(), e.getMessage());
+        // 观测：agent.tool_call.{toolName}（架构文档 §5.1，guard 决策由 GuardedToolCallback 内 agent.guard 记录）
+        try (AgentSpan toolSpan = agentTracer.start(AgentSpanSpec.TOOL_CALL, task.getToolName())) {
+            try {
+                String jsonArgs = serializeParams(task.getParams());
+                String result = callback.call(jsonArgs,
+                        new ToolContext(Map.of("userId", userId)));
+                queue.markDone(task.getId(), result);
+                toolSpan.status("OK");
+                toolSpan.attribute("tool.result_summary", truncate(result, 200));
+                log.info("    TOOL_CALL ✅ [tool={}]", task.getToolName());
+            } catch (Exception e) {
+                queue.markFailed(task.getId(), e.getMessage());
+                toolSpan.status("FAILED");
+                log.warn("    TOOL_CALL ❌ [tool={}, err={}]", task.getToolName(), e.getMessage());
+            }
         }
     }
 
@@ -103,13 +114,21 @@ public class TaskExecutor {
         String prompt = "基于以下数据，用中文给用户一个完整的回答：\n\n"
                 + contextSummary + errorNote;
 
-        try {
-            String conclusion = chatClient.prompt().user(prompt).call().content();
-            queue.markDone(task.getId(), conclusion);
-            log.info("    LLM_REASON ✅");
-        } catch (Exception e) {
-            queue.markFailed(task.getId(), "聚合失败：" + e.getMessage());
-            log.warn("LLM_REASON 失败 [err={}]", e.getMessage());
+        // 观测：agent.llm_reason（based_on 记录已完成的工具摘要）
+        try (AgentSpan reasonSpan = agentTracer.start(AgentSpanSpec.LLM_REASON, null)) {
+            reasonSpan.attribute("based_on", queue.getCompleted().stream()
+                    .filter(t -> t.getType() == TaskType.TOOL_CALL)
+                    .map(SubTask::getToolName).collect(Collectors.joining(",")));
+            try {
+                String conclusion = chatClient.prompt().user(prompt).call().content();
+                queue.markDone(task.getId(), conclusion);
+                reasonSpan.status("OK");
+                log.info("    LLM_REASON ✅");
+            } catch (Exception e) {
+                queue.markFailed(task.getId(), "聚合失败：" + e.getMessage());
+                reasonSpan.status("FAILED");
+                log.warn("LLM_REASON 失败 [err={}]", e.getMessage());
+            }
         }
     }
 
@@ -131,5 +150,10 @@ public class TaskExecutor {
             log.warn("参数序列化失败", e);
             return "{}";
         }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null || s.length() <= max) return s;
+        return s.substring(0, max) + "...";
     }
 }

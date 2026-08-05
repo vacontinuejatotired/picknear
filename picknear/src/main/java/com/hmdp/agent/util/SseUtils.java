@@ -112,6 +112,9 @@ public final class SseUtils {
             emitter.send(SseEmitter.event().data(data));
         } catch (IOException e) {
             log.warn("SSE 推送失败，连接可能已关闭");
+        } catch (IllegalStateException e) {
+            // 断链修复（2026-08-04）：emitter 已 complete/超时后再 send 抛的是 ISE（非 IOException），
+            // 静默忽略（终态后推送无意义），避免业务误判"流式失败"触发无意义 LLM 重试
         }
     }
 
