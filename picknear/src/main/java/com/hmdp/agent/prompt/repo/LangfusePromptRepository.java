@@ -132,6 +132,9 @@ public class LangfusePromptRepository {
                         .queryParam("label", props.getDefaultLabel())
                         .build())
                 .retrieve()
+                // 4xx 是确定性结果（404 不存在/401 认证失败）→ 不抛，走下方负缓存；
+                // 5xx 是瞬时故障 → 抛异常走 30s 熔断
+                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> res.close())
                 .onStatus(HttpStatusCode::is5xxServerError, (req, res) -> {
                     res.close();
                     throw new PromptFetchException("Langfuse GET 5xx HTTP " + res.getRawStatusCode());
