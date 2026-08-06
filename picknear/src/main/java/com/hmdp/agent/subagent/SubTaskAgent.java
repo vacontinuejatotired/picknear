@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
@@ -24,6 +26,7 @@ import java.util.*;
  * <p>
  * 职责：接收 SubTaskExecution → 按 tasks 筛选 ToolCallback →
  * 调带工具的 ChatClient → 从回复中提取 JSON 数据快照 → 返回 SubTaskResult。
+ * 执行 Prompt 与系统提示词经 {@link PromptService} 外置（Langfuse → 内置兜底）。
  * </p>
  */
 @Slf4j
@@ -39,6 +42,9 @@ public class SubTaskAgent {
 
     @Resource
     private SubTaskProperties properties;
+
+    @Resource
+    private PromptService promptService;
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -83,11 +89,15 @@ public class SubTaskAgent {
         // 2. 推送：开始执行
         if (callback != null) callback.onExecuteStart(tasks.size());
 
-        // 3. 构建执行 Prompt
-        String prompt = SubAgentPromptBuilder.build(plan);
+        // 3. 构建执行 Prompt（模板外置，PromptService 渲染 {{var}}）
+        String prompt = promptService.render(PromptKeys.SUBAGENT_EXECUTION,
+                SubAgentPromptBuilder.buildVariables(plan));
+        // 系统提示词渲染一次（缓存命中后开销≈0），重试循环不重复渲染
+        String systemText = promptService.render(PromptKeys.SYSTEM_SUBAGENT,
+                Map.of("userId", plan.getUserId() != null ? String.valueOf(plan.getUserId()) : ""));
 
         // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext
-        String content = executeWithRetry(prompt, filteredCallbacks,
+        String content = executeWithRetry(systemText, prompt, filteredCallbacks,
                 props.getMaxRetries(), props.getRetryBackoff(),
                 props.getTotalTimeout(), start, plan.getUserId(), plan.getConversationId());
 
@@ -136,7 +146,7 @@ public class SubTaskAgent {
      * retryBackoff 为基础间隔，每次翻倍：1s → 2s → 4s
      * totalTimeout 为整个 execute() 的总超时（含重试），超时直接终止。
      */
-    private String executeWithRetry(String prompt, ToolCallback[] callbacks,
+    private String executeWithRetry(String systemText, String prompt, ToolCallback[] callbacks,
                                      int maxRetries, Duration retryBackoff,
                                      Duration totalTimeout, long roundStartMs,
                                      Long userId, String conversationId) {
@@ -153,6 +163,7 @@ public class SubTaskAgent {
 
             try {
                 var promptBuilder = subAgentChatClient.prompt()
+                        .system(systemText)
                         .user(currentPrompt)
                         .toolCallbacks(callbacks);
                 // 将 userId / conversationId 以 ToolContext 传递，Guard 层才能获取到

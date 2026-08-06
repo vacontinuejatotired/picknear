@@ -8,6 +8,8 @@ import com.hmdp.agent.guard.ToolInvocationContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
@@ -81,6 +83,9 @@ public class TaskPlanner {
 
     @Resource
     private ApprovalService approvalService;
+
+    @Resource
+    private PromptService promptService;
 
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
@@ -168,7 +173,8 @@ public class TaskPlanner {
             try (AgentSpan roundSpan = agentTracer.start(AgentSpanSpec.ROUND, String.valueOf(r))) {
                 try {
                     // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
-                    List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history);
+                    List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history,
+                            ctx != null ? ctx.getUserId() : null);
                     roundSpan.attribute("tool_count", String.valueOf(tasks.size()));
                     if (tasks.isEmpty()) {
                         roundSpan.attribute("plan_valid", "false");
@@ -241,7 +247,7 @@ public class TaskPlanner {
                         TaskExecutor executor = new TaskExecutor(toolCallbacks,
                                 ctx != null ? ctx.getUserId() : null,
                                 ctx != null ? ctx.getConversationId() : null,
-                                chatClient, TASK_TIMEOUT_MS, agentTracer);
+                                chatClient, TASK_TIMEOUT_MS, agentTracer, promptService);
                         executor.executeAll(queue);
 
                         // 推送：逐任务完成/失败
@@ -292,7 +298,7 @@ public class TaskPlanner {
      * </p>
      */
     List<SubTask> decompose(String input, String response,
-                            ToolCallback[] toolCallbacks, TaskReport history) {
+                            ToolCallback[] toolCallbacks, TaskReport history, Long userId) {
         // 观测：agent.plan（decompose 校验后结束，plan.tools[] 摘要 + 校验结论）
         try (AgentSpan planSpan = agentTracer.start(AgentSpanSpec.PLAN, null)) {
             // 1) 优先尝试从 AI 初次回复中解析工具调用（Phase1 可能已输出 JSON 规划）
@@ -305,7 +311,7 @@ public class TaskPlanner {
                 return fromResponse;
             }
             // 2) 回退：让 AI 做规划推理
-            String planJson = askAiForPlan(input, response, toolCallbacks, history);
+            String planJson = askAiForPlan(input, response, userId, toolCallbacks, history);
             List<SubTask> tasks = validatePlan(planJson, toolCallbacks, history);
             planSpan.attribute("validate_result", tasks.isEmpty() ? "empty" : "ai_plan");
             planSpan.attribute("plan.tools", tasks.stream()
@@ -315,9 +321,9 @@ public class TaskPlanner {
     }
 
     /**
-     * 调 AI 做规划推理。
+     * 调 AI 做规划推理（规划提示词已外置：agent.prompt.planner + agent.system.planner）。
      */
-    private String askAiForPlan(String input, String response,
+    private String askAiForPlan(String input, String response, Long userId,
                                  ToolCallback[] toolCallbacks,
                                  TaskReport history) {
         StringBuilder toolsDesc = new StringBuilder();
@@ -335,40 +341,21 @@ public class TaskPlanner {
                 .map(t -> t.getToolName() + ": " + extractErrorType(String.valueOf(t.getResult())))
                 .toList();
 
-        String prompt = """
-                你是一个任务规划器，根据用户问题和已有回复判断还需要调用哪些工具。
-
-                可用工具：
-                %s
-
-                已完成的工具及摘要：
-                %s
-
-                失败的工具（不再重试）：
-                %s
-
-                用户问题：%s
-                AI 已有回复：%s
-
-                规则：
-                - 用 ===PLAN_START=== 和 ===PLAN_END=== 包裹 JSON 输出，不要有多余解释
-                - 格式如下：
-                ===PLAN_START===
-                [{"tool":"工具名","params":{"参数名":"值"}}]
-                ===PLAN_END===
-                - 不需要额外工具则输出 ===PLAN_START===[]
-                ===PLAN_END===
-                - 需要参数时从用户问题中提取，参数名与工具定义一致
-                """.formatted(
-                        toolsDesc,
-                        String.join("\n", completedSummary),
-                        String.join("\n", failedSummary),
-                        input,
-                        truncate(response, PLAN_RESPONSE_TRUNCATE)
-                );
+        Map<String, String> planVars = new LinkedHashMap<>();
+        planVars.put("toolsDescription", toolsDesc.toString());
+        planVars.put("completedSummary", String.join("\n", completedSummary));
+        planVars.put("failedSummary", String.join("\n", failedSummary));
+        planVars.put("userInput", input);
+        planVars.put("currentResponse", truncate(response, PLAN_RESPONSE_TRUNCATE));
+        planVars.put("planStart", PLAN_START);
+        planVars.put("planEnd", PLAN_END);
 
         try {
-            String result = chatClient.prompt().user(prompt).call().content();
+            String result = chatClient.prompt()
+                    .system(promptService.render(PromptKeys.SYSTEM_PLANNER,
+                            Map.of("userId", userId != null ? String.valueOf(userId) : "")))
+                    .user(promptService.render(PromptKeys.PLANNER_USER, planVars))
+                    .call().content();
             log.info("  [规划] AI 建议: {}", result);
             return result;
         } catch (Exception e) {

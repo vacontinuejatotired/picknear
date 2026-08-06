@@ -3,6 +3,7 @@ package com.hmdp.agent.guard;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.tool.ToolDefinitionProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -22,18 +23,21 @@ public class GuardedToolCallback implements ToolCallback {
     private final boolean returnDirect;
     private final AgentTracer agentTracer;
     private final boolean approvalEnabled;
+    private final ToolDefinitionProvider toolDefinitionProvider;
 
     private static final AtomicInteger invokeCounter = new AtomicInteger(0);
 
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
                                String conversationId, Long userId, boolean returnDirect,
                                AgentTracer agentTracer) {
-        this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer, true);
+        this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer, true,
+                ToolCallback::getToolDefinition);
     }
 
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
                                String conversationId, Long userId, boolean returnDirect,
-                               AgentTracer agentTracer, boolean approvalEnabled) {
+                               AgentTracer agentTracer, boolean approvalEnabled,
+                               ToolDefinitionProvider toolDefinitionProvider) {
         this.delegate = delegate;
         this.guardManager = guardManager;
         this.conversationId = conversationId;
@@ -41,18 +45,19 @@ public class GuardedToolCallback implements ToolCallback {
         this.returnDirect = returnDirect;
         this.agentTracer = agentTracer;
         this.approvalEnabled = approvalEnabled;
+        this.toolDefinitionProvider = toolDefinitionProvider;
     }
 
     public String getToolName() {
-        return delegate.getToolDefinition().name();
+        return getToolDefinition().name();
     }
 
     public String getToolDescription() {
-        return delegate.getToolDefinition().description();
+        return getToolDefinition().description();
     }
 
     public ToolDefinition getToolDefinition() {
-        return delegate.getToolDefinition();
+        return toolDefinitionProvider.resolve(delegate);
     }
 
     @Override

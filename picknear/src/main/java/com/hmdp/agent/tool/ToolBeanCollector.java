@@ -49,15 +49,18 @@ public class ToolBeanCollector implements ApplicationContextAware {
     private ToolGuardManager guardManager;
     private AgentTracer agentTracer;
     private final PromptGuardProperties promptGuardProperties;
+    private ToolDefinitionProvider toolDefinitionProvider;
 
     /** 每轮对话分配一个 conversationId，AiServiceImpl 可在调用前更新 */
     private volatile String conversationId = UUID.randomUUID().toString().replace("-", "");
 
     public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer,
-                             PromptGuardProperties promptGuardProperties) {
+                             PromptGuardProperties promptGuardProperties,
+                             ToolDefinitionProvider toolDefinitionProvider) {
         this.guardManager = guardManager;
         this.agentTracer = agentTracer;
         this.promptGuardProperties = promptGuardProperties;
+        this.toolDefinitionProvider = toolDefinitionProvider;
     }
 
     @Override
@@ -73,13 +76,14 @@ public class ToolBeanCollector implements ApplicationContextAware {
                 // 将 Bean 转为 Spring AI 的 ToolCallback 列表（每个 @Tool 方法一个）
                 List<ToolCallback> rawCallbacks = List.of(ToolCallbacks.from(bean));
                 for (ToolCallback raw : rawCallbacks) {
-                    // 用守卫包装（approvalEnabled 由配置决定）
+                    // 用守卫包装（approvalEnabled 由配置决定，工具描述由 toolDefinitionProvider 外置覆盖）
                     GuardedToolCallback guarded = new GuardedToolCallback(
                             raw, guardManager, conversationId, null,
                             /* returnDirect 由 @Tool 上的 returnDirect 决定
                                此处无法直接获取，Spring AI 内部处理，默认 false */
                             false, agentTracer,
-                            promptGuardProperties.getApproval().isEnabled()
+                            promptGuardProperties.getApproval().isEnabled(),
+                            toolDefinitionProvider
                     );
                     collected.add(guarded);
                     log.info("注册工具 [{}] -> GuardedToolCallback",

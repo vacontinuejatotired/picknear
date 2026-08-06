@@ -5,6 +5,8 @@ import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.util.SseUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -37,15 +39,18 @@ public class TaskExecutor {
     private final ChatClient chatClient;
     private final long timeoutMs;
     private final AgentTracer agentTracer;
+    private final PromptService promptService;
 
     public TaskExecutor(ToolCallback[] toolCallbacks, Long userId, String conversationId,
-                        ChatClient chatClient, long timeoutMs, AgentTracer agentTracer) {
+                        ChatClient chatClient, long timeoutMs, AgentTracer agentTracer,
+                        PromptService promptService) {
         this.toolCallbacks = toolCallbacks;
         this.userId = userId;
         this.conversationId = conversationId;
         this.chatClient = chatClient;
         this.timeoutMs = timeoutMs;
         this.agentTracer = agentTracer;
+        this.promptService = promptService;
     }
 
     /**
@@ -123,8 +128,10 @@ public class TaskExecutor {
                         .collect(Collectors.joining("\n"));
         }
 
-        String prompt = "基于以下数据，用中文给用户一个完整的回答：\n\n"
-                + contextSummary + errorNote;
+        // 聚合模板已外置（agent.prompt.task.merge），系统提示词每次请求注入
+        String prompt = promptService.render(PromptKeys.TASK_MERGE, Map.of(
+                "contextSummary", contextSummary,
+                "errorNote", errorNote));
 
         // 观测：agent.llm_reason（based_on 记录已完成的工具摘要）
         try (AgentSpan reasonSpan = agentTracer.start(AgentSpanSpec.LLM_REASON, null)) {
@@ -132,7 +139,11 @@ public class TaskExecutor {
                     .filter(t -> t.getType() == TaskType.TOOL_CALL)
                     .map(SubTask::getToolName).collect(Collectors.joining(",")));
             try {
-                String conclusion = chatClient.prompt().user(prompt).call().content();
+                String conclusion = chatClient.prompt()
+                        .system(promptService.render(PromptKeys.SYSTEM_MAIN,
+                                Map.of("userId", userId != null ? String.valueOf(userId) : "")))
+                        .user(prompt)
+                        .call().content();
                 queue.markDone(task.getId(), conclusion);
                 reasonSpan.status("OK");
                 log.info("    LLM_REASON ✅");
