@@ -3,6 +3,7 @@ package com.hmdp.agent.subagent;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
@@ -85,10 +86,10 @@ public class SubTaskAgent {
         // 3. 构建执行 Prompt
         String prompt = SubAgentPromptBuilder.build(plan);
 
-        // 4. 带退避重试调用（含总超时保护），携带 userId 作为 ToolContext
+        // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext
         String content = executeWithRetry(prompt, filteredCallbacks,
                 props.getMaxRetries(), props.getRetryBackoff(),
-                props.getTotalTimeout(), start, plan.getUserId());
+                props.getTotalTimeout(), start, plan.getUserId(), plan.getConversationId());
 
         if (content == null) {
             long elapsed = System.currentTimeMillis() - start;
@@ -138,7 +139,7 @@ public class SubTaskAgent {
     private String executeWithRetry(String prompt, ToolCallback[] callbacks,
                                      int maxRetries, Duration retryBackoff,
                                      Duration totalTimeout, long roundStartMs,
-                                     Long userId) {
+                                     Long userId, String conversationId) {
         Exception lastError = null;
         String currentPrompt = prompt;
 
@@ -154,13 +155,24 @@ public class SubTaskAgent {
                 var promptBuilder = subAgentChatClient.prompt()
                         .user(currentPrompt)
                         .toolCallbacks(callbacks);
-                // 将 userId 以 ToolContext 传递，Guard 层才能获取到
+                // 将 userId / conversationId 以 ToolContext 传递，Guard 层才能获取到
+                Map<String, Object> toolCtx = new HashMap<>();
                 if (userId != null) {
-                    promptBuilder.toolContext(Map.of("userId", userId));
+                    toolCtx.put("userId", userId);
+                }
+                if (conversationId != null && !conversationId.isBlank()) {
+                    toolCtx.put("conversationId", conversationId);
+                }
+                if (!toolCtx.isEmpty()) {
+                    promptBuilder.toolContext(toolCtx);
                 }
                 String content = promptBuilder.call().content();
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;
+            } catch (ConfirmRequiredException e) {
+                // CONFIRM 审批信号：立即原样抛出（不重试、不把确认提示注入下次 prompt），
+                // 一路冒泡到 TaskPlanner 的专用 catch 生成审批记录并暂停规划
+                throw e;
             } catch (Exception e) {
                 lastError = e;
                 log.warn("[SubAgent] 调用失败 [attempt={}/{}], err={}",

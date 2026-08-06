@@ -1,6 +1,7 @@
 package com.hmdp.agent.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
@@ -32,14 +33,16 @@ public class TaskExecutor {
 
     private final ToolCallback[] toolCallbacks;
     private final Long userId;
+    private final String conversationId;
     private final ChatClient chatClient;
     private final long timeoutMs;
     private final AgentTracer agentTracer;
 
-    public TaskExecutor(ToolCallback[] toolCallbacks, Long userId,
+    public TaskExecutor(ToolCallback[] toolCallbacks, Long userId, String conversationId,
                         ChatClient chatClient, long timeoutMs, AgentTracer agentTracer) {
         this.toolCallbacks = toolCallbacks;
         this.userId = userId;
+        this.conversationId = conversationId;
         this.chatClient = chatClient;
         this.timeoutMs = timeoutMs;
         this.agentTracer = agentTracer;
@@ -80,12 +83,21 @@ public class TaskExecutor {
         try (AgentSpan toolSpan = agentTracer.start(AgentSpanSpec.TOOL_CALL, task.getToolName())) {
             try {
                 String jsonArgs = serializeParams(task.getParams());
-                String result = callback.call(jsonArgs,
-                        new ToolContext(Map.of("userId", userId)));
+                Map<String, Object> toolCtx = new java.util.HashMap<>();
+                if (userId != null) {
+                    toolCtx.put("userId", userId);
+                }
+                if (conversationId != null && !conversationId.isBlank()) {
+                    toolCtx.put("conversationId", conversationId);
+                }
+                String result = callback.call(jsonArgs, new ToolContext(toolCtx));
                 queue.markDone(task.getId(), result);
                 toolSpan.status("OK");
                 toolSpan.attribute("tool.result_summary", truncate(result, 200));
                 log.info("    TOOL_CALL ✅ [tool={}]", task.getToolName());
+            } catch (ConfirmRequiredException e) {
+                // CONFIRM 审批信号：立即原样抛出（不 markFailed），冒泡到 TaskPlanner 专用 catch
+                throw e;
             } catch (Exception e) {
                 queue.markFailed(task.getId(), e.getMessage());
                 toolSpan.status("FAILED");

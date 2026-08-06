@@ -48,6 +48,9 @@ public class PromptGuardProperties {
     /** 频率限制 */
     private RateLimit rateLimit = new RateLimit();
 
+    /** CONFIRM 审批流 */
+    private Approval approval = new Approval();
+
     // ---- getters & setters ----
 
     public List<String> getBlockTools() { return blockTools; }
@@ -64,6 +67,9 @@ public class PromptGuardProperties {
 
     public RateLimit getRateLimit() { return rateLimit; }
     public void setRateLimit(RateLimit rateLimit) { this.rateLimit = rateLimit; }
+
+    public Approval getApproval() { return approval; }
+    public void setApproval(Approval approval) { this.approval = approval; }
 
     // ---- 内部类型 ----
 
@@ -95,5 +101,20 @@ public class PromptGuardProperties {
         public void setMaxPerSession(int maxPerSession) { this.maxPerSession = maxPerSession; }
         public int getWindowSeconds() { return windowSeconds; }
         public void setWindowSeconds(int windowSeconds) { this.windowSeconds = windowSeconds; }
+    }
+
+    /**
+     * CONFIRM 审批流配置
+     */
+    public static class Approval {
+        /** 审批总开关：false 时 CONFIRM 决策退回旧行为（把确认提示当工具结果返回 LLM） */
+        private boolean enabled = true;
+        /** 审批有效期（秒），超时自动过期 */
+        private long ttlSeconds = 300;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public long getTtlSeconds() { return ttlSeconds; }
+        public void setTtlSeconds(long ttlSeconds) { this.ttlSeconds = ttlSeconds; }
     }
 }

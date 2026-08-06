@@ -60,9 +60,21 @@ public final class SseUtils {
         return toJson(m);
     }
 
-    /** 进度事件（确认）：{"type":"progress","stage":"confirm","text":"..."} */
-    public static String confirmEvent(String text) {
-        return progressEvent(SseEventConstants.STAGE_CONFIRM, text);
+    /**
+     * 确认事件：{"type":"confirm","confirmId":"cfm_xxx","tool":"...","reason":"...","arguments":"..."}
+     * <p>
+     * 独立 type=confirm（不复用 progress.stage=confirm），前端据此弹审批卡片。
+     * confirmId 为空表示持久化降级（DB 失败），前端只提示、无法续流。
+     * </p>
+     */
+    public static String confirmEvent(String confirmId, String tool, String reason, String arguments) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "confirm");
+        m.put("confirmId", confirmId != null ? confirmId : "");
+        m.put("tool", tool != null ? tool : "");
+        m.put("reason", reason != null ? reason : "该操作需要你的确认才能执行");
+        m.put("arguments", arguments != null ? arguments : "{}");
+        return toJson(m);
     }
 
     /** 对传入字符串做 JSON 字符串值转义（兼容老用法） */

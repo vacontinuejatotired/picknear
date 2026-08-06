@@ -114,6 +114,9 @@ hmdp:
     rate-limit:
       max-per-session: 30
       window-seconds: 60
+    approval:
+      enabled: true                # CONFIRM 真暂停总开关；false 时退回旧行为（提示字符串当工具结果）
+      ttl-seconds: 300             # 审批有效期（秒），超时自动过期
 
 #logging:
 #  level:

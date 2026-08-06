@@ -33,6 +33,9 @@ public class SubTaskPlan {
     /** 当前用户 ID */
     private Long userId;
 
+    /** 当前会话 ID（透传给守卫，保证审批/限流按真实会话记账） */
+    private String conversationId;
+
     /** 当前轮次（0-based） */
     private int round;
 }

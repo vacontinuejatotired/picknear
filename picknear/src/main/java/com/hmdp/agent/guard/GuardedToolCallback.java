@@ -21,18 +21,26 @@ public class GuardedToolCallback implements ToolCallback {
     private final Long userId;
     private final boolean returnDirect;
     private final AgentTracer agentTracer;
+    private final boolean approvalEnabled;
 
     private static final AtomicInteger invokeCounter = new AtomicInteger(0);
 
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
                                String conversationId, Long userId, boolean returnDirect,
                                AgentTracer agentTracer) {
+        this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer, true);
+    }
+
+    public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
+                               String conversationId, Long userId, boolean returnDirect,
+                               AgentTracer agentTracer, boolean approvalEnabled) {
         this.delegate = delegate;
         this.guardManager = guardManager;
         this.conversationId = conversationId;
         this.userId = userId;
         this.returnDirect = returnDirect;
         this.agentTracer = agentTracer;
+        this.approvalEnabled = approvalEnabled;
     }
 
     public String getToolName() {
@@ -65,7 +73,7 @@ public class GuardedToolCallback implements ToolCallback {
         String toolName = delegate.getToolDefinition().name();
         Long effectiveUserId = userId;
 
-        if (toolContext != null && toolContext.getContext() != null) {
+        if (toolContext.getContext() != null) {
             Object uid = toolContext.getContext().get("userId");
             if (uid instanceof Long) {
                 effectiveUserId = (Long) uid;
@@ -75,7 +83,7 @@ public class GuardedToolCallback implements ToolCallback {
         ToolInvocationContext context = ToolInvocationContext.builder()
                 .toolName(toolName)
                 .arguments(functionPayload)
-                .conversationId(conversationId)
+                .conversationId(effectiveConversationId(toolContext))
                 .userId(effectiveUserId)
                 .invocationCount(invokeCounter.incrementAndGet())
                 .build();
@@ -86,9 +94,12 @@ public class GuardedToolCallback implements ToolCallback {
         // Langfuse 不展示自定义属性；逐策略投票平铺为 M4 增强）
         try (AgentSpan guardSpan = agentTracer.start(AgentSpanSpec.GUARD,
                 result.getDecision() + "." + toolName)) {
-            guardSpan.attribute("tool.name", toolName);
-            guardSpan.attribute("guard.policy", result.getPolicyName() != null
-                    ? result.getPolicyName() : "none");
+            // Fail-Open：tracer 不可用（mock/null）时 guard 块仍正常执行
+            if (guardSpan != null) {
+                guardSpan.attribute("tool.name", toolName);
+                guardSpan.attribute("guard.policy", result.getPolicyName() != null
+                        ? result.getPolicyName() : "none");
+            }
 
             switch (result.getDecision()) {
                 case BLOCK -> {
@@ -99,8 +110,15 @@ public class GuardedToolCallback implements ToolCallback {
                     return returnDirect ? msg : "{\"error\":\"" + msg + "\"}";
                 }
                 case CONFIRM -> {
-                    String msg = "该操作需要你的确认才能执行";
+                    String msg = result.getReason() != null
+                            ? result.getReason()
+                            : "该操作需要你的确认才能执行";
                     log.info("工具调用需确认 [tool={}, policy={}]", toolName, result.getPolicyName());
+                    // 审批开启 → 抛异常触发真暂停（TaskPlanner 捕获后建审批记录）；
+                    // 关闭 → 退回旧行为：把确认提示当工具结果返回给 LLM 自行处理
+                    if (approvalEnabled) {
+                        throw new ConfirmRequiredException(context, msg, result.getPolicyName());
+                    }
                     return returnDirect ? msg : "{\"confirm\":\"" + msg + "\"}";
                 }
                 case ALLOW -> {
@@ -110,5 +128,33 @@ public class GuardedToolCallback implements ToolCallback {
             }
         }
         return delegate.call(functionPayload, toolContext);
+    }
+
+    /**
+     * 绕过守卫直调底层工具（仅审批恢复路径使用：工具已被用户确认，不再二次投票）。
+     * <p>
+     * 需要显式通过 ToolContext 传递 userId / conversationId，
+     * 因为恢复执行在异步线程、无 UserHolder，且数据权限切面从 ToolContext 取 userId。
+     * </p>
+     */
+    public String callBypass(String functionPayload, ToolContext toolContext) {
+        if (toolContext == null) {
+            toolContext = new ToolContext(Map.of());
+        }
+        return delegate.call(functionPayload, toolContext);
+    }
+
+    /**
+     * 优先从 ToolContext 读取会话 ID（运行时由 executor 注入真实会话），
+     * 否则回退构造时冻结的默认值（启动 UUID，仅兜底）。
+     */
+    private String effectiveConversationId(ToolContext toolContext) {
+        if (toolContext != null && toolContext.getContext() != null) {
+            Object cid = toolContext.getContext().get("conversationId");
+            if (cid instanceof String s && !s.isBlank()) {
+                return s;
+            }
+        }
+        return conversationId;
     }
 }
