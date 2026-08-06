@@ -106,11 +106,7 @@ public class AgentConfig {
         ToolCallback[] toolCallbacks = toolBeanCollector.getToolCallbacks();
 
         ChatClient chatClient = ChatClient.builder(chatModel)
-                        // 系统提示词
-                        .defaultSystem("""
-                                你是智能助手，请直接回答用户问题。
-                                如果用户提到天气，可以说"我来查一下"，后续会通过规划任务执行。
-                                """)
+                        // 系统提示词已外置：由 AiServiceImpl/TaskPlanner 每次请求经 PromptService 注入
                         // 对话记忆
                         .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                         .build();
@@ -144,23 +140,8 @@ public class AgentConfig {
      */
     @Bean("subAgentChatClient")
     public ChatClient subAgentChatClient(DashScopeChatModel chatModel) {
+        // 系统提示词已外置：由 SubTaskAgent 每次请求经 PromptService 注入（agent.system.subagent）
         return ChatClient.builder(chatModel)
-                .defaultSystem("""
-                        你是任务执行助手，负责调用工具获取数据并汇总结果。
-
-                        核心职责：
-                        1. 根据任务描述，调用合适的工具获取数据
-                        2. 理解工具返回的数据
-                        3. 用中文汇总成一段完整的回答
-
-                        规则：
-                        - 每次只调用一个工具，等待返回结果后再调下一个
-                        - 工具参数必须严格遵守下方给出的约束，你无权修改参数值
-                        - 工具返回空数据时，如实说明"暂无数据"
-                        - 工具调用失败时，在摘要中说明原因，继续执行其他工具
-                        - 所有工具执行完毕后，用中文给出完整回答
-                        - 在回复末尾必须附加 JSON 数据快照（格式见用户 prompt）
-                        """)
                 .build();
     }
 }

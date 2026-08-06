@@ -423,3 +423,32 @@ CREATE TABLE IF NOT EXISTS `agent_message` (
   KEY `idx_conversation_id` (`conversation_id`),
   KEY `idx_user_id` (`user_id`)
 ) COMMENT 'AI 对话消息明细';
+
+-- ============================================================
+-- 工具调用审批记录（CONFIRM 真暂停，2026-08-06 追加）
+-- 注意：heima-init.sql 只对全新部署生效；已初始化的开发库需手动执行同样 DDL。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `agent_approval` (
+  `id`               bigint unsigned NOT NULL AUTO_INCREMENT,
+  `confirm_id`       varchar(64)  NOT NULL COMMENT '全局唯一确认ID（cfm_xxx）',
+  `conversation_id`  varchar(64)  NOT NULL COMMENT '所属会话ID',
+  `user_id`          bigint unsigned NOT NULL COMMENT '需要确认的用户',
+  `tool_name`        varchar(64)  NOT NULL COMMENT '待确认的工具名',
+  `tool_arguments`   json         NOT NULL COMMENT '工具参数（JSON）',
+  `status`           varchar(16)  NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected/expired',
+  `created_at`       datetime     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `decided_at`       datetime     DEFAULT NULL COMMENT '确认/拒绝时间',
+  `expired_at`       datetime     NOT NULL COMMENT '过期时间（创建后 TTL 秒）',
+  `original_input`   text         NOT NULL COMMENT '原始用户输入（resume 用）',
+  `partial_response` text         NOT NULL COMMENT '暂停时已收集的回复（resume 用）',
+  `completed_tools`  json         DEFAULT NULL COMMENT '已完成工具名列表（JSON 数组，resume 用）',
+  `round`            int          NOT NULL DEFAULT 0 COMMENT '暂停轮次（resume 用）',
+  `executed_at`      datetime     DEFAULT NULL COMMENT '审批通过后实际执行时间（防重复执行）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_confirm_id` (`confirm_id`),
+  KEY `idx_conversation_id` (`conversation_id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_expired_at` (`expired_at`)
+) COMMENT '工具调用审批记录';
+

@@ -1,6 +1,7 @@
 package com.hmdp.agent.tool;
 
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.config.PromptGuardProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolGuardManager;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -47,13 +48,19 @@ public class ToolBeanCollector implements ApplicationContextAware {
     private ToolCallback[] toolCallbacks = new ToolCallback[0];
     private ToolGuardManager guardManager;
     private AgentTracer agentTracer;
+    private final PromptGuardProperties promptGuardProperties;
+    private ToolDefinitionProvider toolDefinitionProvider;
 
     /** 每轮对话分配一个 conversationId，AiServiceImpl 可在调用前更新 */
     private volatile String conversationId = UUID.randomUUID().toString().replace("-", "");
 
-    public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer) {
+    public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer,
+                             PromptGuardProperties promptGuardProperties,
+                             ToolDefinitionProvider toolDefinitionProvider) {
         this.guardManager = guardManager;
         this.agentTracer = agentTracer;
+        this.promptGuardProperties = promptGuardProperties;
+        this.toolDefinitionProvider = toolDefinitionProvider;
     }
 
     @Override
@@ -69,12 +76,14 @@ public class ToolBeanCollector implements ApplicationContextAware {
                 // 将 Bean 转为 Spring AI 的 ToolCallback 列表（每个 @Tool 方法一个）
                 List<ToolCallback> rawCallbacks = List.of(ToolCallbacks.from(bean));
                 for (ToolCallback raw : rawCallbacks) {
-                    // 用守卫包装
+                    // 用守卫包装（approvalEnabled 由配置决定，工具描述由 toolDefinitionProvider 外置覆盖）
                     GuardedToolCallback guarded = new GuardedToolCallback(
                             raw, guardManager, conversationId, null,
                             /* returnDirect 由 @Tool 上的 returnDirect 决定
                                此处无法直接获取，Spring AI 内部处理，默认 false */
-                            false, agentTracer
+                            false, agentTracer,
+                            promptGuardProperties.getApproval().isEnabled(),
+                            toolDefinitionProvider
                     );
                     collected.add(guarded);
                     log.info("注册工具 [{}] -> GuardedToolCallback",
@@ -96,6 +105,22 @@ public class ToolBeanCollector implements ApplicationContextAware {
      */
     public ToolCallback[] getToolCallbacks() {
         return toolCallbacks;
+    }
+
+    /**
+     * 按工具名取单个已包装的 {@link ToolCallback}（不存在时返回 null）。
+     * <p>
+     * 审批恢复路径用于定位待确认工具并走 {@link GuardedToolCallback#callBypass}。
+     * </p>
+     */
+    public ToolCallback getToolCallback(String toolName) {
+        if (toolName == null || toolCallbacks == null) return null;
+        for (ToolCallback cb : toolCallbacks) {
+            if (toolName.equals(cb.getToolDefinition().name())) {
+                return cb;
+            }
+        }
+        return null;
     }
 
     /**

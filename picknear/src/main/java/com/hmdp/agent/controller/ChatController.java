@@ -4,7 +4,13 @@ import com.hmdp.dto.Result;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.api.ObservedSseEmitter;
+import com.hmdp.agent.entity.AgentApproval;
+import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.service.AiService;
+import com.hmdp.agent.service.ApprovalService;
+import com.hmdp.agent.service.ApprovalService.ApprovalDecisionResult;
+import com.hmdp.agent.task.TaskPlanner;
+import com.hmdp.agent.task.TaskSnapshot;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.utils.UserHolder;
 
@@ -32,7 +38,7 @@ import java.util.UUID;
 
 /**
  * <p>
- * 聊天控制器 — AI 对话，支持普通 JSON 和 SSE 流式双模
+ * 聊天控制器 — AI 对话，支持普通 JSON 和 SSE 流式双模；CONFIRM 审批（确认/拒绝）
  * </p>
  */
 @Slf4j
@@ -55,6 +61,12 @@ public class ChatController {
 
     @Resource
     private TaskScheduler taskScheduler;
+
+    @Resource
+    private ApprovalService approvalService;
+
+    @Resource
+    private TaskPlanner taskPlanner;
 
     /**
      * 发送聊天消息 — 双模端点
@@ -132,6 +144,92 @@ public class ChatController {
         data.put("content", result);
         data.put("conversationId", conversationId);
         return Result.ok(data);
+    }
+
+    /**
+     * CONFIRM 确认 — 双模端点。
+     * <p>
+     * 原子 CAS 通过审批后：
+     * <ul>
+     *   <li>{@code Accept: text/event-stream} → 打开新 SSE 续流，恢复执行待审批工具并继续规划</li>
+     *   <li>其他 → JSON 200</li>
+     * </ul>
+     * 失败返回对应错误（已过期 / 已处理 / 无权操作），前端据此提示。
+     * </p>
+     */
+    @PostMapping("/confirm")
+    @Operation(summary = "确认待审批工具调用（双模）", description =
+            "默认 JSON 200；Accept: text/event-stream 返回 SSE 续流（恢复执行 + 继续规划）")
+    public Object confirm(
+            @Parameter(description = "确认 ID") @RequestParam String confirmId,
+            @Parameter(description = "客户端期望的响应格式") @RequestHeader(value = "Accept", required = false, defaultValue = "") String accept) {
+
+        Long userId = UserHolder.getUserId();
+        ApprovalDecisionResult decision = approvalService.markApproved(confirmId, userId);
+        if (decision != ApprovalDecisionResult.APPROVED) {
+            return Result.fail(decision.getMessage());
+        }
+        AgentApproval approval = approvalService.getByConfirmId(confirmId, userId);
+        if (approval == null) {
+            return Result.fail("审批记录不存在");
+        }
+
+        // SSE 模式：续流恢复执行
+        if (accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE)) {
+            log.info("确认续流：confirmId={}, tool={}", confirmId, approval.getToolName());
+
+            // 观测：新会话根 span（续流挂在 confirm SSE 的生命周期上，避免挂旧 session 变孤儿）
+            AgentSpan root = agentTracer.startSession(approval.getConversationId(),
+                    String.valueOf(userId));
+            SseEmitter emitter = new ObservedSseEmitter(SSE_TIMEOUT, root, taskScheduler, SSE_GUARD_TIMEOUT);
+
+            emitter.onCompletion(() ->
+                    log.info("确认续流完成, confirmId={}, thread={}", confirmId, Thread.currentThread().getName()));
+            emitter.onTimeout(() -> log.warn("确认续流超时, confirmId={}", confirmId));
+            emitter.onError(ex -> log.error("确认续流异常, confirmId={}", confirmId, ex));
+
+            // 先推 conversationId（元事件，前端据此识别，不混入回答文本）
+            try {
+                emitter.send(SseEmitter.event()
+                        .data("{\"type\":\"meta\",\"conversationId\":\"" + approval.getConversationId() + "\"}"));
+            } catch (IOException e) {
+                log.error("推送 conversationId 失败", e);
+                emitter.completeWithError(e);
+                return null;
+            }
+
+            TaskSnapshot snapshot = TaskSnapshot.fromApproval(approval);
+            // 重建 ChatContext（异步线程无 UserHolder，userId/conversationId 来自审批记录，
+            // 否则数据权限切面报"身份验证失败"、历史不落库）
+            ChatContext ctx = ChatContext.builder()
+                    .userId(approval.getUserId())
+                    .conversationId(approval.getConversationId())
+                    .originalContent(approval.getOriginalInput())
+                    .build();
+            ctx.setRootSpan(root);
+
+            taskPlanner.resumeFromSnapshot(snapshot, ctx, emitter);
+            return emitter;
+        }
+
+        log.info("确认成功：confirmId={}", confirmId);
+        return Result.ok(Map.of("approved", true));
+    }
+
+    /**
+     * CONFIRM 拒绝：pending → rejected，返回 JSON 200（操作已取消）。
+     */
+    @PostMapping("/reject")
+    @Operation(summary = "拒绝待审批工具调用", description = "返回 JSON 200；已过期/已处理/无权操作返回对应错误")
+    public Result reject(
+            @Parameter(description = "确认 ID") @RequestParam String confirmId) {
+        Long userId = UserHolder.getUserId();
+        ApprovalDecisionResult decision = approvalService.markRejected(confirmId, userId);
+        if (decision != ApprovalDecisionResult.REJECTED) {
+            return Result.fail(decision.getMessage());
+        }
+        log.info("审批拒绝：confirmId={}", confirmId);
+        return Result.ok();
     }
 
 }

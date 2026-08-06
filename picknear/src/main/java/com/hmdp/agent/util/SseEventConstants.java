@@ -64,7 +64,4 @@ public final class SseEventConstants {
 
     /** 结论完成文案 */
     public static final String TEXT_MERGING_DONE = "结论生成完成";
-
-    /** 等待确认文案 */
-    public static final String TEXT_CONFIRM_WAIT = "需要确认，暂停规划";
 }

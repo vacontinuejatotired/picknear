@@ -2,9 +2,15 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.guard.ToolInvocationContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
+import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
@@ -20,6 +26,7 @@ import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -74,6 +81,12 @@ public class TaskPlanner {
     @Resource
     private AgentHistoryService historyService;
 
+    @Resource
+    private ApprovalService approvalService;
+
+    @Resource
+    private PromptService promptService;
+
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
      * <p>
@@ -101,19 +114,7 @@ public class TaskPlanner {
                     : Observation.Scope.NOOP) {
                 try {
                     String result = planAndExecute(input, aiResponse, ctx, emitter);
-                    // 历史会话：PLANNING 回合在此记录最终合并答案（中间规划过程不落库）。
-                    // ctx == null（快照恢复路径）时跳过：无 userId 且该路径会再次完成，防止重复落库。
-                    if (ctx != null && ctx.getUserId() != null) {
-                        try {
-                            historyService.recordTurn(ctx.getUserId(), ctx.getConversationId(),
-                                    ctx.getOriginalContent(), result);
-                        } catch (Exception e) {
-                            log.error("记录 PLANNING 回合历史失败, conversationId={}", ctx.getConversationId(), e);
-                        }
-                    }
-                    SseUtils.safeSend(emitter, SseUtils.escapeJson(result));
-                    // 根 span 收敛由 ObservedSseEmitter 负责（complete/completeWithError/容器回调/兜底 TTL）
-                    emitter.complete();
+                    completeTurn(ctx, result, emitter);
                 } catch (Exception e) {
                     log.error("TaskPlanner 执行异常", e);
                     SseUtils.safeSend(emitter, SseUtils.escapeJson("处理中断：" + e.getMessage()));
@@ -124,13 +125,44 @@ public class TaskPlanner {
     }
 
     /**
+     * 正常收尾：记录历史回合（仅完整回合）+ 推送最终回复 + 结束 SSE。
+     * <p>
+     * CONFIRM 暂停路径（ctx.pendingSnapshot != null）跳过：回合未完成，
+     * 不落库、不推送尾文本（确认事件已是最后一个数据），仅结束流。
+     * </p>
+     */
+    private void completeTurn(ChatContext ctx, String result, SseEmitter emitter) {
+        boolean paused = ctx != null && ctx.getPendingSnapshot() != null;
+        if (!paused && ctx != null && ctx.getUserId() != null) {
+            try {
+                historyService.recordTurn(ctx.getUserId(), ctx.getConversationId(),
+                        ctx.getOriginalContent(), result);
+            } catch (Exception e) {
+                log.error("记录 PLANNING 回合历史失败, conversationId={}", ctx.getConversationId(), e);
+            }
+        }
+        if (!paused) {
+            SseUtils.safeSend(emitter, SseUtils.escapeJson(result));
+        }
+        // 根 span 收敛由 ObservedSseEmitter 负责（complete/completeWithError/容器回调/兜底 TTL）
+        emitter.complete();
+    }
+
+    /**
      * 主循环：拆解 -> 执行 -> 聚合，重复至多 MAX_ROUNDS 轮。
      */
     public String planAndExecute(String input, String aiResponse, ChatContext ctx,
                                  SseEmitter emitter) {
+        return planAndExecute(input, aiResponse, ctx, new TaskReport(), emitter);
+    }
+
+    /**
+     * 主循环（可携带预置历史的入口，resume 用）。
+     */
+    private String planAndExecute(String input, String aiResponse, ChatContext ctx,
+                                  TaskReport history, SseEmitter emitter) {
         String currentResponse = aiResponse;
         var toolCallbacks = toolBeanCollector.getToolCallbacks();
-        TaskReport history = new TaskReport();
         boolean useSubAgent = featureProperties.getSubagent().isEnabled();
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
@@ -139,115 +171,106 @@ public class TaskPlanner {
 
             // 观测：每轮一个 round span（名称固定，semantic 区分轮次，架构文档 §5.1）
             try (AgentSpan roundSpan = agentTracer.start(AgentSpanSpec.ROUND, String.valueOf(r))) {
-                // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
-                List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history);
-                roundSpan.attribute("tool_count", String.valueOf(tasks.size()));
-                if (tasks.isEmpty()) {
-                    roundSpan.attribute("plan_valid", "false");
-                    log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
-                    return currentResponse;
-                }
-                roundSpan.attribute("plan_valid", "true");
-
-                // 推送：规划阶段
-                String planDesc = tasks.stream()
-                        .map(SubTask::getDescription)
-                        .collect(Collectors.joining("、"));
-                SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_PLANNING,
-                        SseEventConstants.TEXT_PLANNING_PREFIX + planDesc));
-
-                // CONFIRM 工具 -> 保存快照，提示用户
-                if (hasConfirmTool(tasks)) {
-                    TaskSnapshot snapshot = new TaskSnapshot();
-                    snapshot.setOriginalInput(input);
-                    snapshot.setPartialResponse(currentResponse);
-                    snapshot.setCompletedTools(history.getCompleted().stream()
-                            .map(SubTask::getToolName).toList());
-                    snapshot.setRound(round);
-                    // 观测：快照携带根 span，恢复执行时 resume 重新挂载（否则 round 独立 trace）
-                    snapshot.setRootSpan(ctx != null ? ctx.getRootSpan() : null);
-                    ctx.setPendingSnapshot(snapshot);
-
-                    currentResponse += "\n\n⚠️ 部分操作需要你确认后才能执行，请明确告知是否继续。";
-                    SseUtils.safeSend(emitter, SseUtils.confirmEvent(SseEventConstants.TEXT_CONFIRM_WAIT));
-                    break;
-                }
-
-                if (useSubAgent) {
-                    // ================================================
-                    // 子 Agent 路径（观测：agent.subagent，整段）
-                    // ================================================
-                    log.info("========== [Round {}] 2) 子 Agent 执行 ==========", r);
-
-                    try (AgentSpan subagentSpan = agentTracer.start(AgentSpanSpec.SUBAGENT, null)) {
-                        SubTaskPlan plan = SubTaskPlan.builder()
-                                .userInput(input)
-                                .currentResponse(currentResponse)
-                                .tasks(tasks)
-                                .historySummary(buildHistorySummary(history))
-                                .userId(ctx != null ? ctx.getUserId() : null)
-                                .round(round)
-                                .build();
-
-                        SubTaskExecution execution = SubTaskExecution.builder()
-                                .plan(plan)
-                                .callback(new SseSubAgentCallback(emitter))
-                                .properties(subTaskProperties)
-                                .startTimeMs(System.currentTimeMillis())
-                                .build();
-
-                        SubTaskResult result = subTaskAgent.execute(execution);
-
-                        subagentSpan.attribute("tool_count", String.valueOf(result.getRawResults() != null
-                                ? result.getRawResults().size() : 0));
-                        currentResponse = result.getSummary();
-                        recordHistory(history, result);
+                try {
+                    // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
+                    List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history,
+                            ctx != null ? ctx.getUserId() : null);
+                    roundSpan.attribute("tool_count", String.valueOf(tasks.size()));
+                    if (tasks.isEmpty()) {
+                        roundSpan.attribute("plan_valid", "false");
+                        log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
+                        return currentResponse;
                     }
-                } else {
-                    // ================================================
-                    // 回退路径：原 TaskExecutor 串行直调（工具级 span 在 TaskExecutor 内）
-                    // ================================================
-                    log.info("========== [Round {}] 2) 回退模式：TaskExecutor 执行 ==========", r);
+                    roundSpan.attribute("plan_valid", "true");
 
-                    // 手动追加 LLM_REASON（validatePlan 已不再追加）
-                    List<SubTask> execTasks = new ArrayList<>(tasks);
-                    execTasks.add(SubTask.builder()
-                            .id(UUID.randomUUID().toString())
-                            .description("基于以上数据生成最终结论")
-                            .type(TaskType.LLM_REASON)
-                            .dependsOn(tasks.stream().map(SubTask::getId).toList())
-                            .status(SubTaskStatus.PENDING)
-                            .build());
+                    // 推送：规划阶段
+                    String planDesc = tasks.stream()
+                            .map(SubTask::getDescription)
+                            .collect(Collectors.joining("、"));
+                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_PLANNING,
+                            SseEventConstants.TEXT_PLANNING_PREFIX + planDesc));
 
-                    // 推送：逐任务 RUNNING
-                    for (SubTask t : execTasks) {
-                        if (t.getType() != TaskType.TOOL_CALL) continue;
-                        SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), SseEventConstants.TOOL_RUNNING));
+                    if (useSubAgent) {
+                        // ================================================
+                        // 子 Agent 路径（观测：agent.subagent，整段）
+                        // ================================================
+                        log.info("========== [Round {}] 2) 子 Agent 执行 ==========", r);
+
+                        try (AgentSpan subagentSpan = agentTracer.start(AgentSpanSpec.SUBAGENT, null)) {
+                            SubTaskPlan plan = SubTaskPlan.builder()
+                                    .userInput(input)
+                                    .currentResponse(currentResponse)
+                                    .tasks(tasks)
+                                    .historySummary(buildHistorySummary(history))
+                                    .userId(ctx != null ? ctx.getUserId() : null)
+                                    .conversationId(ctx != null ? ctx.getConversationId() : null)
+                                    .round(round)
+                                    .build();
+
+                            SubTaskExecution execution = SubTaskExecution.builder()
+                                    .plan(plan)
+                                    .callback(new SseSubAgentCallback(emitter))
+                                    .properties(subTaskProperties)
+                                    .startTimeMs(System.currentTimeMillis())
+                                    .build();
+
+                            SubTaskResult result = subTaskAgent.execute(execution);
+
+                            subagentSpan.attribute("tool_count", String.valueOf(result.getRawResults() != null
+                                    ? result.getRawResults().size() : 0));
+                            currentResponse = result.getSummary();
+                            recordHistory(history, result);
+                        }
+                    } else {
+                        // ================================================
+                        // 回退路径：原 TaskExecutor 串行直调（工具级 span 在 TaskExecutor 内）
+                        // ================================================
+                        log.info("========== [Round {}] 2) 回退模式：TaskExecutor 执行 ==========", r);
+
+                        // 手动追加 LLM_REASON（validatePlan 已不再追加）
+                        List<SubTask> execTasks = new ArrayList<>(tasks);
+                        execTasks.add(SubTask.builder()
+                                .id(UUID.randomUUID().toString())
+                                .description("基于以上数据生成最终结论")
+                                .type(TaskType.LLM_REASON)
+                                .dependsOn(tasks.stream().map(SubTask::getId).toList())
+                                .status(SubTaskStatus.PENDING)
+                                .build());
+
+                        // 推送：逐任务 RUNNING
+                        for (SubTask t : execTasks) {
+                            if (t.getType() != TaskType.TOOL_CALL) continue;
+                            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), SseEventConstants.TOOL_RUNNING));
+                        }
+
+                        TaskQueue queue = new TaskQueue(execTasks);
+                        TaskExecutor executor = new TaskExecutor(toolCallbacks,
+                                ctx != null ? ctx.getUserId() : null,
+                                ctx != null ? ctx.getConversationId() : null,
+                                chatClient, TASK_TIMEOUT_MS, agentTracer, promptService);
+                        executor.executeAll(queue);
+
+                        // 推送：逐任务完成/失败
+                        for (SubTask t : queue.getAllTasks()) {
+                            if (t.getToolName() == null) continue;
+                            String st = t.getStatus() == SubTaskStatus.COMPLETED
+                                    ? SseEventConstants.TOOL_COMPLETED
+                                    : SseEventConstants.TOOL_FAILED;
+                            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), st));
+                        }
+
+                        // 记录历史
+                        history.record(execTasks);
+
+                        // 聚合
+                        log.info("========== [Round {}] 3) 聚合结论 ==========", r);
+                        SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_FALLBACK));
+                        currentResponse = merge(currentResponse, queue);
+                        SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
                     }
-
-                    TaskQueue queue = new TaskQueue(execTasks);
-                    TaskExecutor executor = new TaskExecutor(toolCallbacks,
-                            ctx != null ? ctx.getUserId() : null,
-                            chatClient, TASK_TIMEOUT_MS, agentTracer);
-                    executor.executeAll(queue);
-
-                    // 推送：逐任务完成/失败
-                    for (SubTask t : queue.getAllTasks()) {
-                        if (t.getToolName() == null) continue;
-                        String st = t.getStatus() == SubTaskStatus.COMPLETED
-                                ? SseEventConstants.TOOL_COMPLETED
-                                : SseEventConstants.TOOL_FAILED;
-                        SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), st));
-                    }
-
-                    // 记录历史
-                    history.record(execTasks);
-
-                    // 聚合
-                    log.info("========== [Round {}] 3) 聚合结论 ==========", r);
-                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_FALLBACK));
-                    currentResponse = merge(currentResponse, queue);
-                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
+                } catch (ConfirmRequiredException e) {
+                    // CONFIRM 审批：保存快照 → 建审批记录 → 推确认事件 → 暂停本轮流
+                    return handleConfirmPause(e, input, currentResponse, history, round, ctx, emitter);
                 }
             }
         }
@@ -275,7 +298,7 @@ public class TaskPlanner {
      * </p>
      */
     List<SubTask> decompose(String input, String response,
-                            ToolCallback[] toolCallbacks, TaskReport history) {
+                            ToolCallback[] toolCallbacks, TaskReport history, Long userId) {
         // 观测：agent.plan（decompose 校验后结束，plan.tools[] 摘要 + 校验结论）
         try (AgentSpan planSpan = agentTracer.start(AgentSpanSpec.PLAN, null)) {
             // 1) 优先尝试从 AI 初次回复中解析工具调用（Phase1 可能已输出 JSON 规划）
@@ -288,7 +311,7 @@ public class TaskPlanner {
                 return fromResponse;
             }
             // 2) 回退：让 AI 做规划推理
-            String planJson = askAiForPlan(input, response, toolCallbacks, history);
+            String planJson = askAiForPlan(input, response, userId, toolCallbacks, history);
             List<SubTask> tasks = validatePlan(planJson, toolCallbacks, history);
             planSpan.attribute("validate_result", tasks.isEmpty() ? "empty" : "ai_plan");
             planSpan.attribute("plan.tools", tasks.stream()
@@ -298,9 +321,9 @@ public class TaskPlanner {
     }
 
     /**
-     * 调 AI 做规划推理。
+     * 调 AI 做规划推理（规划提示词已外置：agent.prompt.planner + agent.system.planner）。
      */
-    private String askAiForPlan(String input, String response,
+    private String askAiForPlan(String input, String response, Long userId,
                                  ToolCallback[] toolCallbacks,
                                  TaskReport history) {
         StringBuilder toolsDesc = new StringBuilder();
@@ -318,40 +341,21 @@ public class TaskPlanner {
                 .map(t -> t.getToolName() + ": " + extractErrorType(String.valueOf(t.getResult())))
                 .toList();
 
-        String prompt = """
-                你是一个任务规划器，根据用户问题和已有回复判断还需要调用哪些工具。
-
-                可用工具：
-                %s
-
-                已完成的工具及摘要：
-                %s
-
-                失败的工具（不再重试）：
-                %s
-
-                用户问题：%s
-                AI 已有回复：%s
-
-                规则：
-                - 用 ===PLAN_START=== 和 ===PLAN_END=== 包裹 JSON 输出，不要有多余解释
-                - 格式如下：
-                ===PLAN_START===
-                [{"tool":"工具名","params":{"参数名":"值"}}]
-                ===PLAN_END===
-                - 不需要额外工具则输出 ===PLAN_START===[]
-                ===PLAN_END===
-                - 需要参数时从用户问题中提取，参数名与工具定义一致
-                """.formatted(
-                        toolsDesc,
-                        String.join("\n", completedSummary),
-                        String.join("\n", failedSummary),
-                        input,
-                        truncate(response, PLAN_RESPONSE_TRUNCATE)
-                );
+        Map<String, String> planVars = new LinkedHashMap<>();
+        planVars.put("toolsDescription", toolsDesc.toString());
+        planVars.put("completedSummary", String.join("\n", completedSummary));
+        planVars.put("failedSummary", String.join("\n", failedSummary));
+        planVars.put("userInput", input);
+        planVars.put("currentResponse", truncate(response, PLAN_RESPONSE_TRUNCATE));
+        planVars.put("planStart", PLAN_START);
+        planVars.put("planEnd", PLAN_END);
 
         try {
-            String result = chatClient.prompt().user(prompt).call().content();
+            String result = chatClient.prompt()
+                    .system(promptService.render(PromptKeys.SYSTEM_PLANNER,
+                            Map.of("userId", userId != null ? String.valueOf(userId) : "")))
+                    .user(promptService.render(PromptKeys.PLANNER_USER, planVars))
+                    .call().content();
             log.info("  [规划] AI 建议: {}", result);
             return result;
         } catch (Exception e) {
@@ -489,11 +493,142 @@ public class TaskPlanner {
         return first.length() > 80 ? first.substring(0, 80) : first;
     }
 
+    // ============================================================
+    // CONFIRM 审批：暂停 / 恢复
+    // ============================================================
+
     /**
-     * 检查任务列表中是否包含需要用户确认的工具。
+     * CONFIRM 暂停处理：保存快照 → 建审批记录 → 推确认事件 → 终止本轮流。
+     * <p>
+     * 返回 currentResponse，由 completeTurn 识别暂停态（pendingSnapshot != null）
+     * 跳过尾文本推送与历史落库，保证确认事件是流中最后一个数据。
+     * </p>
      */
-    private boolean hasConfirmTool(List<SubTask> tasks) {
-        return false;
+    private String handleConfirmPause(ConfirmRequiredException e, String input, String currentResponse,
+                                      TaskReport history, int round, ChatContext ctx, SseEmitter emitter) {
+        ToolInvocationContext ic = e.getContext();
+        TaskSnapshot snapshot = new TaskSnapshot();
+        snapshot.setOriginalInput(input);
+        snapshot.setPartialResponse(currentResponse);
+        snapshot.setCompletedTools(history.getCompleted().stream()
+                .map(SubTask::getToolName).toList());
+        snapshot.setRound(round);
+        snapshot.setPendingToolName(ic.getToolName());
+        snapshot.setPendingToolArguments(ic.getArguments());
+        snapshot.setConversationId(ctx != null ? ctx.getConversationId() : ic.getConversationId());
+        snapshot.setUserId(ctx != null ? ctx.getUserId() : ic.getUserId());
+        snapshot.setRootSpan(ctx != null ? ctx.getRootSpan() : null);
+        if (ctx != null) {
+            ctx.setPendingSnapshot(snapshot);
+        }
+
+        String reason = e.getReason() != null ? e.getReason() : "该操作需要你的确认才能执行";
+        // best-effort 持久化：DB 失败返回 null，仍推确认事件（前端只提示、无法续流，可接受降级）
+        String confirmId = approvalService.createApproval(snapshot);
+        SseUtils.safeSend(emitter, SseUtils.confirmEvent(
+                confirmId != null ? confirmId : "",
+                ic.getToolName(), reason, ic.getArguments()));
+        log.info("CONFIRM 暂停规划 [tool={}, confirmId={}, round={}]", ic.getToolName(), confirmId, round);
+        return currentResponse;
+    }
+
+    /**
+     * 从快照恢复执行（用户确认通过后由 /agent/confirm SSE 续流调用）。
+     * <p>
+     * 顺序决定成败（三轮审查定稿）：
+     * ① callBypass 先执行待审批工具（守卫已批准，不再二次投票）；
+     * ② 用 completedTools ∪ 待审批工具 预置 history（全部 COMPLETED）——
+     *    待审批工具从未完成，不显式加入会被重新规划 → 再次 CONFIRM → 无限循环；
+     * ③ 然后才进入正常规划循环，decompose 的 validatePlan 会过滤已完成工具。
+     * </p>
+     */
+    public void resumeFromSnapshot(TaskSnapshot snapshot, ChatContext ctx, SseEmitter emitter) {
+        CompletableFuture.runAsync(() -> {
+            AgentSpan rootSpan = ctx != null ? ctx.getRootSpan() : (snapshot != null ? snapshot.getRootSpan() : null);
+            try (Observation.Scope scope = rootSpan != null ? agentTracer.resume(rootSpan)
+                    : Observation.Scope.NOOP) {
+                try {
+                    String result = resumePlan(snapshot, ctx, emitter);
+                    completeTurn(ctx, result, emitter);
+                } catch (Exception ex) {
+                    log.error("从快照恢复执行异常", ex);
+                    SseUtils.safeSend(emitter, SseUtils.escapeJson("恢复执行失败：" + ex.getMessage()));
+                    emitter.completeWithError(ex);
+                }
+            }
+        }, subtaskExecutor);
+    }
+
+    private String resumePlan(TaskSnapshot snapshot, ChatContext ctx, SseEmitter emitter) {
+        // ① 先执行待审批工具
+        String toolResult = executeApprovedTool(snapshot, ctx, emitter);
+        // ② 预置历史
+        TaskReport history = new TaskReport();
+        seedCompletedHistory(history, snapshot, toolResult);
+        // ③ 续接回复：暂停前的 partial + 工具结果
+        String currentResponse = snapshot.getPartialResponse() != null ? snapshot.getPartialResponse() : "";
+        if (toolResult != null && !toolResult.isBlank()) {
+            currentResponse = currentResponse + "\n\n" + toolResult;
+        }
+        return planAndExecute(snapshot.getOriginalInput(), currentResponse, ctx, history, emitter);
+    }
+
+    /**
+     * 执行已确认的工具（绕过守卫直调底层）。显式携带 userId / conversationId：
+     * 恢复执行在异步线程、无 UserHolder，且数据权限切面从 ToolContext 取 userId。
+     */
+    private String executeApprovedTool(TaskSnapshot snapshot, ChatContext ctx, SseEmitter emitter) {
+        String toolName = snapshot.getPendingToolName();
+        if (toolName == null || toolName.isBlank()) {
+            log.warn("快照缺少待审批工具名，无法恢复");
+            return null;
+        }
+        ToolCallback cb = toolBeanCollector.getToolCallback(toolName);
+        if (!(cb instanceof GuardedToolCallback guarded)) {
+            log.error("待审批工具不存在或未包装: {}", toolName);
+            SseUtils.safeSend(emitter, SseUtils.errorEvent("待确认工具不可用，无法继续"));
+            return null;
+        }
+        Long uid = ctx != null ? ctx.getUserId() : snapshot.getUserId();
+        String cid = ctx != null ? ctx.getConversationId() : snapshot.getConversationId();
+        Map<String, Object> toolCtxMap = new HashMap<>();
+        if (uid != null) toolCtxMap.put("userId", uid);
+        if (cid != null && !cid.isBlank()) toolCtxMap.put("conversationId", cid);
+
+        SseUtils.safeSend(emitter, SseUtils.stepEvent(toolName, SseEventConstants.TOOL_RUNNING));
+        String result = guarded.callBypass(snapshot.getPendingToolArguments(), new ToolContext(toolCtxMap));
+        SseUtils.safeSend(emitter, SseUtils.stepEvent(toolName, SseEventConstants.TOOL_COMPLETED));
+        log.info("审批工具已执行 [tool={}, userId={}]", toolName, uid);
+        if (snapshot.getPendingConfirmId() != null && uid != null) {
+            approvalService.markExecuted(snapshot.getPendingConfirmId(), uid);
+        }
+        return result;
+    }
+
+    /**
+     * 预置已完成工具到 history：completedTools ∪ 待审批工具（全部 COMPLETED）。
+     * 目的：resume 后 decompose 的 validatePlan 依据 isCompleted 过滤，防二次审批。
+     */
+    private void seedCompletedHistory(TaskReport history, TaskSnapshot snapshot, String approvedToolResult) {
+        if (snapshot.getCompletedTools() != null) {
+            for (String tool : snapshot.getCompletedTools()) {
+                if (tool == null || tool.isBlank()) continue;
+                history.record(List.of(SubTask.builder()
+                        .toolName(tool)
+                        .type(TaskType.TOOL_CALL)
+                        .status(SubTaskStatus.COMPLETED)
+                        .result("(已完成)")
+                        .build()));
+            }
+        }
+        if (snapshot.getPendingToolName() != null) {
+            history.record(List.of(SubTask.builder()
+                    .toolName(snapshot.getPendingToolName())
+                    .type(TaskType.TOOL_CALL)
+                    .status(SubTaskStatus.COMPLETED)
+                    .result(approvedToolResult != null ? approvedToolResult : "(已执行)")
+                    .build()));
+        }
     }
 
     // ============================================================
@@ -572,12 +707,7 @@ public class TaskPlanner {
     /**
      * 从快照恢复执行（用户 CONFIRM 后）。
      */
-    public void resumeFromSnapshot(TaskSnapshot snapshot, SseEmitter emitter) {
-        log.info("从快照恢复执行 [round={}]", snapshot.getRound());
-        // 断链修复（2026-08-04）：恢复执行需重新挂载根 span（原实现传 null ctx，
-        // 异步线程 resume 跳过 → round 等 span 独立 trace）。快照中 rootSpan 为 null
-        // 时（旧快照/降级）保持 Fail-Open，span 变孤儿仅 WARN。
-        planAndExecuteAsync(snapshot.getOriginalInput(), snapshot.getPartialResponse(),
-                null, snapshot.getRootSpan(), emitter);
-    }
+    /**
+     * 从快照恢复执行（旧 2 参版本已废弃，见上方 {@link #resumeFromSnapshot(TaskSnapshot, ChatContext, SseEmitter)}）。
+     */
 }

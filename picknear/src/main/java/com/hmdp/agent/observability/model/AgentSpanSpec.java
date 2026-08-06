@@ -31,6 +31,8 @@ public enum AgentSpanSpec {
     LLM_REASON("llm_reason"),
     /** Guard 评估（semantic=决策.工具名，如 BLOCK.deleteBlog） */
     GUARD("guard"),
+    /** Prompt 模板获取/渲染（semantic=模板键，如 agent.system.main） */
+    PROMPT("prompt"),
     /** SSE 事件（semantic=finish 状态 COMPLETE/TIMEOUT/ERROR） */
     SSE("sse");
 

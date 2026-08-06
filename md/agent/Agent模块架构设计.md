@@ -229,8 +229,8 @@ public class AgentConfig {
     @Bean("aliibabaChatClient")
     public ChatClient chatClient(DashScopeChatModel chatModel, ChatMemory chatMemory,
                                  ToolBeanCollector toolBeanCollector) {
+        // 系统提示词已外置：由调用方每次请求经 PromptService 注入（见 3.13）
         return ChatClient.builder(chatModel)
-            .defaultSystem("你是智能助手，请直接回答用户问题。")
             .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
             .build();
     }
@@ -238,6 +238,8 @@ public class AgentConfig {
 ```
 
 > **关键变更 v1→v2**: 不再通过 `.defaultToolCallbacks()` 将工具注册到 ChatClient。Phase 1 的 AI 调用是纯文本的。工具由 TaskPlanner 在 Phase 2 中通过 TaskExecutor 调用。
+>
+> **关键变更 v2.1（提示词外置）**: 删除 `.defaultSystem(...)`。系统提示词不再硬编码在 AgentConfig，改由 5 个 LLM 调用点每次请求 `promptService.render("agent.system.main", ...)` 动态注入（支持按用户个性化；Langfuse 改模板后按缓存 TTL 生效，无需重启）。主 / 子 Agent 两个 ChatClient 的系统提示词均已外置。
 
 ### 3.3 DashScopeHttpConfig
 
@@ -436,6 +438,8 @@ for (int round = 0; round < MAX_ROUNDS; round++) {
 
 启动时扫描 `@TargetTool` Bean → `ToolCallbacks.from()` 转为 `ToolCallback[]` → 每个用 `GuardedToolCallback` 包装。
 
+> **v2.1（提示词外置）**: `GuardedToolCallback` 额外注入 `ToolDefinitionProvider`，其 `getToolDefinition()` 不再直接委托 delegate，而是经 `ExternalizedToolDefinitionProvider` 用 `ToolDefinition.builder()` 重建——工具描述（description + inputSchema 参数描述）优先取外置模板（Langfuse → 内置 `resources/prompts/agent.tool.*.txt`），取不到回退 `@Tool`/`@ToolParam` 注解。覆盖经 `getToolDefinition()` 自动传播到 LLM 函数 schema 与 TaskPlanner 的工具列表（见 3.13）。
+
 #### BlogTool
 
 | 工具方法 | 描述 | 参数 |
@@ -487,6 +491,77 @@ REPLACE → 替换 currentInput
 BLOCK → 立即短路
 异常 → Fail-Open 降级 PASS
 ```
+
+### 3.13 提示词外置层 —— `com.hmdp.agent.prompt`
+
+**引入**: v2.1（2026-08-06）。解决系统提示词 / 工具描述硬编码在 Java 代码里、改提示词要重编译重部署、无法多版本 / 运行期热改 / 按用户注入上下文的问题。事实源 = **Langfuse Prompt Management（云）+ 内置模板兜底**，不使用 DB 表。
+
+#### 包结构
+
+```
+com.hmdp.agent.prompt/
+├── PromptKeys.java              # 键常量（Langfuse Prompt 名 = 内置资源文件名，一一对应）
+├── PromptService.java           # 门面：render(文本) / renderTool(工具描述)
+├── PromptRenderer.java          # 静态 {{var}} 替换，缺失变量保留字面量 + WARN，永不抛
+├── config/PromptProperties.java # @ConfigurationProperties("agent.prompt")
+├── repo/
+│   ├── BuiltinPromptRepository.java    # classpath:prompts/{key}.txt 兜底（首读缓存）
+│   └── LangfusePromptRepository.java   # RestClient + 双 Caffeine 缓存
+├── impl/DefaultPromptService.java      # 编排 remote → builtin → Fail-Open，埋 agent.prompt.{key}
+├── model/ResolvedToolPrompt.java       # 工具描述解析结果（description + params）
+└── seed/                               # PromptSeeder + PromptAdminController（seed/reload 端点）
+```
+
+内置模板：`src/main/resources/prompts/*.txt`（6 文本 + 7 工具描述），内容与 `PromptKeys` 完全对应。
+
+#### 运行时优先链（三级 Fail-Open）
+
+```
+Langfuse 云 → 内置资源文件 → @Tool 注解 / 空兜底
+  (getPrompt 200)   (404/网络失败)      (工具描述专用)
+```
+
+- **文本模板**（系统提示词 / 规划 / 执行 / 聚合）：Langfuse 取到 → 用；取不到 → 内置 `.txt`；内置也没有 → 空串（渲染器保证不抛）。
+- **工具描述**：Langfuse → 内置 → `@Tool`/`@ToolParam` 注解（delegate 原始定义）。
+
+#### LangfusePromptRepository 双缓存（2026-08-06 实测 API）
+
+- 端点：`GET {base}/api/public/prompts?name={key}&label=production`（**name 是查询参数**，非路径段）；200 响应内容在**顶层 `prompt` 字段**。
+- `contentCache`：成功文本 + **404 负结果**（TTL 5m）——404 是确定性结果，负缓存防每请求刷 404。
+- `failureCache`：网络失败 / 5xx 瞬时熔断（TTL 30s）——防 Langfuse 宕机风暴，30s 后自动恢复探测。
+- RestClient connect/read 超时 2s；未配置（base-url/basic-auth 空）不发任何远程请求（本地 IDE 直接走内置）。
+
+#### 5 个 LLM 调用点（系统提示词每次请求动态注入）
+
+| 调用点 | 模板键 | 说明 |
+|--------|--------|------|
+| `AiServiceImpl` JSON 路径 | `agent.system.main` | `.system(promptService.render(...))` |
+| `AiServiceImpl` SSE 路径 | `agent.system.main` | Prompt 显式加 `SystemMessage`（此前 SSE 无系统提示词） |
+| `TaskPlanner` 规划路径 | `agent.system.planner` + `agent.prompt.planner` | 规划模板外置，`{{planStart/End}}` 注入 wire 标记 |
+| `SubTaskAgent` 执行路径 | `agent.system.subagent` + `agent.prompt.subagent.execution` | 模板用 `SubAgentPromptBuilder.buildVariables(plan)` 组装变量 |
+| `TaskExecutor` 回退聚合 | `agent.system.main` + `agent.prompt.task.merge` | 回退路径（`feature.subagent.enabled=false`） |
+
+#### 工具描述外置
+
+`ExternalizedToolDefinitionProvider.resolve(delegate)`：`renderTool("agent.tool.{name}")` 取到 JSON（`{"description":"...","params":{"参数":"描述"}}`）→ 用 `ToolDefinition.builder()` 重建，覆盖 description + `inputSchema` 里的参数描述；JSON 解析失败 → 保留原 schema（Fail-Open）。provider 级 Caffeine 缓存（TTL = `agent.prompt.cache-ttl`）避免每请求 parse。覆盖经 `GuardedToolCallback.getToolDefinition()` 传播到 LLM 函数 schema 与 TaskPlanner 工具列表。
+
+#### 配置与观测
+
+```yaml
+agent:
+  prompt:
+    enabled: true
+    base-url: ${LANGFUSE_BASE_URL:}     # 空则不启用远程拉取
+    basic-auth: ${LANGFUSE_BASIC_AUTH:} # 裸 base64，不含 "Basic " 前缀
+    default-label: production
+    cache-ttl: 5m
+    failure-cache-ttl: 30s
+    timeout: 2s
+    tool-description-enabled: true
+    seed-enabled: false                 # 种子/清缓存端点开关
+```
+
+观测：每次渲染埋 `agent.prompt.{key}` span（`AgentSpanSpec.PROMPT`），属性 `prompt.source=remote|builtin|missing` + `rendered_len`。种子端点 `POST /agent/prompt/seed|reload`（seed 推内置模板到 Langfuse 打 production label；reload 清双缓存），`seed-enabled=false` 时返回 403。
 
 ---
 
@@ -686,6 +761,28 @@ logging:
     com.hmdp.prompthook: DEBUG
 ```
 
+### 5.10 为什么提示词用 Langfuse Prompt Management + 内置兜底，而非本地 DB 表？
+
+路线图原方案是自建 `agent_prompt_template` 表。实际落地改为 **Langfuse 云为事实源 + 代码内置模板兜底**：
+
+| 维度 | Langfuse Prompt Management | 自建 DB 表 |
+|------|---------------------------|-----------|
+| 版本管理 / label（production/staging） | ✅ 内置 | ❌ 自己写 |
+| UI 编辑 / git-sync / 变更历史 | ✅ 内置 | ❌ 自己写 |
+| 运行期热改 | ✅ 按缓存 TTL 生效 | ✅ 类似 |
+| 免费档可用性 | ✅ Hobby 含 | — |
+| 离线 / Langfuse 不可用 | 降级内置模板（Fail-Open） | 完全自洽 |
+
+Langfuse 已覆盖版本管理 + UI + 编辑链，自建表是重复造轮子；**内置模板兜底**保证 Langfuse 故障 / 未配置时功能不降级（与观测模块 Fail-Open 哲学一致）。
+
+### 5.11 为什么系统提示词从启动时 `.defaultSystem()` 改为每次请求动态注入？
+
+- **可运行期热改**：`.defaultSystem()` 在 ChatClient 构建时冻结，改提示词要重启；每次请求 `promptService.render()` 配合缓存 TTL，Langfuse 改模板后最多 5 分钟生效。
+- **支持按用户个性化**：模板注入 `{{userId}}` 等上下文变量，为路线图"动态注入用户姓名/城市"目标铺路。
+- **SSE 路径首次获得系统提示词**：原 SSE 路径绕开 ChatClient 直连 `dashScopeChatModel.stream()`，从未带系统提示词；改为显式构造 `SystemMessage` 后补齐。
+
+代价：5 个调用点必须显式 `.system()`（`.system()` 是替换而非追加），漏一处 = 该路径无系统提示词，靠测试强制覆盖。
+
 ---
 
 ## 6. 扩展指南
@@ -719,6 +816,18 @@ spring:
       api-key: ${DASHSCOPE_API_KEY}
       chat:
         model: qwen-plus-2025-07-28
+
+agent:
+  prompt:
+    enabled: true
+    base-url: ${LANGFUSE_BASE_URL:}     # 空则不启用远程拉取
+    basic-auth: ${LANGFUSE_BASIC_AUTH:} # Langfuse Basic 认证（裸 base64）
+    default-label: production
+    cache-ttl: 5m
+    failure-cache-ttl: 30s
+    timeout: 2s
+    tool-description-enabled: true
+    seed-enabled: false                 # 种子/清缓存端点开关
 
 hmdp:
   prompt-guard:
