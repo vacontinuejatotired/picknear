@@ -3,6 +3,8 @@ package com.hmdp.agent.service.impl;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.response.AiResponseRouter;
 import com.hmdp.agent.service.AiService;
 import com.hmdp.agent.tool.ToolBeanCollector;
@@ -22,10 +24,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -67,6 +71,14 @@ public class AiServiceImpl implements AiService {
     @Resource
     private AgentHistoryService historyService;
 
+    @Resource
+    private PromptService promptService;
+
+    /** 系统提示词变量：当前用户 ID（可空，渲染器对缺变量保留字面量） */
+    private Map<String, String> systemVars(Long userId) {
+        return Map.of("userId", userId != null ? String.valueOf(userId) : "");
+    }
+
     @Override
     public String chatReturnStringResult(String content, String conversationId) {
         log.info("AI 调用：{}", content);
@@ -94,8 +106,11 @@ public class AiServiceImpl implements AiService {
             return "❌ " + hookResult.getReason();
         }
 
-        // 4. 正常调用 LLM
-        String result = chatClient.prompt().user(finalContent).call().content();
+        // 4. 正常调用 LLM（系统提示词每次请求经 PromptService 注入，支持按用户个性化）
+        String result = chatClient.prompt()
+                .system(promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId)))
+                .user(finalContent)
+                .call().content();
         log.info("AI 回复：{}", result);
 
         // 历史会话：JSON 模式成功回合落库（BLOCK 已提前 return，不落库）
@@ -167,6 +182,8 @@ public class AiServiceImpl implements AiService {
                 int maxAttempts = 3;
                 Exception lastError = null;
                 String currentContent = finalContent;
+                // 系统提示词渲染一次（缓存命中后开销≈0），重试循环不重复渲染
+                String systemText = promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId));
 
                 // 观测：Phase1 整段（含重试循环），属性 attempt 标记成功轮次
                 try (AgentSpan phase1 = agentTracer.start(AgentSpanSpec.PHASE1, null)) {
@@ -182,7 +199,9 @@ public class AiServiceImpl implements AiService {
                             Observation streamParent = observationRegistry.getCurrentObservation();
                             org.springframework.ai.chat.prompt.Prompt streamPrompt =
                                     new org.springframework.ai.chat.prompt.Prompt(
-                                            java.util.List.of(new org.springframework.ai.chat.messages.UserMessage(currentContent)));
+                                            java.util.List.of(
+                                                    new org.springframework.ai.chat.messages.SystemMessage(systemText),
+                                                    new org.springframework.ai.chat.messages.UserMessage(currentContent)));
                             reactor.core.publisher.Flux<org.springframework.ai.chat.model.ChatResponse> stream =
                                     dashScopeChatModel.stream(streamPrompt);
                             if (streamParent != null) {

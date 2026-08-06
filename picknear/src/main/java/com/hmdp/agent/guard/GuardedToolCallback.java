@@ -3,6 +3,7 @@ package com.hmdp.agent.guard;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.tool.ToolDefinitionProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -21,30 +22,39 @@ public class GuardedToolCallback implements ToolCallback {
     private final Long userId;
     private final boolean returnDirect;
     private final AgentTracer agentTracer;
+    private final ToolDefinitionProvider toolDefinitionProvider;
 
     private static final AtomicInteger invokeCounter = new AtomicInteger(0);
 
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
                                String conversationId, Long userId, boolean returnDirect,
                                AgentTracer agentTracer) {
+        this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer,
+                ToolCallback::getToolDefinition);
+    }
+
+    public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
+                               String conversationId, Long userId, boolean returnDirect,
+                               AgentTracer agentTracer, ToolDefinitionProvider toolDefinitionProvider) {
         this.delegate = delegate;
         this.guardManager = guardManager;
         this.conversationId = conversationId;
         this.userId = userId;
         this.returnDirect = returnDirect;
         this.agentTracer = agentTracer;
+        this.toolDefinitionProvider = toolDefinitionProvider;
     }
 
     public String getToolName() {
-        return delegate.getToolDefinition().name();
+        return getToolDefinition().name();
     }
 
     public String getToolDescription() {
-        return delegate.getToolDefinition().description();
+        return getToolDefinition().description();
     }
 
     public ToolDefinition getToolDefinition() {
-        return delegate.getToolDefinition();
+        return toolDefinitionProvider.resolve(delegate);
     }
 
     @Override

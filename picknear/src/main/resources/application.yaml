@@ -130,6 +130,16 @@ agent:
     total-timeout: 60s                        # 整个 execute() 总超时（含重试）
     max-retries: 3                            # 最大重试次数
     retry-backoff: 1s                         # 重试基础退避间隔
+  prompt:
+    enabled: true                             # 提示词外置总开关（false → 全部走内置模板）
+    base-url: ${LANGFUSE_BASE_URL:}           # Langfuse 基础地址，空则不启用远程拉取
+    basic-auth: ${LANGFUSE_BASIC_AUTH:}       # Langfuse Basic 认证（裸 base64）
+    default-label: production                 # 默认拉取 label
+    cache-ttl: 5m                             # 成功文本 / 404 负缓存 TTL
+    failure-cache-ttl: 30s                    # 网络失败瞬时熔断 TTL
+    timeout: 2s                               # RestClient 建连/读超时
+    tool-description-enabled: true            # 工具描述外置开关（false → 回退 @Tool 注解）
+    seed-enabled: false                       # 种子/清缓存端点开关（生产编排后关闭）
 
 feature:
   subagent:

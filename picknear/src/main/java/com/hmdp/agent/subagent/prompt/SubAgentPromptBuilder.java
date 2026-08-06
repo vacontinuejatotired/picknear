@@ -3,6 +3,7 @@ package com.hmdp.agent.subagent.prompt;
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.task.SubTask;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,28 +20,23 @@ public final class SubAgentPromptBuilder {
     private SubAgentPromptBuilder() {}
 
     /**
-     * 构建执行 Prompt。
+     * 构建执行 Prompt 的变量集（模板已外置到 {@code agent.prompt.subagent.execution}，
+     * 由 PromptService 渲染 {@code {{var}}} 占位符）。
      *
      * @param plan 子 Agent 执行计划
-     * @return 完整 Prompt 字符串
+     * @return 变量名 → 值（含 wire-format 标记与长度常量注入）
      */
-    public static String build(SubTaskPlan plan) {
-        String historyText = buildHistorySummaryText(plan.getHistorySummary());
-        String paramConstraints = buildParamConstraints(plan.getTasks());
-        String tasksDesc = buildTasksDesc(plan.getTasks());
-
-        return String.format(
-                SubAgentPromptTemplate.EXECUTION_PROMPT,
-                plan.getUserInput(),
-                plan.getCurrentResponse(),
-                historyText,
-                paramConstraints,
-                tasksDesc,
-                SubAgentPromptTemplate.SNAPSHOT_BEGIN,
-                String.valueOf(SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH),
-                SubAgentPromptTemplate.SNAPSHOT_END,
-                String.valueOf(SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH)
-        );
+    public static Map<String, String> buildVariables(SubTaskPlan plan) {
+        Map<String, String> vars = new LinkedHashMap<>();
+        vars.put("userInput", plan.getUserInput());
+        vars.put("currentResponse", plan.getCurrentResponse());
+        vars.put("historySummary", buildHistorySummaryText(plan.getHistorySummary()));
+        vars.put("paramConstraints", buildParamConstraints(plan.getTasks()));
+        vars.put("tasksDesc", buildTasksDesc(plan.getTasks()));
+        vars.put("snapshotBegin", SubAgentPromptTemplate.SNAPSHOT_BEGIN);
+        vars.put("snapshotEnd", SubAgentPromptTemplate.SNAPSHOT_END);
+        vars.put("dataMaxLength", String.valueOf(SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH));
+        return vars;
     }
 
     // ══════════════════════════════════════════════════
