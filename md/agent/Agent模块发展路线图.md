@@ -23,7 +23,7 @@
 | Agent 执行轨迹 | Phase 2 | ✅ | 由**观测模块**取代（`AgentTracer`/`AgentSpan` → Langfuse OTLP），未建 `agent_trace` 表 |
 | 可观测性 | Phase 4 | ✅ | `agent/observability/` 包 + Langfuse 云观测（OTLP `/v1/traces`）；观测白名单 `ObservabilityTraceFilter`；替代原 Prometheus/Grafana 方案 |
 | 工具生态 | Phase 3 | 🟡 | blog 工具（queryPublishedBlogs/queryBlogsByTitle/publishTestBlog）、天气、店铺查询等已有；按 `@TargetTool` 自动注册 |
-| CONFIRM 审批 | Phase 1 | 🟡 | 前端有确认交互（TaskProgress `@confirm`）；`TaskPlanner.hasConfirmTool` 目前恒 false（死代码）；**`agent_approval` 审批表未建**，无超时/审计 |
+| CONFIRM 审批 | Phase 1 | ✅ | 真暂停落地（2026-08-06）：守卫抛 `ConfirmRequiredException`；`agent_approval` 审批表 + TTL 超时/审计 + `/agent/confirm`（SSE 续流）`/agent/reject`；前端审批卡片 |
 | 提示词外置 `agent_prompt_template` | Phase 1 | ❌ | 未做（仍在 `AgentConfig.java` + `@Tool` 注解） |
 | 用户偏好 `agent_user_preference` | Phase 3/5 | ❌ | 未做 |
 | Redis ChatMemory（JDBC→Redis + 摘要） | Phase 4 | ❌ | 仍 JDBC；SSE 回合不进 ChatMemory 是既有问题 |
@@ -69,7 +69,7 @@ Tool 生态                 ████░░░░░░ 40%   🟡 → Phase 
 Agent 核心                ██████████ 90%   ✅ TaskPlanner 两阶段规划 + 子任务
 流式体验                  ████████░░ 80%   ✅ 真流式 + ObservedSseEmitter
 测试                      ░░░░░░░░░░ 10%   🟡 有测试但被 .gitignore 不入库
-安全审批                  ██████░░░░ 60%   🟡 CONFIRM 交互有，审批表未建
+安全审批                  ██████████ 90%   ✅ 真暂停 + 审批表 + 超时/审计（2026-08-06）
 监控                      ██████████ 90%   ✅ Langfuse OTLP（替代 Prometheus）
 ```
 
@@ -92,7 +92,7 @@ Agent 核心                ██████████ 90%   ✅ TaskPlanner
 | `CompletableFuture` 无线程池 | 🟠 P1 | ✅ Phase 0 已修复 | `AgentConfig` 已配置 `aiTaskExecutor` 并注入 |
 | SSE JSON 注入漏洞 | 🟠 P1 | ✅ Phase 0 已修复 | `escapeJson()` 已用于 `hookResult.getReason()` |
 | SSE conversationId 推送失败 | 🟠 P1 | ✅ Phase 0 已修复 | `completeWithError` + `return null` |
-| CONFIRM 空壳 | 🔴 P0 | 🟡 部分 | 前端确认交互已有（TaskProgress `@confirm`）；`agent_approval` 审批表/超时/审计未建；`TaskPlanner.hasConfirmTool` 恒 false |
+| CONFIRM 空壳 | 🔴 P0 | ✅ 已落地 | 真暂停 + `agent_approval` 审批表 + 超时/审计 + `/agent/confirm`、`/agent/reject` + 前端审批卡片（2026-08-06） |
 | 流式是伪流式 | 🟠 P1 | ✅ Phase 2 已落地 | `dashScopeChatModel.stream()` + ObservedSseEmitter 真流式；SSE 用 meta/progress/error 事件 |
 
 ---
@@ -375,7 +375,7 @@ public class SseEvent {
 #### 3.3.4 审批记录表 — `agent_approval`
 
 **对应缺失**: P1 — 审批记录  
-**实现阶段**: Phase 1  
+**实现阶段**: ✅ 已落地（2026-08-06）  
 **存储**: MariaDB
 
 ```sql
@@ -629,7 +629,7 @@ Phase 0  不涉及数据模型变更（纯清理）                ✅ 完成
 Phase 1  ─── 4 个核心表
   │         ├── agent_conversation    ✅ 已建（2026-08-05，简化版）
   │         ├── agent_message         ✅ 已建（2026-08-05）
-  │         ├── agent_approval        ❌ 未建 ← 优先补
+  │         ├── agent_approval        ✅ 已建（2026-08-06，CONFIRM 审批流）
   │         └── agent_prompt_template ❌ 未建
   │
 Phase 2  ─── 结构 + 协议
