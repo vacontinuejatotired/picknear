@@ -56,7 +56,8 @@ public class DashScopeHttpConfig {
     @Value("${spring.ai.dashscope.api-key}")
     private String apiKey;
 
-    @Value("${spring.ai.dashscope.chat.api-base}")
+    /** 原生 DashScope 适配器认的 base-url 属性（spring-ai-alibaba：spring.ai.dashscope.chat.base-url） */
+    @Value("${spring.ai.dashscope.chat.base-url}")
     private String baseUrl;
 
     /**

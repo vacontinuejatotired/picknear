@@ -75,7 +75,7 @@ spring:
 
       chat:
         model: qwen-plus-2025-07-28
-        api-base: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+        base-url: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com
         memory:
           repository:
             jdbc:
