@@ -132,9 +132,10 @@ public class LangfusePromptRepository {
                         .queryParam("label", props.getDefaultLabel())
                         .build())
                 .retrieve()
-                // 4xx 是确定性结果（404 不存在/401 认证失败）→ 不抛，走下方负缓存；
-                // 5xx 是瞬时故障 → 抛异常走 30s 熔断
-                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> res.close())
+                // 4xx 是确定性结果（404 不存在/401 认证失败）：不 close（close 后 body 无法提取，
+                // 会抛 "Error while extracting response" 被当成瞬时故障），用空 handler 让 body
+                // 正常提取，靠下方状态码判断走负缓存；5xx 是瞬时故障 → 抛异常走 30s 熔断
+                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {})
                 .onStatus(HttpStatusCode::is5xxServerError, (req, res) -> {
                     res.close();
                     throw new PromptFetchException("Langfuse GET 5xx HTTP " + res.getRawStatusCode());
