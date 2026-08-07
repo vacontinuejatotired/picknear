@@ -1,6 +1,5 @@
 package com.hmdp.agent.config;
 
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import com.hmdp.agent.tool.ToolBeanCollector;
 
 import ch.qos.logback.classic.Logger;
@@ -14,6 +13,7 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -101,7 +101,7 @@ public class AgentConfig {
      * 无需手动 {@code @Resource} 每个工具类。
      */
     @Bean("aliibabaChatClient")
-    public ChatClient chatClient(DashScopeChatModel chatModel, ChatMemory chatMemory,
+    public ChatClient chatClient(ChatModel chatModel, ChatMemory chatMemory,
                                  ToolBeanCollector toolBeanCollector) {
         ToolCallback[] toolCallbacks = toolBeanCollector.getToolCallbacks();
 
@@ -139,7 +139,7 @@ public class AgentConfig {
      * </ul>
      */
     @Bean("subAgentChatClient")
-    public ChatClient subAgentChatClient(DashScopeChatModel chatModel) {
+    public ChatClient subAgentChatClient(ChatModel chatModel) {
         // 系统提示词已外置：由 SubTaskAgent 每次请求经 PromptService 注入（agent.system.subagent）
         return ChatClient.builder(chatModel)
                 .build();

@@ -21,8 +21,7 @@
         <!-- JDK 版本 -->
         <java.version>17</java.version>
 
-        <!-- Spring AI & Alibaba -->
-        <spring-ai-alibaba.version>1.1.2.0</spring-ai-alibaba.version>
+        <!-- Spring AI & OpenAI -->
         <spring-ai.version>1.1.2</spring-ai.version>
 
         <!--        &lt;!&ndash; Redis 相关 &ndash;&gt;-->
@@ -67,11 +66,13 @@
             <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
-        <!-- Spring AI Alibaba -->
+        <!-- Spring AI OpenAI（MaaS compatible-mode 端点，OpenAI 兼容协议）
+             背景：MaaS 端点不认 DashScope 经典路径(/api/v1/services/aigc/text-generation/generation)，
+             会静默丢连接(failed to respond)，只认 OpenAI 兼容路径(/compatible-mode/v1/chat/completions)
+             与 OpenAI 请求体格式。故弃 spring-ai-alibaba-starter-dashscope，改用 OpenAI 客户端。 -->
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
         <!-- Spring Boot Starters -->
         <dependency>

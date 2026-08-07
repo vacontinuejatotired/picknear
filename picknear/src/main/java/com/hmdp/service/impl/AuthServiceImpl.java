@@ -220,7 +220,7 @@ public class AuthServiceImpl implements AuthService {
                             RedisConstants.LOGIN_REFRESH_USER_KEY + userId,
                             RedisConstants.LOGIN_VALID_VERSION_KEY + userId
                     ),
-                    accessToken, oldVersion);
+                    accessToken, oldVersion.toString());
             if (current != null && !current.isEmpty()) {
                 log.info("并发已刷新，返回当前 token userId={}", userId);
                 return new TokenPair(current.get(0), current.get(1), oldVersion);

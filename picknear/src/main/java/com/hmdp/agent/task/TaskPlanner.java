@@ -328,10 +328,11 @@ public class TaskPlanner {
                                  TaskReport history) {
         StringBuilder toolsDesc = new StringBuilder();
         for (ToolCallback cb : toolCallbacks) {
-            String name = cb.getToolDefinition().name();
+            // 用注解原始描述，避免为全部工具拉取外置描述（执行阶段才按需解析）
+            String name = GuardedToolCallback.rawName(cb);
             if (history.isCompleted(name) || history.isFinalFailed(name)) continue;
             toolsDesc.append("- ").append(name)
-                     .append(": ").append(cb.getToolDefinition().description()).append("\n");
+                     .append(": ").append(GuardedToolCallback.rawDescription(cb)).append("\n");
         }
 
         List<String> completedSummary = history.getCompleted().stream()
@@ -438,7 +439,7 @@ public class TaskPlanner {
         Map<String, ToolCallback> callbackIndex = new HashMap<>();
         if (toolCallbacks != null) {
             for (ToolCallback cb : toolCallbacks) {
-                callbackIndex.put(cb.getToolDefinition().name(), cb);
+                callbackIndex.put(GuardedToolCallback.rawName(cb), cb);
             }
         }
 

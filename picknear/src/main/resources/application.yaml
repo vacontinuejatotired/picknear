@@ -68,19 +68,22 @@ spring:
       client:
       ##允许多个模型，每个模型都有自己的配置
         enabled: false
-    ##下面是阿里巴巴的配置
-    dashscope:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always
+            platform: mariadb
+    ## MaaS compatible-mode 端点：OpenAI 兼容协议。base-url 到 /compatible-mode 为止
+    ## （SDK completionsPath 默认 /v1/chat/completions，会自动拼接；带 /v1 会变成 .../v1/v1/chat/completions 404）。
+    ## DashScope 经典路径 /api/v1/services/aigc/text-generation/generation 会被 MaaS 网关静默丢连接。
+    openai:
       api-key: ${DASHSCOPE_API_KEY}
-      enabled: true
-
+      base-url: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com/compatible-mode
       chat:
-        model: qwen-plus-2025-07-28
-        base-url: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com
-        memory:
-          repository:
-            jdbc:
-              initialize-schema: always
-              platform: mariadb
+        ## 必须用 options.model！OpenAiChatProperties 无 model 字段，chat.model 会被忽略，
+        ## 构造器硬编码默认 gpt-4o-mini，MaaS 端点不认会 404/断连（2026-08-07 wiretap 实测）
+        options:
+          model: qwen-plus-2025-07-28
 
 management:
   otlp:

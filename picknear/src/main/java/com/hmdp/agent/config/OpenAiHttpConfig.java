@@ -1,6 +1,5 @@
 package com.hmdp.agent.config;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import io.netty.channel.ChannelOption;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -8,6 +7,9 @@ import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,15 +26,25 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
- * DashScope HTTP 客户端连接池与超时配置。
+ * MaaS（百炼）OpenAI 兼容端点 HTTP 客户端连接池与超时配置。
  * <p>
- * 提供自定义 {@link DashScopeApi} Bean，注入带连接池的同步和流式 HTTP 客户端，
- * 解决 AI 对话中连接池耗尽和无超时阻塞的问题。
+ * 提供自定义 {@link OpenAiApi} Bean，注入带连接池的同步和流式 HTTP 客户端。
+ * {@code OpenAiChatAutoConfiguration} 的 {@code openAiApi(...)} 方法带
+ * {@code @ConditionalOnMissingBean}，本 Bean 定义后自动配置回退，其
+ * {@code openAiChatModel(...)} 会按类型装配本版本（连接池）构建模型。
  * <ul>
  *   <li><b>同步模式</b>（{@code chatReturnStringResult}）：使用 Apache HttpClient 5 + 连接池，
  *       替代默认的 {@code HttpURLConnection}（无连接池，每次新建 TCP 连接）；</li>
  *   <li><b>流式模式</b>（SSE）：使用 Reactor Netty 连接池，调优空闲回收与获取超时参数。</li>
  * </ul>
+ *
+ * <h3>为什么是 OpenAI 客户端（2026-08-07）</h3>
+ * MaaS 工作空间端点是 OpenAI 兼容协议：base-url 到 {@code /compatible-mode} 为止，
+ * SDK 的 {@code completionsPath}（默认 {@code /v1/chat/completions}）自动拼接成
+ * {@code .../compatible-mode/v1/chat/completions}。请求体用 OpenAI 格式（{@code {"model","messages"}}）。
+ * DashScope 经典路径 {@code /api/v1/services/aigc/text-generation/generation} 会被 MaaS 网关静默丢连接
+ * （0 字节、连接复位），表现即 {@code NoHttpResponseException: ... failed to respond}；
+ * 而 DashScope 格式请求体（{@code input.messages}）打到 compatible-mode 端点会 400。
  *
  * <h3>保守参数</h3>
  * <pre>
@@ -44,36 +56,36 @@ import java.util.concurrent.TimeUnit;
  * </pre>
  *
  * <h3>Bean 冲突规避</h3>
- * <p>Bean 名称使用 {@code customDashScopeApi} 而非默认方法名，避免与自动配置
- * （{@code DashScopeAutoConfiguration}）可能产生的同名 Bean 冲突。配合
+ * <p>Bean 名称使用 {@code customOpenAiApi} 而非自动配置的同名方法，配合
  * {@code @Primary} 确保自动装配时优先使用本配置版本。</p>
  *
- * @see AiServiceImpl
+ * @see com.hmdp.agent.service.impl.AiServiceImpl
  */
 @Configuration
-public class DashScopeHttpConfig {
+public class OpenAiHttpConfig {
 
-    @Value("${spring.ai.dashscope.api-key}")
+    private static final Logger log = LoggerFactory.getLogger(OpenAiHttpConfig.class);
+
+    @Value("${spring.ai.openai.api-key}")
     private String apiKey;
 
-    /** 原生 DashScope 适配器认的 base-url 属性（spring-ai-alibaba：spring.ai.dashscope.chat.base-url） */
-    @Value("${spring.ai.dashscope.chat.base-url}")
+    /** MaaS compatible-mode base-url（到 /compatible-mode 为止；SDK 会自动拼 /v1/chat/completions） */
+    @Value("${spring.ai.openai.base-url}")
     private String baseUrl;
 
     /**
-     * 提供自定义 {@link DashScopeApi} Bean，覆盖自动配置。
+     * 提供自定义 {@link OpenAiApi} Bean，覆盖自动配置。
      * <p>
-     * Bean 名称 {@code customDashScopeApi} 避免与自动配置中的
-     * {@code dashScopeApi} 方法重名；{@code @Primary} 确保
-     * {@code DashScopeChatModel} 注入此版本。
+     * Bean 名称 {@code customOpenAiApi} 避免与自动配置中的 {@code openAiApi} 方法重名；
+     * {@code @Primary} 确保 {@code OpenAiChatModel} 注入此版本。
      */
-    @Bean("customDashScopeApi")
+    @Bean("customOpenAiApi")
     @Primary
-    public DashScopeApi dashScopeApi() {
+    public OpenAiApi openAiApi() {
         RestClient.Builder restClientBuilder = createPooledRestClient();
         WebClient.Builder webClientBuilder = createPooledWebClient();
 
-        return DashScopeApi.builder()
+        return OpenAiApi.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey)
                 .restClientBuilder(restClientBuilder)
@@ -84,7 +96,7 @@ public class DashScopeHttpConfig {
     /**
      * 创建带连接池的 RestClient（用于同步非流式 AI 请求）。
      * <p>
-     * DashScopeApi 默认使用 {@code SimpleClientHttpRequestFactory}（基于
+     * OpenAiApi 默认使用 {@code SimpleClientHttpRequestFactory}（基于
      * {@code HttpURLConnection}），每次新建 TCP 连接。此处替换为
      * Apache HttpClient 5 连接池：
      * <ul>
@@ -118,7 +130,7 @@ public class DashScopeHttpConfig {
     /**
      * 创建带连接池的 WebClient（用于流式 SSE AI 请求）。
      * <p>
-     * DashScopeApi 默认 Netty 连接池参数（500/45s/60s-acquire/30s-evict），
+     * OpenAiApi 默认 Netty 连接池参数（500/45s/60s-acquire/30s-evict），
      * 此处调优为保守参数。
      * <p>
      * <b>重要：responseTimeout 必须与 SseEmitter 超时（30min）对齐。</b>
@@ -128,7 +140,7 @@ public class DashScopeHttpConfig {
      * 服务端继续发送数据 → {@code Connection reset}。
      */
     private WebClient.Builder createPooledWebClient() {
-        ConnectionProvider provider = ConnectionProvider.builder("dashscope-http-pool")
+        ConnectionProvider provider = ConnectionProvider.builder("maas-http-pool")
                 .maxConnections(200)
                 .maxIdleTime(Duration.ofSeconds(30))            // 空闲 30s 后关闭
                 .maxLifeTime(Duration.ofMinutes(10))            // 连接最大存活 10 min

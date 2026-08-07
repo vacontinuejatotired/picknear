@@ -60,6 +60,38 @@ public class GuardedToolCallback implements ToolCallback {
         return toolDefinitionProvider.resolve(delegate);
     }
 
+    /**
+     * 原始工具名（注解定义，不触发外置描述解析）。
+     * 按名过滤/校验场景只需 name，name 永远来自注解，无需走 Langfuse。
+     */
+    public String getRawToolName() {
+        return delegate.getToolDefinition().name();
+    }
+
+    /**
+     * 原始工具描述（注解定义，不触发外置描述解析）。
+     * 规划阶段构建工具清单时用，避免为全部工具拉取外置描述。
+     */
+    public String getRawToolDescription() {
+        return delegate.getToolDefinition().description();
+    }
+
+    /** 取任意 ToolCallback 的原始名（非 Guarded 回调直接走其定义） */
+    public static String rawName(ToolCallback cb) {
+        if (cb instanceof GuardedToolCallback g) {
+            return g.getRawToolName();
+        }
+        return cb.getToolDefinition().name();
+    }
+
+    /** 取任意 ToolCallback 的原始描述（非 Guarded 回调直接走其定义） */
+    public static String rawDescription(ToolCallback cb) {
+        if (cb instanceof GuardedToolCallback g) {
+            return g.getRawToolDescription();
+        }
+        return cb.getToolDefinition().description();
+    }
+
     @Override
     public ToolMetadata getToolMetadata() {
         return delegate.getToolMetadata();

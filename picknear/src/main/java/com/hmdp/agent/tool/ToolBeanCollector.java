@@ -116,7 +116,7 @@ public class ToolBeanCollector implements ApplicationContextAware {
     public ToolCallback getToolCallback(String toolName) {
         if (toolName == null || toolCallbacks == null) return null;
         for (ToolCallback cb : toolCallbacks) {
-            if (toolName.equals(cb.getToolDefinition().name())) {
+            if (toolName.equals(GuardedToolCallback.rawName(cb))) {
                 return cb;
             }
         }

@@ -2,6 +2,7 @@ package com.hmdp.agent.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
@@ -158,7 +159,7 @@ public class TaskExecutor {
     private ToolCallback findTool(String toolName) {
         if (toolCallbacks == null || toolName == null) return null;
         for (ToolCallback cb : toolCallbacks) {
-            if (toolName.equals(cb.getToolDefinition().name())) return cb;
+            if (toolName.equals(GuardedToolCallback.rawName(cb))) return cb;
         }
         return null;
     }

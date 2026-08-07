@@ -66,7 +66,7 @@ public class AiServiceImpl implements AiService {
     private io.micrometer.observation.ObservationRegistry observationRegistry;
 
     @Resource
-    private com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel dashScopeChatModel;
+    private org.springframework.ai.chat.model.ChatModel chatModel;
 
     @Resource
     private AgentHistoryService historyService;
@@ -203,13 +203,18 @@ public class AiServiceImpl implements AiService {
                                                     new org.springframework.ai.chat.messages.SystemMessage(systemText),
                                                     new org.springframework.ai.chat.messages.UserMessage(currentContent)));
                             reactor.core.publisher.Flux<org.springframework.ai.chat.model.ChatResponse> stream =
-                                    dashScopeChatModel.stream(streamPrompt);
+                                    chatModel.stream(streamPrompt);
                             if (streamParent != null) {
                                 stream = stream.contextWrite(rctx -> rctx.put("micrometer.observation", streamParent));
                             }
                             StringBuilder buffer = new StringBuilder();
-                            for (String token : stream.map(r -> r.getResult().getOutput().getText()).toIterable()) {
-                                if (token != null && !token.isEmpty()) {
+                            // OpenAI 兼容流式首 chunk 只有 role、content=null，getText() 为 null；
+                            // Flux.map 不允许 mapper 返回 null（会抛 NPE），需转空串再按空串过滤
+                            for (String token : stream.map(r -> {
+                                    String text = r.getResult().getOutput().getText();
+                                    return text != null ? text : "";
+                                }).toIterable()) {
+                                if (!token.isEmpty()) {
                                     buffer.append(token);
                                     SseUtils.safeSend(emitter, SseUtils.escapeJson(token));
                                 }

@@ -2,8 +2,10 @@ package com.hmdp.agent.subagent;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
@@ -96,10 +98,18 @@ public class SubTaskAgent {
         String systemText = promptService.render(PromptKeys.SYSTEM_SUBAGENT,
                 Map.of("userId", plan.getUserId() != null ? String.valueOf(plan.getUserId()) : ""));
 
-        // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext
-        String content = executeWithRetry(systemText, prompt, filteredCallbacks,
-                props.getMaxRetries(), props.getRetryBackoff(),
-                props.getTotalTimeout(), start, plan.getUserId(), plan.getConversationId());
+        // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext。
+        //    调用前给 ChatModel 观察打标 "subagent"：Langfuse 里 generation 名变为
+        //    subagent-chat <model>，与主代理的 chat <model> 区分（见 ChatModelObservationConventionConfig）。
+        ChatModelObservationConventionConfig.mark("subagent");
+        String content;
+        try {
+            content = executeWithRetry(systemText, prompt, filteredCallbacks,
+                    props.getMaxRetries(), props.getRetryBackoff(),
+                    props.getTotalTimeout(), start, plan.getUserId(), plan.getConversationId());
+        } finally {
+            ChatModelObservationConventionConfig.clear();
+        }
 
         if (content == null) {
             long elapsed = System.currentTimeMillis() - start;
@@ -135,9 +145,11 @@ public class SubTaskAgent {
     private ToolCallback[] filterCallbacks(List<String> toolNames) {
         ToolCallback[] all = toolBeanCollector.getToolCallbacks();
         if (all == null) return new ToolCallback[0];
+        // 按原始名过滤（不触发外置描述解析），只保留本轮计划内的工具；
+        // 外置描述由 ChatClient 在构造函数 schema 时对被保留的工具按需解析
         Set<String> allowed = new HashSet<>(toolNames);
         return Arrays.stream(all)
-                .filter(cb -> allowed.contains(cb.getToolDefinition().name()))
+                .filter(cb -> allowed.contains(GuardedToolCallback.rawName(cb)))
                 .toArray(ToolCallback[]::new);
     }
 
