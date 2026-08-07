@@ -6,6 +6,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hmdp.agent.prompt.config.PromptProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -51,6 +52,7 @@ public class LangfusePromptRepository {
         factory.setReadTimeout((int) props.getTimeout().toMillis());
         this.restClient = RestClient.builder()
                 .baseUrl(props.getBaseUrl())
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + props.getBasicAuth())
                 .requestFactory(factory)
                 .build();
         this.contentCache = Caffeine.newBuilder().expireAfterWrite(props.getCacheTtl()).build();
