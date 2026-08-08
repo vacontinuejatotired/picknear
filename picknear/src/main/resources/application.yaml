@@ -150,6 +150,9 @@ agent:
 feature:
   subagent:
     enabled: true                             # 子 Agent 功能开关
+  tool-routing:
+    enabled: true                             # 规划工具路由：紧凑目录，识别不出时全量重跑一次
+    max-tag-length: 60                        # 紧凑标签最大字符数
 
 server:
   servlet:

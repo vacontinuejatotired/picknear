@@ -2,6 +2,7 @@
 
 可用工具：
 {{toolsDescription}}
+工具仅有名称+简介，先按语义匹配用户意图决定规划哪些；若无法确定匹配哪个工具，在计划数组里输出 {"tool":"__UNCERTAIN__"}
 
 已完成的工具及摘要：
 {{completedSummary}}
@@ -18,6 +19,5 @@ AI 已有回复：{{currentResponse}}
 {{planStart}}
 [{"tool":"工具名","params":{"参数名":"值"}}]
 {{planEnd}}
-- 不需要额外工具则输出 {{planStart}}=[]
-{{planEnd}}
-- 需要参数时从用户问题中提取，参数名与工具定义一致
+- 不需要额外工具则输出 {{planStart}}=[]{{planEnd}}
+- 需要参数时从用户问题中提取，参数名必须与工具简介括号中标注的参数完全一致

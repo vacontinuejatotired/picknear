@@ -10,6 +10,7 @@ import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
+import com.hmdp.agent.routing.ToolRouter;
 import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
@@ -86,6 +87,9 @@ public class TaskPlanner {
 
     @Resource
     private PromptService promptService;
+
+    @Resource
+    private ToolRouter toolRouter;
 
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
@@ -321,20 +325,34 @@ public class TaskPlanner {
     }
 
     /**
-     * 调 AI 做规划推理（规划提示词已外置：agent.prompt.planner + agent.system.planner）。
+     * 调 AI 做规划推理（编排：紧凑目录 → 调 LLM → 不确定则全量目录重跑一次）。
+     * <p>
+     * 目录构建/标签/不确定性判定全部在 router 侧，本方法只做编排；
+     * __UNCERTAIN__ 在进 validatePlan 前由本层拦截（用全量重跑结果替换），
+     * validatePlan 的 callbackIndex 仍保持全量，防止子集外工具被误判"工具不存在"。
+     * </p>
      */
     private String askAiForPlan(String input, String response, Long userId,
                                  ToolCallback[] toolCallbacks,
                                  TaskReport history) {
-        StringBuilder toolsDesc = new StringBuilder();
-        for (ToolCallback cb : toolCallbacks) {
-            // 用注解原始描述，避免为全部工具拉取外置描述（执行阶段才按需解析）
-            String name = GuardedToolCallback.rawName(cb);
-            if (history.isCompleted(name) || history.isFinalFailed(name)) continue;
-            toolsDesc.append("- ").append(name)
-                     .append(": ").append(GuardedToolCallback.rawDescription(cb)).append("\n");
+        boolean compact = featureProperties.getToolRouting() != null
+                && featureProperties.getToolRouting().isEnabled();
+        String toolsDesc = toolRouter.buildCatalog(compact, toolCallbacks, history);
+        log.debug("规划工具目录字符数={}", toolsDesc.length());
+        String result = plannerCall(input, response, userId, toolsDesc, history);
+        if (compact && toolRouter.isUncertain(result)) {
+            log.info("[规划] 路由不确定，改用全量目录重试");
+            result = plannerCall(input, response, userId,
+                    toolRouter.buildCatalog(false, toolCallbacks, history), history);
         }
+        return result;
+    }
 
+    /**
+     * 渲染规划 prompt 并调用规划 LLM（失败降级返回 "[]"）。
+     */
+    private String plannerCall(String input, String response, Long userId,
+                               String toolsDesc, TaskReport history) {
         List<String> completedSummary = history.getCompleted().stream()
                 .map(t -> t.getToolName() + ": " + truncate(String.valueOf(t.getResult()), RESULT_SUMMARY_LEN))
                 .toList();
@@ -343,7 +361,7 @@ public class TaskPlanner {
                 .toList();
 
         Map<String, String> planVars = new LinkedHashMap<>();
-        planVars.put("toolsDescription", toolsDesc.toString());
+        planVars.put("toolsDescription", toolsDesc);
         planVars.put("completedSummary", String.join("\n", completedSummary));
         planVars.put("failedSummary", String.join("\n", failedSummary));
         planVars.put("userInput", input);
