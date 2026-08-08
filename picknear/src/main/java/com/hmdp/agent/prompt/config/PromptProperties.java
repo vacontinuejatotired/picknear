@@ -32,7 +32,7 @@ public class PromptProperties {
     private String defaultLabel = "production";
 
     /** 成功文本 / 404 负结果缓存 TTL */
-    private Duration cacheTtl = Duration.ofMinutes(5);
+    private Duration cacheTtl = Duration.ofMinutes(30);
 
     /** 网络失败瞬时熔断 TTL（防 Langfuse 宕机风暴） */
     private Duration failureCacheTtl = Duration.ofSeconds(30);

@@ -141,7 +141,7 @@ agent:
     base-url: ${LANGFUSE_BASE_URL:}           # Langfuse 基础地址，空则不启用远程拉取
     basic-auth: ${LANGFUSE_BASIC_AUTH:}       # Langfuse Basic 认证（裸 base64）
     default-label: production                 # 默认拉取 label
-    cache-ttl: 5m                             # 成功文本 / 404 负缓存 TTL
+    cache-ttl: 30m                             # 成功文本 / 404 负缓存 TTL（启动预热后请求期基本全命中）
     failure-cache-ttl: 30s                    # 网络失败瞬时熔断 TTL
     timeout: 2s                               # RestClient 建连/读超时
     tool-description-enabled: true            # 工具描述外置开关（false → 回退 @Tool 注解）
