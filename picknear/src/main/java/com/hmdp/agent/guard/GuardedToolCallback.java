@@ -92,6 +92,22 @@ public class GuardedToolCallback implements ToolCallback {
         return cb.getToolDefinition().description();
     }
 
+    /**
+     * 原始工具输入 schema（注解定义，不触发外置描述解析）。
+     * 规划阶段提取参数名（properties key）用。
+     */
+    public String getRawInputSchema() {
+        return delegate.getToolDefinition().inputSchema();
+    }
+
+    /** 取任意 ToolCallback 的原始输入 schema（非 Guarded 回调直接走其定义） */
+    public static String getRawInputSchema(ToolCallback cb) {
+        if (cb instanceof GuardedToolCallback g) {
+            return g.getRawInputSchema();
+        }
+        return cb.getToolDefinition().inputSchema();
+    }
+
     @Override
     public ToolMetadata getToolMetadata() {
         return delegate.getToolMetadata();
