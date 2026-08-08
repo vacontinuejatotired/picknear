@@ -49,7 +49,7 @@ agent.session                                                  14.73s  (5 items)
 您当前发布的博客共有7篇，按点赞数排序，其中点赞最多的是标题为" d"的博客，内容为"是S"，获得1个点赞。其他博客包括《战地六促销，打北约的来》《claude又不可用了》《苍穹外卖》等，内容涉及游戏、编程和日常分享。
 另外，长沙当前天气为晴天，适合外出活动。
 
-一上来就可以看到一个痛点，主模型规划阶段貌似加载了已有的所有工具提示词，每一个加载都占了0.13s左右，只是幸好本项目做的tool不多，数量一大的话，每次加载工具的提示词就需要几秒，所以打算把原先的全量加载改为按需加载，按需加载既少浪费token，又避免ai犯蠢做错选择，可是问题又来了，怎么按需呢？关键词匹配？还是ai自己决定？
+一上来就可以看到一个痛点，主模型规划阶段貌似加载了已有的所有工具提示词，每一个加载都占了0.12s左右(耗时0.12s是http请求的问题，首次需要走http请求拉取，后续依赖缓存会在毫秒内获取提示词)只是幸好本项目做的tool不多，数量一大的话，每次加载工具的提示词就需要几秒，所以打算把原先的全量加载改为按需加载，按需加载既少浪费token，又避免ai犯蠢做错选择，可是问题又来了，怎么按需呢？关键词匹配？还是ai自己决定？
 
 选型有rag，轻量llm路由，关键词匹配，工具promopt压缩
 最终选择轻量llm路由+压缩，原因如下：
@@ -59,7 +59,44 @@ llm可以起到一个识别意图，天生比关键词匹配好，其次和rag�
 前置添加一个压缩也可以起到省token的作用，如果想要提高精准度，那需要做舍取了（快和准只能选一边）
 
 
+优化后的测试情况
 
+
+```
+agent.session                                                  16.61s  (5 items)
+├─ agent.prompt_hook                                       0.01s
+├─ agent.prompt.agent.system.main                          0.69s
+├─ agent.phase1                                            1.23s  (2 items)
+│  ├─ chat qwen-plus-2025-07-28                          0.99s
+│  └─ agent.decision                                     0.01s
+├─ agent.round.1                                           13.74s  (2 items)
+│  ├─ agent.plan                                         3.58s  (3 items)
+│  │  ├─ agent.prompt.agent.system.planner             0.13s
+│  │  ├─ agent.prompt.agent.prompt.planner             0.10s
+│  │  └─ chat qwen-plus-2025-07-28                     3.20s  [2,903 → 33 (∑ 2,936)]
+│  └─ agent.subagent                                     10.16s  (9 items)
+│     ├─ agent.prompt.agent.prompt.subagent.execution    0.12s
+│     ├─ agent.prompt.agent.system.subagent              0.11s
+│     ├─ agent.prompt.agent.tool.query-published-blogs   0.12s
+│     ├─ agent.prompt.agent.tool.query-weather           0.12s
+│     ├─ subagent-chat qwen-plus-2025-07-28              0.56s  [1,001 → 17 (∑ 1,018)]
+│     ├─ tool_call query-published-blogs                 0.17s  (1 item)
+│     │  └─ agent.guard.-a-l-l-o-w.query-published-blogs 0.16s
+│     ├─ subagent-chat qwen-plus-2025-07-28              1.52s  [3,045 → 36 (∑ 3,081)]
+│     ├─ tool_call query-weather                         0.01s  (1 item)
+│     │  └─ agent.guard.-a-l-l-o-w.query-weather       0.01s
+│     └─ subagent-chat qwen-plus-2025-07-28              7.37s  [5,131 → 426 (∑ 5,557)]
+└─ agent.round.2                                           0.83s  (1 item)
+   └─ agent.plan                                           0.83s  (3 items)
+      ├─ agent.prompt.agent.system.planner                 0.00s
+      ├─ agent.prompt.agent.prompt.planner                 0.00s
+      └─ chat qwen-plus-2025-07-28                         0.76s  [2,935 → 9 (∑ 2,944)]
+```
+显然只读了相关的工具提示词
+
+[参考链路url](https://jp.cloud.langfuse.com/project/cmscnp4n40007ad0d81wlodt4/traces/c6e9c299e1f2c3fc891521b91333ecb7?observation=4946c14ba2c75042)
+
+[参考链路json文件](.\json\trace-c6e9c299e1f2c3fc891521b91333ecb7.json)
 ## 2.上下文传递优化 ##
 
 ![包括了输入token转换成输出token的截图](./img/image1.png)
