@@ -1384,7 +1384,29 @@ public Shop queryShopById(@ToolParam(description = "店铺ID") Long id, ToolCont
 }
 ```
 
-### 8.5 Phase 4 验收标准
+### 8.5 提示词一致性组件（待做）
+
+> 现状：提示词有三处来源——代码 `@Tool`/`@ToolParam` 注解、内置 `prompts/*.txt`、Langfuse 远程（启动预热 + Caffeine TTL 缓存）。三者会漂移：Langfuse 改了描述，本地缓存最长 TTL 后才生效；代码改了注解，Langfuse 里仍是旧版。一直缺一个一致性组件。
+
+#### 需求
+
+1. **单一事实源（Source of Truth）**：明确"生产以 Langfuse 为准、内置资源兜底、注解为最原始"的分层；任何改动入口（`PromptAdminController`、`PromptSeeder`、代码注解）都可追溯。
+2. **变更感知与主动失效**：Langfuse 侧 prompt 出新版本/label 更新时能主动失效本地缓存（当前靠 TTL 被动过期）。候选：
+   - 周期轮询 Langfuse 版本号（轻量，对比 `version` 字段）命中变化后 `clearCache()`；
+   - 或推送/Webhook（Langfuse 无原生 webhook，需在代理层做）。
+3. **漂移检测**：启动时比对内置 `prompts/*.txt` 与 Langfuse 同 key 内容差异，输出差异清单，防止两边悄悄不一致。
+4. **版本记录**：Langfuse 自带 version/labels；本地需记录"当前生效 version + 缓存时间戳"，便于审计"当前行为由哪个版本 prompt 决定"。
+5. **schema 一致性**：工具 inputSchema（注解）与外置 params 描述覆盖链（`ExternalizedToolDefinitionProvider.patchSchema`）的 diff 校验。
+
+#### 验收标准
+
+- [ ] Langfuse 改 prompt 后，≤1 个缓存周期内自动生效（主动失效，不靠 TTL）
+- [ ] 启动输出内置 vs 远程差异报告
+- [ ] 每次对话/执行可追溯当前生效的 prompt version
+
+---
+
+### 8.6 Phase 4 验收标准
 
 - [ ] Prometheus + Grafana 监控面板就绪（调用量、延迟、Token 消耗、错误率）
 - [ ] Redis ChatMemory 上线且摘要压缩生效
