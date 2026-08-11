@@ -251,8 +251,9 @@ public class UserController {
 
     /**
      * 设置 Refresh Token 到 httpOnly Cookie（JS 不可读，自动随请求发送）
-     * SameSite/Secure 从 application-{profile}.yaml 读取，Secure 标记动态判断：
-     * HTTPS 连接 → 加 Secure；HTTP 连接 → 不加（避免浏览器因 Secure 标志拒绝 HTTP cookie）
+     * SameSite/Secure 按当前连接是否 HTTPS 动态判断：
+     * HTTPS 连接 → SameSite=None + Secure；HTTP 连接 → SameSite=Lax 不加 Secure
+     * （避免浏览器因 Secure 标志拒绝 HTTP cookie；跨源 HTTPS 场景需 None+Secure）
      */
     private void setRefreshTokenCookie(HttpServletRequest request, HttpServletResponse response, String refreshToken) {
         boolean isSecure = request.isSecure();
@@ -264,5 +265,8 @@ public class UserController {
                 sameSite,
                 7 * 24 * 60 * 60
         ));
+        // 双通道：httpOnly Cookie（同源自动携带）+ 响应头（前端存 localStorage 显式携带），
+        // 后端拦截器 Cookie/头 读到任一个即可刷新，规避跨 host / 浏览器清 cookie 导致的丢失
+        response.setHeader("Refresh-Token", refreshToken);
     }
 }

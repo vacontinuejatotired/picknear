@@ -55,14 +55,17 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 token = token.substring(7);
             }
 
-            // Refresh Token 从 httpOnly Cookie 读取，JS 不可访问
-            String refreshToken = null;
-            jakarta.servlet.http.Cookie[] cookies = request.getCookies();
-            if (cookies != null) {
-                for (jakarta.servlet.http.Cookie cookie : cookies) {
-                    if ("refresh_token".equals(cookie.getName())) {
-                        refreshToken = cookie.getValue();
-                        break;
+            // Refresh Token 双通道读取：前端显式携带的请求头优先，httpOnly Cookie 兜底
+            // （跨 host / 浏览器清 cookie 时请求头仍能送达，规避"refreshToken is null"掉登录）
+            String refreshToken = request.getHeader("Refresh-Token");
+            if (refreshToken == null || refreshToken.isEmpty()) {
+                jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+                if (cookies != null) {
+                    for (jakarta.servlet.http.Cookie cookie : cookies) {
+                        if ("refresh_token".equals(cookie.getName())) {
+                            refreshToken = cookie.getValue();
+                            break;
+                        }
                     }
                 }
             }
@@ -136,6 +139,8 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 // 刷新成功：写回响应头 + 设置 Refresh Token Cookie
                 response.setHeader("X-Token-Refresh", "ok");
                 response.setHeader("authorization", "Bearer " + newPair.getAccessToken());
+                // 双通道：响应头让前端刷新 localStorage 中的 RT，与 Set-Cookie 保持同步
+                response.setHeader("Refresh-Token", newPair.getRefreshToken());
                 if (newPair.getRefreshToken() != null) {
                     boolean isSecure = request.isSecure();
                     String sameSite = isSecure ? "None" : "Lax";
