@@ -1,6 +1,7 @@
 package com.hmdp.agent.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
@@ -140,11 +141,17 @@ public class TaskExecutor {
                     .filter(t -> t.getType() == TaskType.TOOL_CALL)
                     .map(SubTask::getToolName).collect(Collectors.joining(",")));
             try {
-                String conclusion = chatClient.prompt()
-                        .system(promptService.render(PromptKeys.SYSTEM_MAIN,
-                                Map.of("userId", userId != null ? String.valueOf(userId) : "")))
-                        .user(prompt)
-                        .call().content();
+                ChatModelObservationConventionConfig.mark("llm-reason");
+                String conclusion;
+                try {
+                    conclusion = chatClient.prompt()
+                            .system(promptService.render(PromptKeys.SYSTEM_MAIN,
+                                    Map.of("userId", userId != null ? String.valueOf(userId) : "")))
+                            .user(prompt)
+                            .call().content();
+                } finally {
+                    ChatModelObservationConventionConfig.clear();
+                }
                 queue.markDone(task.getId(), conclusion);
                 reasonSpan.status("OK");
                 log.info("    LLM_REASON ✅");

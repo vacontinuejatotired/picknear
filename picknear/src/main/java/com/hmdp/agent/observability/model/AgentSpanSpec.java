@@ -29,7 +29,7 @@ public enum AgentSpanSpec {
     TOOL_CALL("tool_call"),
     /** LLM_REASON 执行 */
     LLM_REASON("llm_reason"),
-    /** Guard 评估（semantic=决策.工具名，如 BLOCK.deleteBlog） */
+    /** Guard 评估（semantic=决策.工具名[.模型][.参数摘要]，如 BLOCK.deleteBlog 或 ALLOW.query-weather.qwen-plus-2025-07-28.{city:北京}） */
     GUARD("guard"),
     /** Prompt 模板获取/渲染（semantic=模板键，如 agent.system.main） */
     PROMPT("prompt"),

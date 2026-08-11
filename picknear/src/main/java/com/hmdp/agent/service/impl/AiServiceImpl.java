@@ -1,5 +1,6 @@
 package com.hmdp.agent.service.impl;
 
+import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
@@ -107,10 +108,16 @@ public class AiServiceImpl implements AiService {
         }
 
         // 4. 正常调用 LLM（系统提示词每次请求经 PromptService 注入，支持按用户个性化）
-        String result = chatClient.prompt()
-                .system(promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId)))
-                .user(finalContent)
-                .call().content();
+        ChatModelObservationConventionConfig.mark("phase1");
+        String result;
+        try {
+            result = chatClient.prompt()
+                    .system(promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId)))
+                    .user(finalContent)
+                    .call().content();
+        } finally {
+            ChatModelObservationConventionConfig.clear();
+        }
         log.info("AI 回复：{}", result);
 
         // 历史会话：JSON 模式成功回合落库（BLOCK 已提前 return，不落库）
@@ -196,31 +203,38 @@ public class AiServiceImpl implements AiService {
                             // 不产生 tracing span；model 层观察对象从 Reactor context 读到它作为父，
                             // TracingContext 缺失 → 断链（新 traceId）。绕开后 context 里只有下面
                             // 写入的当前栈顶 observation（phase1），model 层观察对象直接挂上。
-                            Observation streamParent = observationRegistry.getCurrentObservation();
-                            org.springframework.ai.chat.prompt.Prompt streamPrompt =
-                                    new org.springframework.ai.chat.prompt.Prompt(
-                                            java.util.List.of(
-                                                    new org.springframework.ai.chat.messages.SystemMessage(systemText),
-                                                    new org.springframework.ai.chat.messages.UserMessage(currentContent)));
-                            reactor.core.publisher.Flux<org.springframework.ai.chat.model.ChatResponse> stream =
-                                    chatModel.stream(streamPrompt);
-                            if (streamParent != null) {
-                                stream = stream.contextWrite(rctx -> rctx.put("micrometer.observation", streamParent));
-                            }
-                            StringBuilder buffer = new StringBuilder();
-                            // OpenAI 兼容流式首 chunk 只有 role、content=null，getText() 为 null；
-                            // Flux.map 不允许 mapper 返回 null（会抛 NPE），需转空串再按空串过滤
-                            for (String token : stream.map(r -> {
-                                    String text = r.getResult().getOutput().getText();
-                                    return text != null ? text : "";
-                                }).toIterable()) {
-                                if (!token.isEmpty()) {
-                                    buffer.append(token);
-                                    SseUtils.safeSend(emitter, SseUtils.escapeJson(token));
+                            // 观察标记：流式 observation 在订阅时 start()，标记需覆盖 stream 创建到消费结束
+                            ChatModelObservationConventionConfig.mark("phase1");
+                            String fullResponse;
+                            try {
+                                Observation streamParent = observationRegistry.getCurrentObservation();
+                                org.springframework.ai.chat.prompt.Prompt streamPrompt =
+                                        new org.springframework.ai.chat.prompt.Prompt(
+                                                java.util.List.of(
+                                                        new org.springframework.ai.chat.messages.SystemMessage(systemText),
+                                                        new org.springframework.ai.chat.messages.UserMessage(currentContent)));
+                                reactor.core.publisher.Flux<org.springframework.ai.chat.model.ChatResponse> stream =
+                                        chatModel.stream(streamPrompt);
+                                if (streamParent != null) {
+                                    stream = stream.contextWrite(rctx -> rctx.put("micrometer.observation", streamParent));
                                 }
+                                StringBuilder buffer = new StringBuilder();
+                                // OpenAI 兼容流式首 chunk 只有 role、content=null，getText() 为 null；
+                                // Flux.map 不允许 mapper 返回 null（会抛 NPE），需转空串再按空串过滤
+                                for (String token : stream.map(r -> {
+                                        String text = r.getResult().getOutput().getText();
+                                        return text != null ? text : "";
+                                    }).toIterable()) {
+                                    if (!token.isEmpty()) {
+                                        buffer.append(token);
+                                        SseUtils.safeSend(emitter, SseUtils.escapeJson(token));
+                                    }
+                                }
+                                fullResponse = buffer.toString();
+                            } finally {
+                                ChatModelObservationConventionConfig.clear();
                             }
 
-                            String fullResponse = buffer.toString();
                             log.info("[Phase1] AI 流式回复完成, length={}", fullResponse.length());
                             phase1.attribute("stream_len", String.valueOf(fullResponse.length()));
 
