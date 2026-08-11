@@ -1,7 +1,5 @@
 package com.hmdp.agent.config;
 
-import com.hmdp.agent.tool.ToolBeanCollector;
-
 import ch.qos.logback.classic.Logger;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -9,12 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -101,14 +97,11 @@ public class AgentConfig {
      * 无需手动 {@code @Resource} 每个工具类。
      */
     @Bean("aliibabaChatClient")
-    public ChatClient chatClient(ChatModel chatModel, ChatMemory chatMemory,
-                                 ToolBeanCollector toolBeanCollector) {
-        ToolCallback[] toolCallbacks = toolBeanCollector.getToolCallbacks();
-
+    public ChatClient chatClient(ChatModel chatModel) {
         ChatClient chatClient = ChatClient.builder(chatModel)
                         // 系统提示词已外置：由 AiServiceImpl/TaskPlanner 每次请求经 PromptService 注入
-                        // 对话记忆
-                        .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                        // 多轮记忆未生效且 advisor 未设 conversationId 会写 "default" 桶（跨请求污染），
+                        // 已移除；Redis ChatMemory + 摘要压缩见路线图 Phase 4
                         .build();
         log.info("ChatClient 构建完成，无默认工具（工具由 TaskPlanner 规划后调用）");
 
