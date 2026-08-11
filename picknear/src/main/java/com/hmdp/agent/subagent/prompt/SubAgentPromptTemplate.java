@@ -21,6 +21,9 @@ public final class SubAgentPromptTemplate {
     /** 单个 data 值的最大字符数 */
     public static final int RAW_DATA_MAX_LENGTH = 500;
 
+    /** 传给子 Agent 的"AI 已有回复"（currentResponse）最大字符数 */
+    public static final int CURRENT_RESPONSE_MAX_LENGTH = 400;
+
     /** 单条任务描述的格式 */
     public static final String TASK_DESC_FORMAT = "任务 %d: %s（%s）";
 

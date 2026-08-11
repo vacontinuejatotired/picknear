@@ -2,6 +2,8 @@ package com.hmdp.agent.subagent.prompt;
 
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.util.TextUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,6 +17,7 @@ import java.util.stream.IntStream;
  * 根据 SubTaskPlan 构建执行 Prompt，组装任务描述、参数约束段、历史摘要。
  * </p>
  */
+@Slf4j
 public final class SubAgentPromptBuilder {
 
     private SubAgentPromptBuilder() {}
@@ -29,7 +32,14 @@ public final class SubAgentPromptBuilder {
     public static Map<String, String> buildVariables(SubTaskPlan plan) {
         Map<String, String> vars = new LinkedHashMap<>();
         vars.put("userInput", plan.getUserInput());
-        vars.put("currentResponse", plan.getCurrentResponse());
+        // currentResponse 截断（防累积回复撑大上下文）；长度实测用于校准阈值（见设计文档 §4.3）
+        String currentResponse = plan.getCurrentResponse();
+        if (log.isDebugEnabled()) {
+            log.debug("[SubAgent] currentResponse.length={}",
+                    currentResponse != null ? currentResponse.length() : 0);
+        }
+        vars.put("currentResponse",
+                TextUtils.truncate(currentResponse, SubAgentPromptTemplate.CURRENT_RESPONSE_MAX_LENGTH));
         vars.put("historySummary", buildHistorySummaryText(plan.getHistorySummary()));
         vars.put("paramConstraints", buildParamConstraints(plan.getTasks()));
         vars.put("tasksDesc", buildTasksDesc(plan.getTasks()));
@@ -101,7 +111,6 @@ public final class SubAgentPromptBuilder {
     }
 
     private static String truncate(String s, int max) {
-        if (s == null || s.length() <= max) return s;
-        return s.substring(0, max) + "...";
+        return TextUtils.truncate(s, max);
     }
 }

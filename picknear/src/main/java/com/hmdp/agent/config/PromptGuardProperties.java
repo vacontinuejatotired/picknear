@@ -51,6 +51,9 @@ public class PromptGuardProperties {
     /** CONFIRM 审批流 */
     private Approval approval = new Approval();
 
+    /** 工具结果回灌 LLM 前的字符上限 */
+    private ToolResult toolResult = new ToolResult();
+
     // ---- getters & setters ----
 
     public List<String> getBlockTools() { return blockTools; }
@@ -70,6 +73,9 @@ public class PromptGuardProperties {
 
     public Approval getApproval() { return approval; }
     public void setApproval(Approval approval) { this.approval = approval; }
+
+    public ToolResult getToolResult() { return toolResult; }
+    public void setToolResult(ToolResult toolResult) { this.toolResult = toolResult; }
 
     // ---- 内部类型 ----
 
@@ -116,5 +122,20 @@ public class PromptGuardProperties {
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public long getTtlSeconds() { return ttlSeconds; }
         public void setTtlSeconds(long ttlSeconds) { this.ttlSeconds = ttlSeconds; }
+    }
+
+    /**
+     * 工具结果字符上限配置
+     * <p>
+     * 工具结果在回灌进 LLM 消息历史前截断至此长度，防上下文膨胀（见
+     * {@code md/agent/上下文传递优化设计.md} §4.1）。截断点是 {@code GuardedToolCallback}。
+     * </p>
+     */
+    public static class ToolResult {
+        /** 工具结果最大字符数（≤0 表示不截断） */
+        private int maxChars = 1200;
+
+        public int getMaxChars() { return maxChars; }
+        public void setMaxChars(int maxChars) { this.maxChars = maxChars; }
     }
 }

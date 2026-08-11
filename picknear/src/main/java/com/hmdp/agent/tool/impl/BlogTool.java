@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.permission.annotation.RequiredDataPermission;
 import com.hmdp.agent.permission.enums.DataAction;
+import com.hmdp.agent.util.TextUtils;
 import com.hmdp.entity.Blog;
 import com.hmdp.service.IBlogService;
 
@@ -24,23 +25,33 @@ public class BlogTool {
     private IBlogService blogService;
 
     /**
+     * 博客紧凑投影——只给 LLM 够用的最小字段集（标题 + 内容摘要 + 点赞数 + 总数），
+     * 避免整条 {@link Blog} 实体（含全文 content、images 等）进上下文撑爆 token。
+     */
+    public record BlogBrief(String title, String content, Integer liked, Long total) {}
+
+    /**
      * 查看/浏览/查询当前用户自己发布的博客列表。
      * 用户说"我的博客"、"我发了什么"、"看看博客"、"能看什么"、"浏览/显示数据"、"有什么内容"等时触发。
-     * 按点赞数排序返回最多10条（标题+内容+点赞数+发布时间）。
+     * 按点赞数排序返回最多5条（标题+内容摘要+点赞数+总数）。
      * @param toolContext Spring AI 上下文，自动注入当前 userId
      */
     @Tool(description = """
             查看/浏览/显示当前用户自己的已发布博客列表，"我的博客"、"看看/浏览"、"能看什么"时使用。
-            按点赞数降序返回前10条（包含标题、内容、点赞数）。
+            按点赞数降序返回前5条（标题+内容摘要+点赞数），并附博客总数。
             注意：只看当前用户自己发布的博客，不能看别人的。
             """)
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
-    public List<Blog> queryPublishedBlogs(ToolContext toolContext) {
+    public List<BlogBrief> queryPublishedBlogs(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
 
         log.info("queryPublishedBlogs userId: {}", userId);
-        Page<Blog> page = blogService.query().eq("user_id", userId).orderByDesc("liked").page(new Page<>(1, 10));
-        return page.getRecords();
+        long total = blogService.query().eq("user_id", userId).count();
+        Page<Blog> page = blogService.query().eq("user_id", userId).orderByDesc("liked").page(new Page<>(1, 5));
+        return page.getRecords().stream()
+                .map(b -> new BlogBrief(b.getTitle(),
+                        TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
+                .toList();
     }
 
     /**
@@ -71,16 +82,21 @@ public class BlogTool {
     }
 
     /**
-     * 按标题模糊搜索博客，返回标题包含关键词的所有博客（不限用户）。
+     * 按标题模糊搜索博客，返回标题包含关键词的前10条（不限用户）。
      * 用户说「找博客」「搜索…」「查一下关于…」「有没有…的博客」时触发。
      * @param title 搜索关键词，支持模糊匹配（如「旅游」能搜到标题含「旅游」的博客）
      */
     @Tool(description = """
             按标题模糊搜索博客，和「找一篇关于…的博客」「搜索/查询博客」一起使用。
-            返回标题包含关键词的所有博客（不限用户），适合批量查同主题文章。
+            返回标题包含关键词的前10条（标题+内容摘要+点赞数，并附总数），适合批量查同主题文章。
             """)
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
-    public List<Blog> queryBlogsByTitle(@ToolParam(description = "搜索关键词，例如：旅游——会搜到标题含「旅游」的博客") String title) {
-        return blogService.query().like("title", title).list();
+    public List<BlogBrief> queryBlogsByTitle(@ToolParam(description = "搜索关键词，例如：旅游——会搜到标题含「旅游」的博客") String title) {
+        long total = blogService.query().like("title", title).count();
+        Page<Blog> page = blogService.query().like("title", title).page(new Page<>(1, 10));
+        return page.getRecords().stream()
+                .map(b -> new BlogBrief(b.getTitle(),
+                        TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
+                .toList();
     }
 }

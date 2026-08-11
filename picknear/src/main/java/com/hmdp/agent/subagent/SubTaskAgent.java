@@ -9,25 +9,24 @@ import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
+import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptTemplate;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.*;
 
 /**
  * 子任务执行 Agent。
  * <p>
  * 职责：接收 SubTaskExecution → 按 tasks 筛选 ToolCallback →
- * 调带工具的 ChatClient → 从回复中提取 JSON 数据快照 → 返回 SubTaskResult。
+ * {@link ToolCallLoopExecutor} 手动循环执行工具（结果经 LLM 压缩后入上下文）→
+ * 从回复中提取 JSON 数据快照 → 返回 SubTaskResult。
  * 执行 Prompt 与系统提示词经 {@link PromptService} 外置（Langfuse → 内置兜底）。
  * </p>
  */
@@ -36,8 +35,7 @@ import java.util.*;
 public class SubTaskAgent {
 
     @Resource
-    @Qualifier("subAgentChatClient")
-    private ChatClient subAgentChatClient;
+    private ToolCallLoopExecutor toolCallLoopExecutor;
 
     @Resource
     private ToolBeanCollector toolBeanCollector;
@@ -99,14 +97,12 @@ public class SubTaskAgent {
                 Map.of("userId", plan.getUserId() != null ? String.valueOf(plan.getUserId()) : ""));
 
         // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext。
-        //    调用前给 ChatModel 观察打标 "subagent"：Langfuse 里 generation 名变为
-        //    subagent-chat <model>，与主代理的 chat <model> 区分（见 ChatModelObservationConventionConfig）。
-        ChatModelObservationConventionConfig.mark("subagent");
+        //    ChatModel 观察标记由 ToolCallLoopExecutor（subagent-exec）与 ToolResultCompressor
+        //    （subagent-compress）各自设置，Langfuse generation 名按功能区分（见 ChatModelObservationConventionConfig）。
         String content;
         try {
-            content = executeWithRetry(systemText, prompt, filteredCallbacks,
-                    props.getMaxRetries(), props.getRetryBackoff(),
-                    props.getTotalTimeout(), start, plan.getUserId(), plan.getConversationId());
+            content = executeWithRetry(systemText, prompt, plan, filteredCallbacks, props,
+                    start, plan.getUserId(), plan.getConversationId());
         } finally {
             ChatModelObservationConventionConfig.clear();
         }
@@ -157,27 +153,29 @@ public class SubTaskAgent {
      * 带指数退避和总超时控制的重试调用。
      * retryBackoff 为基础间隔，每次翻倍：1s → 2s → 4s
      * totalTimeout 为整个 execute() 的总超时（含重试），超时直接终止。
+     * 每次尝试委托 {@link ToolCallLoopExecutor} 执行手动工具循环。
      */
-    private String executeWithRetry(String systemText, String prompt, ToolCallback[] callbacks,
-                                     int maxRetries, Duration retryBackoff,
-                                     Duration totalTimeout, long roundStartMs,
+    private String executeWithRetry(String systemText, String prompt, SubTaskPlan plan,
+                                     ToolCallback[] callbacks,
+                                     SubTaskProperties props, long roundStartMs,
                                      Long userId, String conversationId) {
+        int maxRetries = props.getMaxRetries();
         Exception lastError = null;
         String currentPrompt = prompt;
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             // 总超时检查
-            if (System.currentTimeMillis() - roundStartMs > totalTimeout.toMillis()) {
+            if (System.currentTimeMillis() - roundStartMs > props.getTotalTimeout().toMillis()) {
                 log.warn("[SubAgent] 执行总超时 [attempt={}/{}, elapsed>{}ms]",
-                        attempt, maxRetries, totalTimeout.toMillis());
+                        attempt, maxRetries, props.getTotalTimeout().toMillis());
                 break;
             }
 
             try {
-                var promptBuilder = subAgentChatClient.prompt()
-                        .system(systemText)
-                        .user(currentPrompt)
-                        .toolCallbacks(callbacks);
+                // 取证（设计文档 §8.1）：记录每轮请求的执行 prompt 字符数，
+                // 对照 Langfuse trace 可定位上下文膨胀
+                log.info("[SubAgent] 请求 attempt={}/{} 执行prompt字符数={}",
+                        attempt, maxRetries, currentPrompt != null ? currentPrompt.length() : 0);
                 // 将 userId / conversationId 以 ToolContext 传递，Guard 层才能获取到
                 Map<String, Object> toolCtx = new HashMap<>();
                 if (userId != null) {
@@ -186,10 +184,9 @@ public class SubTaskAgent {
                 if (conversationId != null && !conversationId.isBlank()) {
                     toolCtx.put("conversationId", conversationId);
                 }
-                if (!toolCtx.isEmpty()) {
-                    promptBuilder.toolContext(toolCtx);
-                }
-                String content = promptBuilder.call().content();
+                String content = toolCallLoopExecutor.execute(
+                        Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService, toolCtx,
+                        props.getMaxToolRounds(), props.getCompressLength());
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;
             } catch (ConfirmRequiredException e) {
@@ -203,7 +200,7 @@ public class SubTaskAgent {
 
                 if (attempt < maxRetries) {
                     // 指数退避
-                    long backoffMs = retryBackoff.toMillis() * (long) Math.pow(2, attempt - 1);
+                    long backoffMs = props.getRetryBackoff().toMillis() * (long) Math.pow(2, attempt - 1);
                     log.info("[SubAgent] {}ms 后重试...", backoffMs);
                     try {
                         Thread.sleep(backoffMs);

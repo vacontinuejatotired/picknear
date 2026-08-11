@@ -28,4 +28,10 @@ public class SubTaskProperties {
 
     /** 重试基础退避间隔（指数增长：1s → 2s → 4s） */
     private Duration retryBackoff = Duration.ofSeconds(1);
+
+    /** 手动工具循环最大轮数（LLM 每轮返回工具调用计一轮，触顶强制总结） */
+    private int maxToolRounds = 6;
+
+    /** 工具结果压缩摘要的最大字符数（LLM 把原始结果压成要点后再入上下文，防滚雪球） */
+    private int compressLength = 80;
 }

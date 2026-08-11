@@ -105,6 +105,8 @@ hmdp:
         - agent.                     # M2 业务 span（agent.session/phase1/round/tool_call...）
         - spring.ai.                 # LLM client 层（spring.ai.chat.client）
         - gen_ai.                    # LLM model 层（gen_ai.client.operation）
+    chat-observation:
+      include-content: true          # 把 LLM 请求/回复全文写入 gen_ai.request.content / gen_ai.response.content（Langfuse 显示 input/output）
   prompt-guard:
     block-tools:
       - deleteBlog
@@ -120,6 +122,8 @@ hmdp:
     approval:
       enabled: true                # CONFIRM 真暂停总开关；false 时退回旧行为（提示字符串当工具结果）
       ttl-seconds: 300             # 审批有效期（秒），超时自动过期
+    tool-result:
+      max-chars: 1200              # 工具结果回灌 LLM 前最大字符数（防上下文膨胀，≤0 不截断）
 
 #logging:
 #  level:
@@ -136,6 +140,8 @@ agent:
     total-timeout: 60s                        # 整个 execute() 总超时（含重试）
     max-retries: 3                            # 最大重试次数
     retry-backoff: 1s                         # 重试基础退避间隔
+    max-tool-rounds: 6                        # 手动工具循环最大轮数（触顶强制总结）
+    compress-length: 80                       # 工具结果压缩摘要最大字符数（防上下文滚雪球）
   prompt:
     enabled: true                             # 提示词外置总开关（false → 全部走内置模板）
     base-url: ${LANGFUSE_BASE_URL:}           # Langfuse 基础地址，空则不启用远程拉取
