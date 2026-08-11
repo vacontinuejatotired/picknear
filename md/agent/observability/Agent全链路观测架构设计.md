@@ -61,7 +61,7 @@
 | D7 | 指标 | 混合：业务指标自研（Redis 计数 + 每日快照单表）+ 技术指标 Actuator 白捡 |
 | D8 | 访问控制 | 公网演示定位：**云版 2 用户硬限制天然限次**——管理员 + 演示访客（Viewer 只读）各占一个名额；演示期外停用访客账号（见 6.5） |
 | D9 | LLM 观测深度 | 深度版：token/费用/重试（改造 5 处调用点，已核验无遗漏） |
-| D10 | prompt 全文 | 默认不记录（`log-prompt` 默认 false），开关留作配置 |
+| D10 | prompt 全文 | **2026-08-09 起默认记录进 OTel content 属性**（`gen_ai.request/response.content`，经 AttributeSanitizer 脱敏），开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true，可关回"不记"）；`log-prompt`（DEBUG 日志）仍默认 false |
 | D11 | 为什么不用 Langfuse Java SDK | ① 数据先落标准 OTel，可同时喂 Jaeger/Grafana/自建面板，不绑厂商；② 协议解耦，SDK 版本不随 Spring AI 升级漂移；③ evals/scoring 现阶段用不上。面试答："SDK 省接入成本，我要的是观测管线的控制权和学习 Observation 本身" |
 
 ---
@@ -198,6 +198,13 @@ sequenceDiagram
 ### 5.2 与 OTel GenAI 语义的对齐
 
 业务 span 命名挂 `agent.*` 前缀避免与 `gen_ai.*` 保留语义冲突；LLM span 由 Spring AI 按 `gen_ai.*` 约定自动生成。**每个 LLM 调用实际有两层自动 span**（`spring.ai.chat.client` 层 + `gen_ai.client.operation` model 层），这是正常结构，不是重复调用。
+
+#### 5.2.1 LLM generation 名按功能区分 + content 补发（2026-08-09 增强）
+
+- **背景**：Spring AI 1.1.2 的 `DefaultChatModelObservationConvention` 只发 usage/参数/finish_reason，**不发 `gen_ai.request.content` / `gen_ai.response.content`** → Langfuse generation 的 input/output 恒为 null；且所有 LLM 调用默认同名 `chat <model>`，无法一眼区分各功能。
+- **content 补发**：自定义 convention（`ChatModelObservationConventionConfig`）在 `getHighCardinalityKeyValues` 补发两个标准属性；请求侧序列化消息数组（含 tool 结果 / 工具调用，经 `AttributeSanitizer` 脱敏 + 截断），Langfuse 据此渲染 input/output。开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true）。
+- **功能命名**：各 LLM 调用点用 `mark("<功能>")` 打标（try/finally 清理），generation 名 = `{功能}-chat <model>`：`phase1-chat`（JSON+SSE Phase1）、`planner-chat`（子任务规划）、`subagent-exec-chat`（子代理工具循环）、`subagent-compress-chat`（工具结果压缩）、`llm-reason-chat`（回退路径聚合）。
+- ⚠️ **已知限制**：SSE 流式 Phase1 的模型层观察在 Reactor 线程创建/命名，ThreadLocal 标记跨不过去，暂仍为 `chat`（同步调用均正常）。
 
 ### 5.3 存储、保留与合规
 
@@ -370,7 +377,7 @@ spring:
   ai:
     chat:
       observations:              # ⚠️ 键在此层级（spring.ai.dashscope.observations.* 不存在）
-        log-prompt: false        # D10：默认不记 prompt 全文
+        log-prompt: false        # DEBUG 日志开关：仅控制控制台日志，不产生 OTel 属性
         log-completion: false
 management:
   otlp:
@@ -390,6 +397,8 @@ hmdp:
     trace-enabled: true          # 业务埋点总开关（false 时 AgentTracer 空转）
     summary-max-chars: 200       # 摘要类属性截断
     diagnostic-max-chars: 4096   # 诊断类属性上限（plan_json 等）
+    chat-observation:
+      include-content: true      # LLM 请求/回复全文写入 gen_ai.request/response.content（Langfuse input/output），经脱敏
     metric:
       pricing:                   # token 单价（元/千 token）
         qwen-plus: { input: 0.0008, output: 0.002 }   # ⚠️ 仅 0-128K 段，2025-09 起阶梯计价，误差 ±30%，口径"数量级估算"

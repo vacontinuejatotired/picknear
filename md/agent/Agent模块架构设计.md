@@ -444,9 +444,39 @@ for (int round = 0; round < MAX_ROUNDS; round++) {
 
 | 工具方法 | 描述 | 参数 |
 |---------|------|------|
-| `queryPublishedBlogs` | 查询当前用户点赞前 10 篇博客 | `ToolContext` |
+| `queryPublishedBlogs` | 当前用户已发布博客，按点赞降序 top5 + 总数（紧凑投影：标题+内容摘要80字+点赞数，防上下文膨胀） | `ToolContext` |
 | `publishTestBlog` | 发布一篇测试博客 | `ToolContext` |
-| `queryBlogsByTitle` | 模糊查询博客标题 | `title: String` |
+| `queryBlogsByTitle` | 按标题模糊搜索博客，top10 + 总数（紧凑投影） | `title: String` |
+
+#### BlogQueryTool（博客详情/评论/他人博客）
+
+| 工具方法 | 描述 | 参数 |
+|---------|------|------|
+| `queryBlogById` | 单篇博客详情（标题/内容摘要/点赞数/评论数/作者昵称） | `blogId: Long` |
+| `queryBlogComments` | 某篇博客的评论列表（按时间升序） | `blogId: Long` |
+| `queryUserBlogs` | 某用户发布的博客列表（可查他人，不限于自己，top10） | `userId: Long` |
+
+#### ShopQueryTool（店铺查询）
+
+| 工具方法 | 描述 | 参数 |
+|---------|------|------|
+| `queryShopTypes` | 平台所有店铺类型（美食/酒店/影院等分类） | 无 |
+| `queryShopsByType` | 按店铺类型查店（评分降序，top10） | `typeId: Long`, `current: Integer`(可选) |
+| `queryShopById` | 单个店铺详情（名称/商圈/地址/人均/评分/销量/营业时间） | `shopId: Long` |
+
+#### VoucherQueryTool（优惠券/订单）
+
+| 工具方法 | 描述 | 参数 |
+|---------|------|------|
+| `queryVouchersByShop` | 某店铺可用优惠券（含秒杀券库存） | `shopId: Long` |
+| `queryMyVoucherOrders` | 当前用户自己的优惠券订单（按下单时间倒序 top10） | 无 |
+
+#### UserQueryTool（用户/关注）
+
+| 工具方法 | 描述 | 参数 |
+|---------|------|------|
+| `queryUserProfile` | 用户公开资料（昵称/城市/简介/粉丝数/关注数/积分，不含手机号等隐私字段） | `userId: Long` |
+| `queryMyFollows` | 当前用户关注的用户列表 | 无 |
 
 #### StatsQueryTool（测试）
 

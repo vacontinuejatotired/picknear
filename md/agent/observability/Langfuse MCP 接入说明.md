@@ -20,6 +20,7 @@
 ## 2. 现状（已完成 ✅）
 
 - 2026-08-05 完成配置，`claude mcp list` 显示 `langfuse ... ✔ Connected`
+- **2026-08-09 主机端（Windows）补配**：`claude mcp add --scope user --transport http langfuse https://jp.cloud.langfuse.com/api/public/mcp --header "Authorization: Basic $B64"`，写入 `C:\Users\Ntwitm\.claude.json`（user 作用域），与 VM 端并行可用
 - 已实测 MCP 端点握手（HTTP 200），暴露 **79 个工具**（读 + 写）
 - 认证复用 `.env` 里现成的 `LANGFUSE_BASIC_AUTH`（无需新增凭据）
 

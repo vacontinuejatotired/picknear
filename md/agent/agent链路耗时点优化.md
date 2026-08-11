@@ -103,4 +103,13 @@ agent.session                                                  16.61s  (5 items)
 
 仍然基于原有的这个观测树来分析，这里ai模型下耗时右边的两个数字从左往右分别代表输入token和输出token
 
-第一次调用ai
+第一次调用ai（`subagent-chat` #[1,001 → 17]）：输入 ≈ system(agent.system.subagent) + 执行 prompt（`agent.prompt.subagent.execution`，渲染后 940 字符），此时尚未携带任何工具结果——1,001 是基线。
+
+第二次调用ai（#[3,045 → 36]）：+2,044，把第一次的 assistant tool_call + `query-published-blogs` 的**完整返回**（整条 `List<Blog>` 实体，含全部字段与全文 content，~2,000 token）追加进消息历史并全量重发。**博客结果就是主膨胀点。**
+
+第三次调用ai（#[5,131 → 425]）：+2,086。这里 weather 结果只有一句（`WeatherQueryTool`），`assistant tool_call` 也小，理论上应只 +50 左右；实际 +2,086 的来源**静态无法定位**（可能：博客结果被 provider 重编码计多次 / Spring AI 某轮全量注入工具 schema / 隐藏重复执行）——已加插桩（`SubTaskAgent.executeWithRetry` 打执行 prompt 字符数、`GuardedToolCallback` 打工具原始返回长度），部署后重跑取证。
+
+**结论**：膨胀不是"某次调用大"，而是**每次工具结果都永久进入消息历史、后续所有轮次全量重发**。解决方案（工具结果截断 / 工具层紧凑 DTO / currentResponse 截断 / ChatMemory advisor 移除）见 **[《上下文传递优化设计》](./上下文传递优化设计.md)**。优化后回贴新 trace 对照。
+
+## 3.工具调用优化
+规划时agent会拿到所有工具的提示词，应该按需加载。其次，子agent执行任务时会有未进行的任务占token，即使任务完成了也没更新历史摘要，可能是因为复用了提示词吧
