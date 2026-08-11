@@ -28,11 +28,12 @@ public class ToolRouter {
     private FeatureProperties featureProperties;
 
     /**
-     * 构建工具目录文本。compact=true 用紧凑目录（标签+参数名），否则全量（名字+完整描述）。
+     * 构建工具目录文本。compact=true 用紧凑目录（标签+参数名，且按用户输入过滤相关工具），
+     * 否则全量（名字+完整描述）。
      */
-    public String buildCatalog(boolean compact, ToolCallback[] callbacks, TaskReport history) {
+    public String buildCatalog(boolean compact, ToolCallback[] callbacks, TaskReport history, String userInput) {
         if (compact) {
-            return compactCatalogBuilder.build(callbacks, history, maxTagLength());
+            return compactCatalogBuilder.build(callbacks, history, maxTagLength(), userInput);
         }
         StringBuilder sb = new StringBuilder();
         for (ToolCallback cb : callbacks) {

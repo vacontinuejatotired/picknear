@@ -1,5 +1,6 @@
 package com.hmdp.agent.task;
 
+import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.ConfirmRequiredException;
@@ -21,6 +22,7 @@ import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
+import com.hmdp.agent.util.TextUtils;
 import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.service.AgentHistoryService;
 import io.micrometer.observation.Observation;
@@ -337,13 +339,13 @@ public class TaskPlanner {
                                  TaskReport history) {
         boolean compact = featureProperties.getToolRouting() != null
                 && featureProperties.getToolRouting().isEnabled();
-        String toolsDesc = toolRouter.buildCatalog(compact, toolCallbacks, history);
+        String toolsDesc = toolRouter.buildCatalog(compact, toolCallbacks, history, input);
         log.debug("规划工具目录字符数={}", toolsDesc.length());
         String result = plannerCall(input, response, userId, toolsDesc, history);
         if (compact && toolRouter.isUncertain(result)) {
             log.info("[规划] 路由不确定，改用全量目录重试");
             result = plannerCall(input, response, userId,
-                    toolRouter.buildCatalog(false, toolCallbacks, history), history);
+                    toolRouter.buildCatalog(false, toolCallbacks, history, input), history);
         }
         return result;
     }
@@ -369,12 +371,18 @@ public class TaskPlanner {
         planVars.put("planStart", PLAN_START);
         planVars.put("planEnd", PLAN_END);
 
+        ChatModelObservationConventionConfig.mark("planner");
+        String result;
         try {
-            String result = chatClient.prompt()
-                    .system(promptService.render(PromptKeys.SYSTEM_PLANNER,
-                            Map.of("userId", userId != null ? String.valueOf(userId) : "")))
-                    .user(promptService.render(PromptKeys.PLANNER_USER, planVars))
-                    .call().content();
+            try {
+                result = chatClient.prompt()
+                        .system(promptService.render(PromptKeys.SYSTEM_PLANNER,
+                                Map.of("userId", userId != null ? String.valueOf(userId) : "")))
+                        .user(promptService.render(PromptKeys.PLANNER_USER, planVars))
+                        .call().content();
+            } finally {
+                ChatModelObservationConventionConfig.clear();
+            }
             log.info("  [规划] AI 建议: {}", result);
             return result;
         } catch (Exception e) {
@@ -398,23 +406,28 @@ public class TaskPlanner {
             if (endIdx >= 0) {
                 return raw.substring(startIdx, endIdx).trim();
             }
-            // 有开始标记但没结束标记 -> 从开始标记后取到末尾
-            return raw.substring(startIdx).trim();
+            // 有开始标记但没结束标记（响应被截断，如 "===PLAN_START===="）：
+            // 从剩余文本尽量提取 JSON 数组/对象，提取不到返回 "[]"（避免把垃圾当 JSON 解析报错）
+            return extractJsonValue(raw.substring(startIdx));
         }
 
         // 无标记时尝试找第一个 [ 或 {
-        int bracket = raw.indexOf('[');
-        if (bracket >= 0) {
-            // 找匹配的 ]
-            int close = findMatchingClose(raw, bracket, '[', ']');
-            if (close >= 0) return raw.substring(bracket, close + 1);
-        }
-        int brace = raw.indexOf('{');
-        if (brace >= 0) {
-            int close = findMatchingClose(raw, brace, '{', '}');
-            if (close >= 0) return raw.substring(brace, close + 1);
-        }
+        return extractJsonValue(raw);
+    }
 
+    /** 从文本中提取第一个 [ ] 或 { } 包裹的 JSON；找不到返回 "[]" */
+    private String extractJsonValue(String text) {
+        if (text == null || text.isBlank()) return "[]";
+        int bracket = text.indexOf('[');
+        if (bracket >= 0) {
+            int close = findMatchingClose(text, bracket, '[', ']');
+            if (close >= 0) return text.substring(bracket, close + 1).trim();
+        }
+        int brace = text.indexOf('{');
+        if (brace >= 0) {
+            int close = findMatchingClose(text, brace, '{', '}');
+            if (close >= 0) return text.substring(brace, close + 1).trim();
+        }
         return "[]";
     }
 
@@ -498,10 +511,9 @@ public class TaskPlanner {
     // 工具方法
     // ============================================================
 
-    /** 截取前 N 个字符，超长加 "..." */
+    /** 截取前 N 个码点，超长加 "..."（codepoint-safe，见 TextUtils） */
     private static String truncate(String s, int max) {
-        if (s == null || s.length() <= max) return s;
-        return s.substring(0, max) + "...";
+        return TextUtils.truncate(s, max);
     }
 
     /** 从异常信息中提取错误类型首行 */
