@@ -1,0 +1,1 @@
+{"description": "查询某篇博客的评论列表，和「看看评论」「这条博客的评论」一起使用。返回评论ID/评论用户/内容/是否一级评论/时间。博客ID来自 queryBlogById。", "params": {"blogId": "博客ID"}}

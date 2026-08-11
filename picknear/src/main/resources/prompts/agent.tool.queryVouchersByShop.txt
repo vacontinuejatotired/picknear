@@ -1,0 +1,1 @@
+{"description": "查询某家店铺的可用优惠券列表（含秒杀券库存），和「这家店有什么券」「优惠券」「领券/抢券」一起使用。返回券ID/标题/面值/实付/类型/库存。店铺ID来自 queryShopById 或 queryShopsByType。", "params": {"shopId": "店铺ID"}}

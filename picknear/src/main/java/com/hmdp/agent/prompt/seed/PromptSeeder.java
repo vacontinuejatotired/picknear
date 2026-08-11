@@ -23,7 +23,11 @@ public class PromptSeeder {
     /** 全部工具名（对应内置模板 agent.tool.{name}.txt） */
     public static final List<String> TOOL_NAMES = List.of(
             "queryPublishedBlogs", "publishTestBlog", "queryBlogsByTitle",
-            "queryWeather", "queryTotalBlogs", "queryTotalUsers", "queryTotalShops");
+            "queryWeather", "queryTotalBlogs", "queryTotalUsers", "queryTotalShops",
+            "queryShopTypes", "queryShopsByType", "queryShopById",
+            "queryVouchersByShop", "queryMyVoucherOrders",
+            "queryBlogById", "queryBlogComments", "queryUserBlogs",
+            "queryUserProfile", "queryMyFollows");
 
     private final BuiltinPromptRepository builtin;
     private final LangfusePromptRepository remote;

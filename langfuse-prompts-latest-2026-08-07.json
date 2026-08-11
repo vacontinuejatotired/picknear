@@ -1,5 +1,3 @@
-
-
 [
   {
     "name": "agent.prompt.planner",
@@ -93,6 +91,32 @@
     "commitMessage": null
   },
   {
+    "name": "agent.tool.queryBlogById",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询单篇博客的详细信息（标题/内容摘要/点赞数/评论数/作者昵称），「这篇博客」「博客详情」「看看这篇」时使用。博客ID来自 queryUserBlogs 或 queryBlogsByTitle。\", \"params\": {\"blogId\": \"博客ID\"}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryBlogComments",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询某篇博客的评论列表（按时间升序），「看看评论」「这条博客的评论」「回复」时使用。返回评论ID/评论用户/内容/是否一级评论/时间。博客ID来自 queryBlogById。\", \"params\": {\"blogId\": \"博客ID\"}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
     "name": "agent.tool.queryBlogsByTitle",
     "version": 1,
     "type": "text",
@@ -106,10 +130,75 @@
     "commitMessage": null
   },
   {
+    "name": "agent.tool.queryMyFollows",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询当前用户自己关注的用户列表，「我的关注」「我关注了谁」「关注列表」时使用。返回被关注用户ID和昵称。只看当前登录用户自己的关注关系。\", \"params\": {}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryMyVoucherOrders",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询当前用户自己的优惠券订单列表（按下单时间倒序，前10条），「我的订单」「我买的券」「下单记录」时使用。返回订单ID/券ID/订单状态/下单时间。只看当前登录用户自己的订单。\", \"params\": {}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
     "name": "agent.tool.queryPublishedBlogs",
     "version": 1,
     "type": "text",
     "prompt": "{\"description\": \"查看/浏览/显示当前用户自己的已发布博客列表，\\\"我的博客\\\"、\\\"看看/浏览\\\"、\\\"能看什么\\\"时使用。按点赞数降序返回前10条（包含标题、内容、点赞数）。注意：只看当前用户自己发布的博客，不能看别人的。\", \"params\": {}}\n",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryShopById",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询单个店铺的详细信息（名称/商圈/地址/人均/评分/销量/营业时间），「这家店怎么样」「店铺详情」「看看这家店」时使用。店铺ID来自 queryShopsByType。\", \"params\": {\"shopId\": \"店铺ID\"}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryShopTypes",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询平台所有店铺类型（美食/酒店/影院等分类），「有哪些店铺类型」「店铺分类」「有什么类型」时使用。返回类型ID和名称，可作为按类型查店铺的前置步骤。\", \"params\": {}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryShopsByType",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"按店铺类型查询店铺列表（评分降序，前10条），「有哪些美食店/酒店」「按分类找店」「查某类型的店铺」时使用。返回店名/商圈/人均/评分/销量。类型ID来自 queryShopTypes。\", \"params\": {\"typeId\": \"店铺类型ID（来自 queryShopTypes 的 id）\", \"current\": \"页码，从1开始，可选，默认1\"}}",
     "config": {},
     "tags": [],
     "labels": [
@@ -149,6 +238,45 @@
     "version": 1,
     "type": "text",
     "prompt": "{\"description\": \"统计/查看当前系统中的注册用户总数，「统计用户」「共有多少用户」「查一下用户数」「多少人注册」时使用。\", \"params\": {}}\n",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryUserBlogs",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询某个用户发布的博客列表（可查别人，不限于自己），「某人的博客」「这个作者发了什么」「他的博客」时使用。返回前10条（标题/内容摘要/点赞数/评论数）。用户ID来自 queryUserProfile。\", \"params\": {\"userId\": \"用户ID\"}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryUserProfile",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询用户的公开资料（昵称/城市/简介/粉丝数/关注数/积分），「这个作者是谁」「用户资料」「个人信息」时使用。返回昵称可与博客作者、评论用户对上，不返回手机号等隐私字段。\", \"params\": {\"userId\": \"用户ID\"}}",
+    "config": {},
+    "tags": [],
+    "labels": [
+      "production",
+      "latest"
+    ],
+    "commitMessage": null
+  },
+  {
+    "name": "agent.tool.queryVouchersByShop",
+    "version": 1,
+    "type": "text",
+    "prompt": "{\"description\": \"查询某家店铺的可用优惠券列表（含秒杀券库存），「这家店有什么券」「优惠券」「领券/抢券」时使用。返回券ID/标题/面值/实付/类型/库存。店铺ID来自 queryShopById 或 queryShopsByType。\", \"params\": {\"shopId\": \"店铺ID\"}}",
     "config": {},
     "tags": [],
     "labels": [

@@ -1,0 +1,1 @@
+{"description": "按店铺类型查询店铺列表，和「查某类型的店铺」「有哪些美食店/酒店」「按分类找店」一起使用。返回该类型下前10家店（名称/商圈/人均/评分/销量）。类型ID来自 queryShopTypes。", "params": {"typeId": "店铺类型ID（来自 queryShopTypes 的 id）", "current": "页码，从1开始，可选，默认1"}}

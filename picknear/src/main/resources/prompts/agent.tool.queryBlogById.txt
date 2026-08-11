@@ -1,0 +1,1 @@
+{"description": "查询单篇博客的详细信息（标题/内容摘要/点赞数/评论数/作者昵称），和「这篇博客」「博客详情」「看看这篇」一起使用。博客ID来自 queryUserBlogs 或 queryBlogsByTitle。", "params": {"blogId": "博客ID"}}

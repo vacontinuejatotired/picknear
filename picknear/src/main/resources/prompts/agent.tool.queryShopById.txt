@@ -1,0 +1,1 @@
+{"description": "查询单个店铺的详细信息（名称/商圈/地址/人均/评分/销量/营业时间），和「这家店怎么样」「店铺详情」一起使用。店铺ID来自 queryShopsByType。", "params": {"shopId": "店铺ID"}}
