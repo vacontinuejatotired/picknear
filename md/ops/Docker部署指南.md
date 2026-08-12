@@ -120,7 +120,10 @@ docker build -t picknear-frontend:latest .
 5. **后端 Dockerfile 已修复**（Spring Boot 3.4）：分层 COPY 必须平铺到 `/app` 根（层内自带 `META-INF/`、`BOOT-INF/lib/` 前缀），ENTRYPOINT 用 `org.springframework.boot.loader.launch.JarLauncher`。
    完整原因见 `vm-docs/VM部署交接文档.md` §8 修复 1/2/4（VM 部署文档已归档到工作区根 `vm-docs/`）。构建用的源码/构建文件都在共享文件夹 `/mnt/hgfs/heima/picknear/picknear/`。
 6. **VM 开发构建必须用 build.sh（本地磁盘）**：共享文件夹 hgfs 在 BuildKit 读 context 时偶发 `short read / unexpected EOF`，直接 `docker compose up -d --build` / `docker build` 会踩中（2026-08-05 实测）。用 `/home/docker/picknear-build/build.sh [app|frontend|all]`：自动 tar 同步源码到本地磁盘 → 本地构建 → 镜像 tag 不变；部署再 `cd /mnt/hgfs/heima/picknear/picknear && docker compose up -d --no-build`。
-7. **build.sh 自动清理构建缓存**：构建后 `docker builder prune --max-used-space 2G -f`——缓存上限 2G（保留基础镜像层 + 当前镜像层 + `.m2`/`.npm` 依赖缓存），只清更早的重复层。避免旧层累积到数 GB（2026-08-05 曾堆积到 5.6GB、其中 4.9GB 可回收）。
+7. **构建缓存清理（2026-08-12 更新）**：单独 `--max-used-space` 只清"可回收"缓存，被镜像层引用的 in-use 缓存会无限累积（2026-08-12 实测撑到 8GB、reclaimable 仅 1.3GB、磁盘 94%）。现三层防护：
+   - **daemon 级 GC**：`/etc/docker/daemon.json` 配 `builder.gc`（`maxUsedSpace: 2GB` + `minFreeSpace: 4GB`），BuildKit 构建后自动 GC，空闲 <4G 时连 in-use 缓存也强制清（注：29 版 `keepStorage` 已移除，字段为 `maxUsedSpace`/`minFreeSpace`）；
+   - **build.sh**：构建后 `docker builder prune --max-used-space 2G --min-free-space 4G -f`，失败会明显报错不再静默掩盖；
+   - **每日 cron**（docker 用户）：`/home/docker/picknear-build/maintenance.sh` 凌晨 4:17 清缓存 + 守卫式清 7 天前旧镜像（cachetest 类）。缓存清空后首次构建需重新拉基础镜像，属正常。
 8. **基础镜像被清后要先拉回再构建**：prune 掉 maven/node 基础镜像层后，下次构建要重新拉。VM 直连 Docker Hub 不通，mirror 对部分层可能挂死（`0B` 卡住不超时，buildkit 不会自动换源）。解决：先 `docker pull maven:3.9-eclipse-temurin-17-alpine`（或从响应快的 mirror 直接拉：`docker pull docker.1panel.live/library/maven:3.9-eclipse-temurin-17-alpine` 成功后 `docker tag` 回原名），构建即可用本地镜像不再走网络。
 9. **后端 Dockerfile 缓存优化（2026-08-05）**：用 `COPY --chown=appuser:appgroup` 取代 COPY 后 `chown -R /app`——后者会把 ~200MB 依赖的每个文件属主都改一遍，overlay 只能重写成 ~214MB 新层（同内容存两份，每次构建多一份）。同时预创建 `/app/logs` 并 chown 给 appuser（logback 写 `./logs`，app 需可写）。配置统一走 `.env` 环境变量，不再挂载 `/app/config`。镜像体积 683MB → ~470MB。
 
