@@ -39,8 +39,8 @@ public class ToolResultCompressor {
         int limit = Math.max(1, maxLength);
         if (raw == null) return "（空结果）";
         if (raw.length() <= limit) return raw;
-        // 打 subagent-compress 标记：Langfuse generation 名 = subagent-compress-chat <model>
-        ChatModelObservationConventionConfig.mark("subagent-compress");
+        // 打 subagent-compress 标记（携带工具名）：Langfuse generation 名 = subagent-compress-{tool}-chat <model>
+        ChatModelObservationConventionConfig.mark("subagent-compress", toolName);
         try {
             String content = compressChatClient.prompt()
                     .system(SYSTEM_TEMPLATE.formatted(limit))

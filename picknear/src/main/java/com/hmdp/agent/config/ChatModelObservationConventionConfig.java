@@ -33,8 +33,10 @@ import java.util.Map;
  * {@code OpenAiChatModel} Bean，Langfuse 里全部显示为同一个 AI 名字，无法区分。
  * </p>
  * <p>
- * 本约定在 {@link #mark(String)} 标记的子代理调用前，给 span 名加前缀：
- * 子代理 → {@code subagent-chat qwen-plus}，主代理（未标记）→ {@code chat qwen-plus}。
+ * 本约定在 {@link #mark(String)} / {@link #mark(String, String)} 标记的子代理调用前，给 span 名加前缀：
+ * 子代理 → {@code subagent-chat qwen-plus}，携带任务标识 → {@code subagent-exec-query-weather-chat qwen-plus}
+ * （任务标识把"这次调用在驱动哪个任务"编码进名，Langfuse 控制台免点击直读），
+ * 主代理（未标记）→ {@code chat qwen-plus}。
  * observation 名（{@code gen_ai.client.operation}）不变，白名单与统计不受影响。
  * </p>
  * <p>
@@ -52,6 +54,9 @@ public class ChatModelObservationConventionConfig {
     /** 调用方标记（ThreadLocal，随调用线程传递）：{@code subagent} 等；空 = 主代理默认名 */
     private static final ThreadLocal<String> CALLER = new ThreadLocal<>();
 
+    /** 任务/工具标记（ThreadLocal）：当前调用对应的任务标识（如 subagent-exec 驱动执行的工具清单、compress 的工具名）；空 = 无 */
+    private static final ThreadLocal<String> TASK = new ThreadLocal<>();
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** 子代理等调用方在调模型前打标，finally 中必须调 {@link #clear()} */
@@ -59,8 +64,18 @@ public class ChatModelObservationConventionConfig {
         CALLER.set(caller);
     }
 
+    /**
+     * 打标 + 携带任务/工具标识（编码进 generation 名，Langfuse 控制台免点击直读"这是哪个任务"）。
+     * task 为空时等价于 {@link #mark(String)}。
+     */
+    public static void mark(String caller, String task) {
+        CALLER.set(caller);
+        TASK.set(task);
+    }
+
     public static void clear() {
         CALLER.remove();
+        TASK.remove();
     }
 
     @Bean
@@ -76,7 +91,11 @@ public class ChatModelObservationConventionConfig {
                 if (caller == null || caller.isBlank()) {
                     return base;
                 }
-                return caller + "-" + base; // "subagent-chat <model>"
+                String task = TASK.get();
+                if (task == null || task.isBlank()) {
+                    return caller + "-" + base; // "subagent-chat <model>"
+                }
+                return caller + "-" + task + "-" + base; // "subagent-exec-query-weather-chat <model>"
             }
 
             @Override

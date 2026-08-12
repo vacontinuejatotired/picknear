@@ -126,6 +126,7 @@ agent 会话链路（后续 M2 才有业务 span）
 **对 M2 的影响**：业务语义改由 **span 名编码**（span 名在 Langfuse 100% 可见）：
 - 命名规则：`agent.{类型}.{关键语义}`，如 `agent.tool_call.queryShop`、`agent.guard.BLOCK.deleteBlog`
 - guard 工具调用 span（2026-08-11 增强）：语义 = `{决策}.{工具}.{模型}.{参数摘要}`，如 `ALLOW.query-weather.qwen-plus-2025-07-28.{city:北京}`——模型名 + 脱敏参数摘要编码进 span 名，控制台免点击直读执行内容
+- LLM generation 名（2026-08-12 增强，`ChatModelObservationConventionConfig`）：`{调用方}-{任务}-chat {模型}`，如 `subagent-exec-query-weather,query-user-blogs-chat qwen-plus-2025-07-28`（subagent-exec 携带剩余任务工具名清单）、`subagent-compress-query-weather-chat qwen-plus-2025-07-28`（compress 携带被压缩的工具名）——任务标识编进名，控制台直读"这轮在驱动哪个任务"
 - 属性仍**全量写入** OTel span（标准数据不丢）：M2.5 InMemorySpanExporter 断言用 + 未来 Langfuse 修复/自建面板即得
 - 类型统计用前缀匹配（`agent.tool_call.*`），不受语义后缀影响
 
