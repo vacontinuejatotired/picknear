@@ -1,6 +1,7 @@
 package com.hmdp.agent.observability.api;
 
 import com.hmdp.agent.observability.api.AgentSpan;
+import com.hmdp.agent.observability.model.AgentField;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -94,7 +95,7 @@ public class ObservedSseEmitter extends SseEmitter {
      * （onStop 同步到 span），结束后取消兜底任务（防堆积）。
      * <p>
      * 异常安全（设计 §8 N1）：{@code root.end()} 用 finally 兜底——终态漏斗是 span 的唯一
-     * 收敛点，即使 {@code attribute()} 抛异常也必须保证 end() 执行，否则 CAS 已置位、
+     * 收敛点，即使 {@code set()} 抛异常也必须保证 end() 执行，否则 CAS 已置位、
      * 无任何路径重试，span 永久泄漏（违反"根 span 必然结束"）。
      * </p>
      */
@@ -105,7 +106,7 @@ public class ObservedSseEmitter extends SseEmitter {
             }
             if (root != null) {
                 try {
-                    root.attribute("finish", reason);
+                    root.set(AgentField.FINISH, reason);
                 } finally {
                     root.end();
                 }

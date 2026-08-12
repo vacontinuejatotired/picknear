@@ -2,6 +2,7 @@ package com.hmdp.agent.prompt.impl;
 
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptRenderer;
 import com.hmdp.agent.prompt.PromptService;
@@ -58,8 +59,8 @@ public class DefaultPromptService implements PromptService {
                 source = "builtin";
             }
             String rendered = PromptRenderer.render(template, vars);
-            span.attribute("prompt.source", source);
-            span.attribute("prompt.rendered_len", String.valueOf(rendered.length()));
+            span.set(AgentField.PROMPT_SOURCE, source);
+            span.set(AgentField.PROMPT_RENDERED_LEN, String.valueOf(rendered.length()));
             return rendered;
         }
     }
@@ -84,10 +85,10 @@ public class DefaultPromptService implements PromptService {
             }
             if (template.isEmpty()) {
                 log.warn("[prompt] 工具描述模板缺失（远程+内置都没有）toolKey={}", toolKey);
-                span.attribute("prompt.source", "missing");
+                span.set(AgentField.PROMPT_SOURCE, "missing");
                 return Optional.empty();
             }
-            span.attribute("prompt.source", source);
+            span.set(AgentField.PROMPT_SOURCE, source);
             return ResolvedToolPrompt.parse(template.get());
         }
     }

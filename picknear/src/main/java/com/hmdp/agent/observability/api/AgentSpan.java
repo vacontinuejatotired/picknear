@@ -1,11 +1,12 @@
 package com.hmdp.agent.observability.api;
 
+import com.hmdp.agent.observability.model.AgentField;
 import io.micrometer.observation.Observation;
 
 /**
  * 业务 span 句柄（埋点方持有，AutoCloseable）。
  * <p>
- * 使用惯例：{@code try (AgentSpan span = tracer.start(...)) { ...业务...; span.attribute(...); }}
+ * 使用惯例：{@code try (AgentSpan span = tracer.start(...)) { ...业务...; span.set(AgentField.X, ...); }}
  * 属性可在运行期任意时机写入（内部写入 Observation context，onStop 时统一同步到 span）。
  * </p>
  */
@@ -15,19 +16,33 @@ public interface AgentSpan extends AutoCloseable {
      * 设置属性（运行期任意时机，end 时统一进 span）。值经统一脱敏出口
      * {@code AttributeSanitizer}（脱敏 + 摘要类截断 200 字符）。
      *
+     * @deprecated 使用 {@link #set(AgentField, String)}——key 与脱敏级别都收敛到
+     * 字段注册表 {@link AgentField}。本方法仅作一次性临时字段逃生口保留。
      * @return this（链式）
      */
+    @Deprecated
     AgentSpan attribute(String key, String value);
 
     /**
-     * 设置诊断类属性（脱敏 + 4KB 上限，如 plan_json、Guard 投票明细）。
+     * 设置属性（推荐主入口）：key 与脱敏级别由字段注册表 {@link AgentField} 决定，
+     * 调用点不写字符串 key、不选脱敏方法。
+     *
+     * @param field 字段注册表常量（含 key + 脱敏级别 + 所属 span 类型）
+     * @param value 原始值（写入前按 field 的脱敏级别统一处理）
+     * @return this（链式）
      */
-    AgentSpan attributeDiagnostic(String key, String value);
+    AgentSpan set(AgentField field, String value);
 
     /**
-     * 便捷：设置状态类属性（如 tool.status=OK/FAILED）。
+     * 设置参数化属性：key 由 {@link AgentField#key(String...)} 填充段得到
+     * （如 {@code tool.0.name}），满足动态/拼接 key 的扩展需求。脱敏级别同样走字段定义。
+     *
+     * @param field   参数化字段（key 模板含 {@code {段}} 占位符）
+     * @param segment 运行时段值（如 "0"、"RateLimit"）
+     * @param value   原始值
+     * @return this（链式）
      */
-    AgentSpan status(String status);
+    AgentSpan set(AgentField field, String segment, String value);
 
     /**
      * 打开根 span 的作用域（异步线程入口使用），返回的 Scope 必须 try-with-resources 配对。

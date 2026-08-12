@@ -2,14 +2,14 @@ package com.hmdp.agent.observability.api;
 
 import com.hmdp.agent.observability.core.AgentSpanImpl;
 import com.hmdp.agent.observability.core.SpanLifecycle;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.observability.model.SpanContext;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
+import com.hmdp.agent.observability.support.TraceProperties;
 import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 /**
  * 观测门面（MVC 分层中的 api 层，埋点方唯一入口）。
@@ -38,10 +38,13 @@ public class AgentTracer {
 
     private final SpanLifecycle lifecycle;
     private final AttributeSanitizer sanitizer;
+    /** 业务埋点总开关（hmdp.ai-observability.trace-enabled，false 时整门面 Noop 空转，省 Langfuse 配额） */
+    private final boolean traceEnabled;
 
-    public AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer) {
+    public AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer, TraceProperties props) {
         this.lifecycle = lifecycle;
         this.sanitizer = sanitizer;
+        this.traceEnabled = props.isTraceEnabled();
     }
 
     /**
@@ -49,13 +52,16 @@ public class AgentTracer {
      * 整棵 trace 的结束唯一收敛点（三回调/方法 finally 调用 {@code root.end()}）。
      */
     public AgentSpan startSession(String conversationId, String userId) {
+        if (!traceEnabled) {
+            return NoopAgentSpan.INSTANCE;
+        }
         try {
             AgentSpan root = start(AgentSpanSpec.SESSION, null);
             if (conversationId != null) {
-                root.attribute("conversation.id", conversationId);
+                root.set(AgentField.CONVERSATION_ID, conversationId);
             }
             if (userId != null) {
-                root.attribute("user.id", userId);
+                root.set(AgentField.USER_ID, userId);
             }
             return root;
         } catch (Exception e) {
@@ -69,9 +75,11 @@ public class AgentTracer {
      *
      * @param spec     span 类型（注册表）
      * @param semantic 业务语义后缀（如工具名/决策/轮次），span 名 = agent.{type}[.{semantic}]
-     * @param attributes 起始属性（可选）
      */
-    public AgentSpan start(AgentSpanSpec spec, String semantic, Map<String, String> attributes) {
+    public AgentSpan start(AgentSpanSpec spec, String semantic) {
+        if (!traceEnabled) {
+            return NoopAgentSpan.INSTANCE;
+        }
         try {
             String name = sanitizeName(spec.spanName(semantic));
             Observation observation = lifecycle.create(name);
@@ -81,19 +89,11 @@ public class AgentTracer {
             // 返回自己的空 span → 无视父级 → 每个 span 新开 traceId。
             observation.start();
             Observation.Scope scope = lifecycle.openScope(observation);
-            AgentSpanImpl span = new AgentSpanImpl(observation, scope, sanitizer);
-            if (attributes != null) {
-                attributes.forEach(span::attribute);
-            }
-            return span;
+            return new AgentSpanImpl(observation, scope, sanitizer);
         } catch (Exception e) {
             log.warn("[observability] start 失败 span={}，降级 Noop（Fail-Open）", spec, e);
             return NoopAgentSpan.INSTANCE;
         }
-    }
-
-    public AgentSpan start(AgentSpanSpec spec, String semantic) {
-        return start(spec, semantic, null);
     }
 
     /**

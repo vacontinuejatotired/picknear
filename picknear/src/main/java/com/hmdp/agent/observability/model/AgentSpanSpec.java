@@ -32,9 +32,7 @@ public enum AgentSpanSpec {
     /** Guard 评估（semantic=决策.工具名[.模型][.参数摘要]，如 BLOCK.deleteBlog 或 ALLOW.query-weather.qwen-plus-2025-07-28.{city:北京}） */
     GUARD("guard"),
     /** Prompt 模板获取/渲染（semantic=模板键，如 agent.system.main） */
-    PROMPT("prompt"),
-    /** SSE 事件（semantic=finish 状态 COMPLETE/TIMEOUT/ERROR） */
-    SSE("sse");
+    PROMPT("prompt");
 
     /** 业务 span 命名空间（观测白名单默认前缀，见 support.ObservabilityTraceFilter） */
     public static final String NAMESPACE = "agent.";

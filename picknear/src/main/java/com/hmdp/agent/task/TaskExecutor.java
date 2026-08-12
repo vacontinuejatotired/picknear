@@ -6,6 +6,7 @@ import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
@@ -99,15 +100,15 @@ public class TaskExecutor {
                 }
                 String result = callback.call(jsonArgs, new ToolContext(toolCtx));
                 queue.markDone(task.getId(), result);
-                toolSpan.status("OK");
-                toolSpan.attribute("tool.result_summary", truncate(result, 200));
+                toolSpan.set(AgentField.STATUS, "OK");
+                toolSpan.set(AgentField.TOOL_RESULT_SUMMARY, truncate(result, 200));
                 log.info("    TOOL_CALL ✅ [tool={}]", task.getToolName());
             } catch (ConfirmRequiredException e) {
                 // CONFIRM 审批信号：立即原样抛出（不 markFailed），冒泡到 TaskPlanner 专用 catch
                 throw e;
             } catch (Exception e) {
                 queue.markFailed(task.getId(), e.getMessage());
-                toolSpan.status("FAILED");
+                toolSpan.set(AgentField.STATUS, "FAILED");
                 log.warn("    TOOL_CALL ❌ [tool={}, err={}]", task.getToolName(), e.getMessage());
             }
         }
@@ -137,7 +138,7 @@ public class TaskExecutor {
 
         // 观测：agent.llm_reason（based_on 记录已完成的工具摘要）
         try (AgentSpan reasonSpan = agentTracer.start(AgentSpanSpec.LLM_REASON, null)) {
-            reasonSpan.attribute("based_on", queue.getCompleted().stream()
+            reasonSpan.set(AgentField.BASED_ON, queue.getCompleted().stream()
                     .filter(t -> t.getType() == TaskType.TOOL_CALL)
                     .map(SubTask::getToolName).collect(Collectors.joining(",")));
             try {
@@ -153,11 +154,11 @@ public class TaskExecutor {
                     ChatModelObservationConventionConfig.clear();
                 }
                 queue.markDone(task.getId(), conclusion);
-                reasonSpan.status("OK");
+                reasonSpan.set(AgentField.STATUS, "OK");
                 log.info("    LLM_REASON ✅");
             } catch (Exception e) {
                 queue.markFailed(task.getId(), "聚合失败：" + e.getMessage());
-                reasonSpan.status("FAILED");
+                reasonSpan.set(AgentField.STATUS, "FAILED");
                 log.warn("LLM_REASON 失败 [err={}]", e.getMessage());
             }
         }

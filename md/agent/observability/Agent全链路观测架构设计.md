@@ -126,8 +126,8 @@ span 导出链：Tracer（OTel SDK）→ BatchSpanProcessor → OtlpHttpSpanExpo
 │        │ openScope() 跨线程显式传播                           │
 │ ② 业务语义埋点  AgentTracer API（自研核心）                   │
 │    span: prompt_hook / phase1 / decision / round / plan /    │
-│          tool_call / subagent / llm_reason / sse             │
-│    属性: toolName·guard.decision·guard.policy.*·planJSON…    │
+│          tool_call / subagent / llm_reason / guard / prompt  │
+│    属性: 字段注册表 AgentField（key+脱敏级别，见 §5.1）         │
 │    （所有属性经 AttributeSanitizer 脱敏出口）                  │
 │        │ 同一棵 Observation 树                                │
 │ ③ LLM 调用层（Spring AI 内置观测，白捡）                      │
@@ -180,19 +180,24 @@ sequenceDiagram
 
 ### 5.1 Span 清单
 
-| Span 名 | 父级 | 位置 | 关键属性 |
-|---------|------|------|---------|
-| `agent.session` | — | ChatController 入口 | `conversationId`、`user.id`、`ai.request.model` |
-| `agent.prompt_hook` | session | PromptHookChain 执行后 | `hook.name`、`hook.decision`(PASS/REPLACE/BLOCK)、`hook.reason` |
-| `agent.phase1` | session | Phase 1 流式调用（**stream 消费完毕、hook 执行之前**结束） | `attempt`、`retry_fed_error`(仅异常类型+行号，见 6.1)、`ttft_ms`、`stream_len` |
-| `agent.decision` | session | AfterAiHookChain 后 | `decision`(BLOCK/REPLACE/PASS/PLANNING)、`hook.name`、`ai.response_summary`(≤80字) |
-| `agent.round` | session | TaskPlanner 主循环每轮（**名称固定，属性 `round` 区分轮次**） | `round`、`plan_valid`、`tool_count` |
-| `agent.plan` | round | decompose 校验后 | `plan_json`(诊断类，上限 4KB)、`plan.tools[]`(工具名数组)、`validate_result` |
-| `agent.subagent` | round | SubTaskAgent.execute 整段（默认路径） | `tool_count`、每工具状态从 `SubTaskResult` 回填（`tool.<i>.name/status`） |
-| `agent.tool_call` | round | 每个 TOOL_CALL 执行（回退路径） | `tool.name`、`tool.args_summary`、`guard.decision`(ALLOW/BLOCK/CONFIRM)、`guard.policy.<name>`(逐策略平铺)、`tool.result_summary`、`tool.status`(OK/FAILED) |
-| `agent.llm_reason` | round | 每个 LLM_REASON 执行 | `based_on`(完成/失败工具摘要) |
-| `agent.sse` | session | **ChatController 三回调处**（onCompletion/onTimeout/onError，事件型 span） | `first_event_ms`、`event_count`、`finish`(COMPLETE/TIMEOUT/ERROR) |
+> **字段真相源（2026-08-11 重构后）**：本表关键属性与代码一一对应，定义收敛在字段注册表 `com.hmdp.agent.observability.model.AgentField`（每个常量编码 `key` + 脱敏级别 + 所属 span 类型）。埋点用 `span.set(AgentField.X, value)`，**改字段名 / 加字段 / 改脱敏级别只改 `AgentField` 一处**，并同步本表。
 
+| Span 名 | 父级 | 位置 | 关键属性（`AgentField` 常量 → 上报 key） |
+|---------|------|------|---------|
+| `agent.session` | — | ChatController 入口 | `CONVERSATION_ID`→`conversation.id`、`USER_ID`→`user.id`、`FINISH`→`finish`(SSE 收敛点，COMPLETE/TIMEOUT/ERROR) |
+| `agent.prompt_hook` | session | PromptHookChain 执行后 | `HOOK_DECISION`→`hook.decision`(PASS/REPLACE/BLOCK)、`HOOK_NAME`→`hook.name` |
+| `agent.phase1` | session | Phase 1 流式调用（**stream 消费完毕、hook 执行之前**结束） | `ATTEMPT`→`attempt`、`STREAM_LEN`→`stream_len`、`STATUS`→`status`(FAILED) |
+| `agent.decision` | session | AfterAiHookChain 后 | `DECISION`→`decision`(BLOCK/REPLACE/PASS/PLANNING)、`HOOK_NAME`→`hook.name` |
+| `agent.round` | session | TaskPlanner 主循环每轮（semantic=轮次号） | `TOOL_COUNT`→`tool_count`、`PLAN_VALID`→`plan_valid` |
+| `agent.plan` | round | decompose 校验后 | `VALIDATE_RESULT`→`validate_result`(from_response/ai_plan/empty)、`PLAN_TOOLS`→`plan.tools`(逗号拼接) |
+| `agent.subagent` | round | SubTaskAgent.execute 整段（默认路径） | `TOOL_COUNT`→`tool_count`；M4 待补：`TOOL_ENTRY_NAME/STATUS`→`tool.{i}.name/status` 逐工具回填（模板已注册） |
+| `agent.tool_call` | round | 每个 TOOL_CALL 执行（回退路径） | `STATUS`→`status`(OK/FAILED)、`TOOL_RESULT_SUMMARY`→`tool.result_summary` |
+| `agent.llm_reason` | round | 每个 LLM_REASON 执行 | `BASED_ON`→`based_on`(完成/失败工具摘要)、`STATUS`→`status` |
+| `agent.guard` | — | GuardedToolCallback 评估（semantic=决策.工具[.模型][.参数摘要]） | `TOOL_NAME`→`tool.name`、`MODEL_NAME`→`model.name`、`TOOL_ARGUMENTS`→`tool.arguments`、`GUARD_POLICY`→`guard.policy` |
+| `agent.prompt` | — | DefaultPromptService 模板获取/渲染（semantic=模板键） | `PROMPT_SOURCE`→`prompt.source`(remote/builtin/missing)、`PROMPT_RENDERED_LEN`→`prompt.rendered_len` |
+
+> **动态/拼接 key**：参数化字段（`TOOL_ENTRY_NAME`=`tool.{i}.name`、`GUARD_POLICY_ENTRY`=`guard.policy.{name}`）由 `span.set(field, segment, value)` 填充段得到，满足运行时动态 key 扩展。
+>
 > **JSON 同步模式**（`chatReturnStringResult`）：同样生成 `agent.session` → `agent.prompt_hook` → `agent.phase1` 父子链（同步路径无 phase2），根 span 在方法返回前 finally 结束。
 
 ### 5.2 与 OTel GenAI 语义的对齐
@@ -223,22 +228,22 @@ sequenceDiagram
 
 ```java
 // 会话入口（Controller 层，主线程）
-AgentTracer.startSession(conversationId, userId);   // 创建根 span
+agentTracer.startSession(conversationId, userId);   // 创建根 span
 
-// 任意阶段埋点（try-with-resources 自动结束）
-try (AgentSpan span = AgentTracer.start("agent.tool_call",
-        Map.of("tool.name", toolName))) {
+// 任意阶段埋点（try-with-resources 自动结束；字段注册表 2026-08-11 重构后形态）
+try (AgentSpan span = agentTracer.start(AgentSpanSpec.TOOL_CALL, toolName)) {
     String result = callback.call(args, ctx);
-    span.attribute("tool.status", "OK");
+    span.set(AgentField.TOOL_RESULT_SUMMARY, result);   // key + 脱敏级别都由 AgentField 决定
+    span.set(AgentField.STATUS, "OK");
 }   // 结束即上报：耗时/状态
 
-// 内部实现（注意 API 形态，v1.0 文档写错会编译不过）
-Observation obs = Observation.createNotStarted(name, () -> ctx, registry); // 三参重载
-try (Observation.Scope scope = obs.openScope()) {   // 返回 AutoCloseable 的是 openScope()，不是 scoped()
-    obs.start();
+// 内部实现（注意 API 形态：经 SpanLifecycle 封装，先 start 后 openScope 的断链契约见 AgentTracer）
+Observation obs = lifecycle.create(name);
+obs.start();                                            // 必须先 start
+try (Observation.Scope scope = lifecycle.openScope(obs)) {   // 再 openScope
     ...  // 子 span（含 LLM span）必须在 scope 内"创建"——父级在创建时捕获
-    obs.stop();
 }
+obs.stop();
 ```
 
 设计约束：
@@ -246,8 +251,8 @@ try (Observation.Scope scope = obs.openScope()) {   // 返回 AutoCloseable 的�
 | 约束 | 原因 |
 |------|------|
 | 埋点 Fail-Open | 埋点自身异常吞掉并告警日志，不影响主链路（对齐 Hook 链先例） |
-| **两类属性**：摘要类截断 200 字符；诊断类（plan_json、guard 投票）独立上限 4KB | 避免"截断违反 D5"与"体积爆炸"两难 |
-| **统一脱敏出口 `AttributeSanitizer`** | 所有属性经 sanitize 过滤：手机号 `1[3-9]\d{9}→138****8000`、邮箱、身份证；`retry_fed_error` 只记异常类型名+行号；`result_summary` 白名单字段提取（仅数量/状态），博客正文不进属性 |
+| **两类属性（字段注册表定级）**：`SanitizeLevel.SUMMARY` 摘要类截断 200 字符；`DIAGNOSTIC` 诊断类（guard 投票明细等大字段）独立上限 4KB | 避免"截断违反 D5"与"体积爆炸"两难 |
+| **统一脱敏出口 `AttributeSanitizer`** | 所有属性经 sanitize 过滤：手机号 `1[3-9]\d{9}→138****8000`、邮箱、身份证脱敏；`tool.result_summary` 摘要提取（仅数量/状态），博客正文不进属性 |
 | 同名 span 允许嵌套 | 每轮 Round 名称相同，靠属性 `round` 区分 |
 | **span 名编码业务语义**（M1.5 实测 2026-08-03）| Langfuse 4.2.0 JP 云版 OTLP 转译**不展示自定义 attributes**（官方文档称应落 `metadata.attributes`，实测不一致）→ 关键业务语义写进 span 名：`agent.{类型}.{语义}`（如 `agent.tool_call.queryShop`、`agent.guard.BLOCK.deleteBlog`）；属性仍全量写入（M2.5 断言 + 未来兼容），类型统计用前缀匹配不受语义后缀影响 |
 
@@ -420,17 +425,18 @@ micrometer-registry-prometheus   <!-- 缺它 /actuator/prometheus 404 -->
 
 | 文件 | 埋点位置 | Span | 关键属性 |
 |------|---------|------|---------|
-| `agent/controller/ChatController.java` | 入口 | `agent.session` | conversationId、userId |
-| `agent/controller/ChatController.java` | emitter 三回调（onCompletion/onTimeout/onError） | `agent.sse` + endSession | first_event_ms、finish |
+| `agent/controller/ChatController.java` | 入口 | `agent.session` | conversation.id、user.id |
+| `agent/observability/api/ObservedSseEmitter.java` | 三回调收敛点 | 根 span（agent.session）写 `finish` | finish(COMPLETE/TIMEOUT/ERROR) |
 | `agent/service/impl/AiServiceImpl.java` | 同步模式（chatReturnStringResult）| session→prompt_hook→phase1 链 | 同 SSE 语义 |
-| `agent/hook/PromptHookChain.java` | 链执行后 | `agent.prompt_hook` | decision、hookName、reason |
-| `agent/service/impl/AiServiceImpl.java` | Phase1 循环（stream 消费完、hook 前结束） | `agent.phase1` | attempt、ttft_ms、stream_len |
-| `agent/hook/AfterAiHookChain.java` | 链执行后 | `agent.decision` | decision、hookName |
-| `agent/task/TaskPlanner.java` | 主循环每轮 | `agent.round` | round、plan_valid |
-| `agent/task/TaskPlanner.java` | decompose 校验后 | `agent.plan` | plan_json、plan.tools[] |
-| `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count、逐工具状态回填 |
-| `agent/task/TaskExecutor.java` | TOOL_CALL / LLM_REASON（回退路径） | `agent.tool_call` / `agent.llm_reason` | guard.decision、guard.policy.*、status |
-| `agent/promptguard/GuardedToolCallback.java` | 评估后 | （并入 tool_call 属性） | 逐策略投票平铺 |
+| `agent/service/impl/AiServiceImpl.java` | PromptHookChain 执行后 | `agent.prompt_hook` | hook.decision、hook.name |
+| `agent/service/impl/AiServiceImpl.java` | Phase1 循环（stream 消费完、hook 前结束） | `agent.phase1` | attempt、stream_len、status(FAILED) |
+| `agent/service/impl/AiServiceImpl.java` | AfterAiHookChain 后 | `agent.decision` | decision、hook.name |
+| `agent/task/TaskPlanner.java` | 主循环每轮 | `agent.round` | tool_count、plan_valid |
+| `agent/task/TaskPlanner.java` | decompose 校验后 | `agent.plan` | validate_result、plan.tools |
+| `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count（M4 待补逐工具回填） |
+| `agent/task/TaskExecutor.java` | TOOL_CALL / LLM_REASON（回退路径） | `agent.tool_call` / `agent.llm_reason` | status、tool.result_summary / based_on |
+| `agent/promptguard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]） | tool.name、model.name、tool.arguments、guard.policy |
+| `agent/prompt/impl/DefaultPromptService.java` | 模板获取/渲染 | `agent.prompt`（semantic=模板键） | prompt.source、prompt.rendered_len |
 
 ---
 

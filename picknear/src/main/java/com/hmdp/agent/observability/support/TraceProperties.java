@@ -18,7 +18,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "hmdp.ai-observability")
 public class TraceProperties {
 
-    /** 业务埋点总开关（false 时 AgentTracer 空转，M2 使用） */
+    /** 业务埋点总开关（false 时 AgentTracer 整门面 Noop 空转，配额紧急开关） */
     private boolean traceEnabled = true;
 
     /** 观测白名单：只放行指定前缀的 span，其余丢弃（省 Langfuse 配额） */

@@ -3,6 +3,7 @@ package com.hmdp.agent.service.impl;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
@@ -165,9 +166,9 @@ public class AiServiceImpl implements AiService {
         HookResult hookResult;
         try (AgentSpan hookSpan = agentTracer.start(AgentSpanSpec.PROMPT_HOOK, null)) {
             hookResult = promptHookChain.execute(content, ctx);
-            hookSpan.attribute("hook.decision", String.valueOf(hookResult.getDecision()));
+            hookSpan.set(AgentField.HOOK_DECISION, String.valueOf(hookResult.getDecision()));
             if (hookResult.getHookName() != null) {
-                hookSpan.attribute("hook.name", hookResult.getHookName());
+                hookSpan.set(AgentField.HOOK_NAME, hookResult.getHookName());
             }
         }
 
@@ -196,7 +197,7 @@ public class AiServiceImpl implements AiService {
                 try (AgentSpan phase1 = agentTracer.start(AgentSpanSpec.PHASE1, null)) {
                     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                         try {
-                            phase1.attribute("attempt", String.valueOf(attempt));
+                            phase1.set(AgentField.ATTEMPT, String.valueOf(attempt));
                             // 流式断链修复（2026-08-03）：绕开 ChatClient 层，直接调 ChatModel 层流式。
                             // 原因（字节码+实测三层验证）：ChatClient.stream() 内部有 ChatClient 层观察对象
                             // （spring.ai.chat.client），被 handler 链上 meter 优先的 composite 匹配、
@@ -236,14 +237,14 @@ public class AiServiceImpl implements AiService {
                             }
 
                             log.info("[Phase1] AI 流式回复完成, length={}", fullResponse.length());
-                            phase1.attribute("stream_len", String.valueOf(fullResponse.length()));
+                            phase1.set(AgentField.STREAM_LEN, String.valueOf(fullResponse.length()));
 
                             // 后处理：AfterAiHookChain → AiResponseRouter（观测：agent.decision）
                             try (AgentSpan decision = agentTracer.start(AgentSpanSpec.DECISION, null)) {
                                 HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
-                                decision.attribute("decision", String.valueOf(afterResult.getDecision()));
+                                decision.set(AgentField.DECISION, String.valueOf(afterResult.getDecision()));
                                 if (afterResult.getHookName() != null) {
-                                    decision.attribute("hook.name", afterResult.getHookName());
+                                    decision.set(AgentField.HOOK_NAME, afterResult.getHookName());
                                 }
                                 // 内容已逐 token 推送，通知路由跳过重复发送
                                 responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
@@ -267,7 +268,7 @@ public class AiServiceImpl implements AiService {
                             }
                         }
                     }
-                    phase1.status("FAILED");
+                    phase1.set(AgentField.STATUS, "FAILED");
                 }
 
                 // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）

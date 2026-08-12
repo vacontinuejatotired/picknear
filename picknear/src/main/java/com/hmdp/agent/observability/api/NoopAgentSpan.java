@@ -1,5 +1,6 @@
 package com.hmdp.agent.observability.api;
 
+import com.hmdp.agent.observability.model.AgentField;
 import io.micrometer.observation.Observation;
 
 /**
@@ -16,17 +17,18 @@ public final class NoopAgentSpan implements AgentSpan {
     }
 
     @Override
+    @Deprecated
     public AgentSpan attribute(String key, String value) {
         return this;
     }
 
     @Override
-    public AgentSpan attributeDiagnostic(String key, String value) {
+    public AgentSpan set(AgentField field, String value) {
         return this;
     }
 
     @Override
-    public AgentSpan status(String status) {
+    public AgentSpan set(AgentField field, String segment, String value) {
         return this;
     }
 

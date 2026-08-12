@@ -1,7 +1,9 @@
 package com.hmdp.agent.observability.core;
 
 import com.hmdp.agent.observability.api.AgentSpan;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
+import com.hmdp.agent.observability.support.SanitizeLevel;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
@@ -40,20 +42,28 @@ public class AgentSpanImpl implements AgentSpan {
     }
 
     @Override
+    @Deprecated
     public AgentSpan attribute(String key, String value) {
-        observation.lowCardinalityKeyValue(KeyValue.of(key, sanitizer.sanitizeSummary(value)));
+        // 已知 key 走注册表（含其脱敏级别），一次性临时 key 降级摘要脱敏
+        AgentField field = AgentField.byKey(key).orElse(null);
+        return field != null ? set(field, value) : set(key, SanitizeLevel.SUMMARY, value);
+    }
+
+    @Override
+    public AgentSpan set(AgentField field, String value) {
+        observation.lowCardinalityKeyValue(KeyValue.of(field.key(), field.level().sanitize(sanitizer, value)));
         return this;
     }
 
     @Override
-    public AgentSpan attributeDiagnostic(String key, String value) {
-        observation.lowCardinalityKeyValue(KeyValue.of(key, sanitizer.sanitizeDiagnostic(value)));
+    public AgentSpan set(AgentField field, String segment, String value) {
+        observation.lowCardinalityKeyValue(KeyValue.of(field.key(segment), field.level().sanitize(sanitizer, value)));
         return this;
     }
 
-    @Override
-    public AgentSpan status(String status) {
-        observation.lowCardinalityKeyValue(KeyValue.of("status", status));
+    /** 内部：未注册 key 的降级写入（attribute 逃生口用） */
+    private AgentSpan set(String rawKey, SanitizeLevel level, String value) {
+        observation.lowCardinalityKeyValue(KeyValue.of(rawKey, level.sanitize(sanitizer, value)));
         return this;
     }
 

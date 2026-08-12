@@ -100,7 +100,7 @@ public class ObservedSseEmitter extends SseEmitter {
         if (finishReason.compareAndSet(null, reason)) {
             if (timeoutGuard != null) timeoutGuard.cancel(false);   // L3：cancel 先行，防 guardDelayMs=0 竞态
             if (root != null) {                              // L3：root 判空
-                root.attribute("finish", reason);
+                root.set(AgentField.FINISH, reason);
                 root.end();                                  // AgentSpanImpl.end() 内部做属主线程 scope 处理（R1）
             }
             log.info("SSE 会话结束 reason={} thread={}", reason, Thread.currentThread().getName());
@@ -112,7 +112,7 @@ public class ObservedSseEmitter extends SseEmitter {
 ### 3.1 关键时序（已字节码验证）
 
 - **先 finish 后 super.complete()**：super.complete() 抛异常（窄竞态 ISE）时 span 已结束；emitter 留待容器超时兜底完成
-- **attribute 在 end 前**：`SimpleObservation.lowCardinalityKeyValue` 无 stopped 检查，stop 后写入被丢弃——先写属性保证 finish 恒为首个 winner 值
+- **set 在 end 前**：`SimpleObservation.lowCardinalityKeyValue` 无 stopped 检查，stop 后写入被丢弃——先写属性保证 finish 恒为首个 winner 值
 - **onTimeout/onError 追加注册**（`addDelegate`），包装类先注册先执行；Controller 保留日志不冲突
 - **finishReason CAS + AgentSpanImpl.end() AtomicBoolean 双幂等**：多线程竞争 only-once
 
@@ -251,24 +251,24 @@ SseEmitter emitter = new ObservedSseEmitter(SSE_TIMEOUT, root, taskScheduler, SS
 
 #### 必须修（阻断实施）
 
-**N1 — `finish()` 非异常安全：`root.attribute()` 抛异常 → `root.end()` 跳过，span 永久泄漏**
+**N1 — `finish()` 非异常安全：`root.set()` 抛异常 → `root.end()` 跳过，span 永久泄漏**
 
 ```java
 if (finishReason.compareAndSet(null, reason)) {
     if (timeoutGuard != null) timeoutGuard.cancel(false);
     if (root != null) {
-        root.attribute("finish", reason);   // ← 若抛异常
+        root.set(AgentField.FINISH, reason);   // ← 若抛异常
         root.end();                          // ← 永不执行；CAS 已置位，无任何路径重试
     }
     log.info(...);
 }
 ```
 
-`finish()` 是整棵树**唯一**的终态漏斗，一旦 CAS 置位后中途抛异常，`finishReason` 已非 null → 其他路径全部空转 → span 永不 stop，**直接违反设计目标 1（根 span 必然结束）**。当前 `attribute("finish", …)` 具体抛异常路径罕见（sanitizer/KeyValue 对固定字符串不会炸），但终态漏斗按构造就应异常安全。**修法**：`try { root.attribute(...) } finally { root.end() }`（end 必执行）。
+`finish()` 是整棵树**唯一**的终态漏斗，一旦 CAS 置位后中途抛异常，`finishReason` 已非 null → 其他路径全部空转 → span 永不 stop，**直接违反设计目标 1（根 span 必然结束）**。当前 `set(AgentField.FINISH, …)` 具体抛异常路径罕见（sanitizer/KeyValue 对固定字符串不会炸），但终态漏斗按构造就应异常安全。**修法**：`try { root.set(...) } finally { root.end() }`（end 必执行）。
 
 **N2 — R10 清理是承重而非装饰：非 funnel 的 `root.end()` 先执行 → `finish` 属性静默丢失**
 
-只要残留任何非 funnel 的显式 `root.end()`（TaskPlanner:108 / AiResponseRouter `endRootSpan`），且它先于 `finish()` 执行，则 span 已 stop，`finish()` 里的 `attribute("finish")` 写入被丢弃（V/§3.1 自证："stop 后写入被丢弃"）→ **finish 原因丢失**。这与 R10 是否"顺便删掉"无关，是**必须原子完成**：包装类上线时同步清掉全部显式 end，并加一条集成断言"finish 属性恒存在"。若清理不彻底，验收标准 1/2 的"reason 可验证"会静默失效。
+只要残留任何非 funnel 的显式 `root.end()`（TaskPlanner:108 / AiResponseRouter `endRootSpan`），且它先于 `finish()` 执行，则 span 已 stop，`finish()` 里的 `set(AgentField.FINISH, …)` 写入被丢弃（V/§3.1 自证："stop 后写入被丢弃"）→ **finish 原因丢失**。这与 R10 是否"顺便删掉"无关，是**必须原子完成**：包装类上线时同步清掉全部显式 end，并加一条集成断言"finish 属性恒存在"。若清理不彻底，验收标准 1/2 的"reason 可验证"会静默失效。
 
 #### 应当修（随实施同步）
 
