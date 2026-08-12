@@ -2,8 +2,10 @@ package com.hmdp.agent.guard;
 
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
+import com.hmdp.agent.plan.UserIdPlaceholderResolver;
 import com.hmdp.agent.tool.ToolDefinitionProvider;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -169,14 +171,14 @@ public class GuardedToolCallback implements ToolCallback {
                 buildGuardSemantic(result.getDecision().name(), toolName, functionPayload))) {
             // Fail-Open：tracer 不可用（mock/null）时 guard 块仍正常执行
             if (guardSpan != null) {
-                guardSpan.attribute("tool.name", toolName);
+                guardSpan.set(AgentField.TOOL_NAME, toolName);
                 if (modelName != null && !modelName.isBlank()) {
-                    guardSpan.attribute("model.name", modelName);
+                    guardSpan.set(AgentField.MODEL_NAME, modelName);
                 }
                 if (functionPayload != null && !functionPayload.isBlank()) {
-                    guardSpan.attribute("tool.arguments", functionPayload);
+                    guardSpan.set(AgentField.TOOL_ARGUMENTS, functionPayload);
                 }
-                guardSpan.attribute("guard.policy", result.getPolicyName() != null
+                guardSpan.set(AgentField.GUARD_POLICY, result.getPolicyName() != null
                         ? result.getPolicyName() : "none");
             }
 
@@ -202,7 +204,22 @@ public class GuardedToolCallback implements ToolCallback {
                 }
                 case ALLOW -> {
                     log.debug("工具调用放行 [tool={}]", toolName);
-                    return limitToolResult(delegate.call(functionPayload, toolContext));
+                    try {
+                        // self 占位符最后一层解析（覆盖子 Agent 内部再编造；快照恢复走 callBypass）
+                        String resolvedPayload = UserIdPlaceholderResolver.resolvePayload(
+                                functionPayload, toolName, effectiveUserId);
+                        return limitToolResult(delegate.call(resolvedPayload, toolContext));
+                    } catch (RuntimeException e) {
+                        // 参数类型转换失败（LLM 给数字参数传了非数字，如 userId="s"）：
+                        // Spring AI 对 Long/Integer 参数经 new BigDecimal(string) 转换，抛 NumberFormatException。
+                        // 转成友好错误返回给 LLM 自纠，而不是让晦涩异常进上下文/日志。
+                        if (isParamConversionError(e)) {
+                            String msg = "参数格式错误：" + toolName + " 的数字型参数必须是数字，请检查参数后重试";
+                            log.warn("工具参数转换失败 [tool={}, err={}]", toolName, e.getMessage());
+                            return returnDirect ? msg : "{\"error\":\"" + msg + "\"}";
+                        }
+                        throw e;
+                    }
                 }
             }
         }
@@ -220,7 +237,21 @@ public class GuardedToolCallback implements ToolCallback {
         if (toolContext == null) {
             toolContext = new ToolContext(Map.of());
         }
-        return limitToolResult(delegate.call(functionPayload, toolContext));
+        // 快照恢复路径参数未过 validatePlan，同样做 self 占位符解析（userId 由 TaskPlanner 注入 ToolContext）
+        String resolvedPayload = UserIdPlaceholderResolver.resolvePayload(
+                functionPayload, getRawToolName(), userIdFromContext(toolContext));
+        return limitToolResult(delegate.call(resolvedPayload, toolContext));
+    }
+
+    /** 从 ToolContext 提取 userId（无则 null） */
+    private static Long userIdFromContext(ToolContext toolContext) {
+        if (toolContext != null && toolContext.getContext() != null) {
+            Object uid = toolContext.getContext().get("userId");
+            if (uid instanceof Long l) {
+                return l;
+            }
+        }
+        return null;
     }
 
     /**
@@ -285,5 +316,19 @@ public class GuardedToolCallback implements ToolCallback {
         }
         String masked = sanitizer != null ? sanitizer.sanitizeSummary(cleaned) : cleaned;
         return TextUtils.truncate(masked, ARGS_MAX_CHARS);
+    }
+
+    /**
+     * 判断异常链是否为参数类型转换失败：LLM 给数字参数传了非数字值（如 userId="s"），
+     * Spring AI 对 Long/Integer 参数经 {@code new BigDecimal(string)} 转换抛 {@link NumberFormatException}，
+     * 并被包成 {@code ToolExecutionException}。沿 cause 链找 NumberFormatException 即可命中。
+     */
+    private static boolean isParamConversionError(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof NumberFormatException) {
+                return true;
+            }
+        }
+        return false;
     }
 }

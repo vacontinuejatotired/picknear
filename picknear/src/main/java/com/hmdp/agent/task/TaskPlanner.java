@@ -1,17 +1,20 @@
 package com.hmdp.agent.task;
 
-import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolInvocationContext;
+import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
+import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
-import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.plan.PlanOutcome;
+import com.hmdp.agent.plan.PlanRequest;
+import com.hmdp.agent.plan.PlanRouter;
 import com.hmdp.agent.prompt.PromptService;
-import com.hmdp.agent.routing.ToolRouter;
+import com.hmdp.agent.service.AgentHistoryService;
 import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
@@ -22,9 +25,6 @@ import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.agent.util.TextUtils;
-import com.hmdp.agent.hook.ChatContext;
-import com.hmdp.agent.service.AgentHistoryService;
 import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -35,21 +35,22 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
- * 子任务规划器。
+ * 子任务规划器（编排层）。
  * <p>
  * 核心循环：decompose() -> execute() -> merge()，最多 {@link #MAX_ROUNDS} 轮。
- * execute() 阶段根据 {@code feature.subagent.enabled} 走 SubTaskAgent 或原 TaskExecutor。
+ * 规划细节（目录构建/意图树/解析校验）全部下沉到 {@link PlanRouter} 策略，
+ * 本类只做编排与观测。execute() 阶段根据 {@code feature.subagent.enabled} 走 SubTaskAgent 或原 TaskExecutor。
  * </p>
  */
 @Slf4j
@@ -91,7 +92,7 @@ public class TaskPlanner {
     private PromptService promptService;
 
     @Resource
-    private ToolRouter toolRouter;
+    private PlanRouter planRouter;
 
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
@@ -181,13 +182,13 @@ public class TaskPlanner {
                     // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
                     List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history,
                             ctx != null ? ctx.getUserId() : null);
-                    roundSpan.attribute("tool_count", String.valueOf(tasks.size()));
+                    roundSpan.set(AgentField.TOOL_COUNT, String.valueOf(tasks.size()));
                     if (tasks.isEmpty()) {
-                        roundSpan.attribute("plan_valid", "false");
+                        roundSpan.set(AgentField.PLAN_VALID, "false");
                         log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
                         return currentResponse;
                     }
-                    roundSpan.attribute("plan_valid", "true");
+                    roundSpan.set(AgentField.PLAN_VALID, "true");
 
                     // 推送：规划阶段
                     String planDesc = tasks.stream()
@@ -222,7 +223,7 @@ public class TaskPlanner {
 
                             SubTaskResult result = subTaskAgent.execute(execution);
 
-                            subagentSpan.attribute("tool_count", String.valueOf(result.getRawResults() != null
+                            subagentSpan.set(AgentField.TOOL_COUNT, String.valueOf(result.getRawResults() != null
                                     ? result.getRawResults().size() : 0));
                             currentResponse = result.getSummary();
                             recordHistory(history, result);
@@ -285,243 +286,23 @@ public class TaskPlanner {
     }
 
     // ============================================================
-    // decompose 部分
+    // decompose 部分（规划细节下沉到 PlanRouter，本层只做编排 + 观测）
     // ============================================================
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-    private static final int PLAN_RESPONSE_TRUNCATE = 200;
-    private static final int RESULT_SUMMARY_LEN = 50;
-
-    private static final String PLAN_START = "===PLAN_START===";
-    private static final String PLAN_END = "===PLAN_END===";
-
     /**
-     * 拆解子任务：优先从 AI 初次回复中解析工具调用 -> 兜底 AI 规划推理 -> Java 三层校验。
-     * <p>
-     * Phase1 AI 可能已直接输出 JSON 格式的工具调用规划，
-     * 此时直接解析使用，避免重复问 AI 导致被"已有回复"误导。
-     * 返回的列表只包含 TOOL_CALL 任务（不再追加 LLM_REASON）。
-     * </p>
+     * 拆解子任务：委托激活的 {@link PlanRouter} 策略产出 TOOL_CALL 任务。
      */
     List<SubTask> decompose(String input, String response,
                             ToolCallback[] toolCallbacks, TaskReport history, Long userId) {
         // 观测：agent.plan（decompose 校验后结束，plan.tools[] 摘要 + 校验结论）
         try (AgentSpan planSpan = agentTracer.start(AgentSpanSpec.PLAN, null)) {
-            // 1) 优先尝试从 AI 初次回复中解析工具调用（Phase1 可能已输出 JSON 规划）
-            List<SubTask> fromResponse = validatePlan(response, toolCallbacks, history);
-            if (!fromResponse.isEmpty()) {
-                log.info("  [规划] 从 AI 初次回复中解析到 {} 个工具调用", fromResponse.size());
-                planSpan.attribute("validate_result", "from_response");
-                planSpan.attribute("plan.tools", fromResponse.stream()
-                        .map(SubTask::getToolName).collect(Collectors.joining(",")));
-                return fromResponse;
-            }
-            // 2) 回退：让 AI 做规划推理
-            String planJson = askAiForPlan(input, response, userId, toolCallbacks, history);
-            List<SubTask> tasks = validatePlan(planJson, toolCallbacks, history);
-            planSpan.attribute("validate_result", tasks.isEmpty() ? "empty" : "ai_plan");
-            planSpan.attribute("plan.tools", tasks.stream()
+            PlanOutcome outcome = planRouter.plan(new PlanRequest(input, response, userId, toolCallbacks, history));
+            planSpan.set(AgentField.VALIDATE_RESULT, outcome.source());
+            planSpan.set(AgentField.PLAN_TOOLS, outcome.tasks().stream()
                     .map(SubTask::getToolName).collect(Collectors.joining(",")));
-            return tasks;
+            log.info("  [规划] 产出 {} 个工具调用 (source={})", outcome.tasks().size(), outcome.source());
+            return outcome.tasks();
         }
-    }
-
-    /**
-     * 调 AI 做规划推理（编排：紧凑目录 → 调 LLM → 不确定则全量目录重跑一次）。
-     * <p>
-     * 目录构建/标签/不确定性判定全部在 router 侧，本方法只做编排；
-     * __UNCERTAIN__ 在进 validatePlan 前由本层拦截（用全量重跑结果替换），
-     * validatePlan 的 callbackIndex 仍保持全量，防止子集外工具被误判"工具不存在"。
-     * </p>
-     */
-    private String askAiForPlan(String input, String response, Long userId,
-                                 ToolCallback[] toolCallbacks,
-                                 TaskReport history) {
-        boolean compact = featureProperties.getToolRouting() != null
-                && featureProperties.getToolRouting().isEnabled();
-        String toolsDesc = toolRouter.buildCatalog(compact, toolCallbacks, history, input);
-        log.debug("规划工具目录字符数={}", toolsDesc.length());
-        String result = plannerCall(input, response, userId, toolsDesc, history);
-        if (compact && toolRouter.isUncertain(result)) {
-            log.info("[规划] 路由不确定，改用全量目录重试");
-            result = plannerCall(input, response, userId,
-                    toolRouter.buildCatalog(false, toolCallbacks, history, input), history);
-        }
-        return result;
-    }
-
-    /**
-     * 渲染规划 prompt 并调用规划 LLM（失败降级返回 "[]"）。
-     */
-    private String plannerCall(String input, String response, Long userId,
-                               String toolsDesc, TaskReport history) {
-        List<String> completedSummary = history.getCompleted().stream()
-                .map(t -> t.getToolName() + ": " + truncate(String.valueOf(t.getResult()), RESULT_SUMMARY_LEN))
-                .toList();
-        List<String> failedSummary = history.getFailed().stream()
-                .map(t -> t.getToolName() + ": " + extractErrorType(String.valueOf(t.getResult())))
-                .toList();
-
-        Map<String, String> planVars = new LinkedHashMap<>();
-        planVars.put("toolsDescription", toolsDesc);
-        planVars.put("completedSummary", String.join("\n", completedSummary));
-        planVars.put("failedSummary", String.join("\n", failedSummary));
-        planVars.put("userInput", input);
-        planVars.put("currentResponse", truncate(response, PLAN_RESPONSE_TRUNCATE));
-        planVars.put("planStart", PLAN_START);
-        planVars.put("planEnd", PLAN_END);
-
-        ChatModelObservationConventionConfig.mark("planner");
-        String result;
-        try {
-            try {
-                result = chatClient.prompt()
-                        .system(promptService.render(PromptKeys.SYSTEM_PLANNER,
-                                Map.of("userId", userId != null ? String.valueOf(userId) : "")))
-                        .user(promptService.render(PromptKeys.PLANNER_USER, planVars))
-                        .call().content();
-            } finally {
-                ChatModelObservationConventionConfig.clear();
-            }
-            log.info("  [规划] AI 建议: {}", result);
-            return result;
-        } catch (Exception e) {
-            log.warn("AI 规划请求失败", e);
-            return "[]";
-        }
-    }
-
-    /**
-     * 从 AI 回复中提取标记之间的 JSON 内容。
-     * 先找 ===PLAN_START=== / ===PLAN_END===，找不到则尝试从第一个 [ 或 { 开始提取。
-     */
-    private String extractPlanJson(String raw) {
-        if (raw == null || raw.isBlank()) return "[]";
-
-        // 优先从标记中提取
-        int startIdx = raw.indexOf(PLAN_START);
-        if (startIdx >= 0) {
-            startIdx = startIdx + PLAN_START.length();
-            int endIdx = raw.indexOf(PLAN_END, startIdx);
-            if (endIdx >= 0) {
-                return raw.substring(startIdx, endIdx).trim();
-            }
-            // 有开始标记但没结束标记（响应被截断，如 "===PLAN_START===="）：
-            // 从剩余文本尽量提取 JSON 数组/对象，提取不到返回 "[]"（避免把垃圾当 JSON 解析报错）
-            return extractJsonValue(raw.substring(startIdx));
-        }
-
-        // 无标记时尝试找第一个 [ 或 {
-        return extractJsonValue(raw);
-    }
-
-    /** 从文本中提取第一个 [ ] 或 { } 包裹的 JSON；找不到返回 "[]" */
-    private String extractJsonValue(String text) {
-        if (text == null || text.isBlank()) return "[]";
-        int bracket = text.indexOf('[');
-        if (bracket >= 0) {
-            int close = findMatchingClose(text, bracket, '[', ']');
-            if (close >= 0) return text.substring(bracket, close + 1).trim();
-        }
-        int brace = text.indexOf('{');
-        if (brace >= 0) {
-            int close = findMatchingClose(text, brace, '{', '}');
-            if (close >= 0) return text.substring(brace, close + 1).trim();
-        }
-        return "[]";
-    }
-
-    /** 找匹配的闭合符号，简单处理（不考虑嵌套） */
-    private static int findMatchingClose(String s, int open, char openChar, char closeChar) {
-        if (open < 0) return -1;
-        for (int i = open + 1; i < s.length(); i++) {
-            if (s.charAt(i) == closeChar) return i;
-        }
-        return -1;
-    }
-
-    /**
-     * 三层校验：JSXON 语法 -> 工具存在性 -> 历史状态。
-     * <p>
-     * 不再追加 LLM_REASON，由调用方自行决定是否追加。
-     * </p>
-     */
-    private List<SubTask> validatePlan(String planJson,
-                                        ToolCallback[] toolCallbacks,
-                                        TaskReport history) {
-        // 0) 从原始文本中提取 JSON
-        String json = extractPlanJson(planJson);
-
-        // 1) JSON 语法校验
-        List<Map<String, Object>> planEntries;
-        try {
-            JsonNode root = JSON.readTree(json);
-            if (!root.isArray()) {
-                log.warn("  [规划] 结果非 JSON 数组: {}", truncate(planJson, 100));
-                return List.of();
-            }
-            planEntries = JSON.convertValue(root, new TypeReference<>() {});
-        } catch (JsonProcessingException e) {
-            log.warn("规划结果 JSON 解析失败: {}", e.getMessage());
-            return List.of();
-        }
-
-        // 2) 构建工具名索引
-        Map<String, ToolCallback> callbackIndex = new HashMap<>();
-        if (toolCallbacks != null) {
-            for (ToolCallback cb : toolCallbacks) {
-                callbackIndex.put(GuardedToolCallback.rawName(cb), cb);
-            }
-        }
-
-        // 3) 逐条校验
-        List<SubTask> tasks = new ArrayList<>();
-        for (Map<String, Object> entry : planEntries) {
-            String toolName = entry.get("tool") instanceof String s ? s : null;
-            if (toolName == null || toolName.isBlank()) {
-                log.warn("  [规划] 缺少 tool 字段: {}", entry);
-                continue;
-            }
-            if (!callbackIndex.containsKey(toolName)) {
-                log.warn("  [规划] 工具不存在: {}", toolName);
-                continue;
-            }
-            if (history.isCompleted(toolName)) continue;
-            if (history.isFinalFailed(toolName)) continue;
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> params = entry.get("params") instanceof Map
-                    ? (Map<String, Object>) entry.get("params") : null;
-
-            tasks.add(SubTask.builder()
-                    .id(UUID.randomUUID().toString())
-                    .description("执行工具: " + toolName)
-                    .type(TaskType.TOOL_CALL)
-                    .toolName(toolName)
-                    .params(params != null ? params : Map.of())
-                    .status(SubTaskStatus.PENDING)
-                    .build());
-            log.info("  [规划] 需执行 [tool={}, params={}]", toolName, params);
-        }
-
-        return tasks;
-    }
-
-    // ============================================================
-    // 工具方法
-    // ============================================================
-
-    /** 截取前 N 个码点，超长加 "..."（codepoint-safe，见 TextUtils） */
-    private static String truncate(String s, int max) {
-        return TextUtils.truncate(s, max);
-    }
-
-    /** 从异常信息中提取错误类型首行 */
-    private static String extractErrorType(String error) {
-        if (error == null) return "未知错误";
-        String[] lines = error.split("\n");
-        String first = lines[0];
-        return first.length() > 80 ? first.substring(0, 80) : first;
     }
 
     // ============================================================
@@ -734,11 +515,4 @@ public class TaskPlanner {
             history.record(subTasks);
         }
     }
-
-    /**
-     * 从快照恢复执行（用户 CONFIRM 后）。
-     */
-    /**
-     * 从快照恢复执行（旧 2 参版本已废弃，见上方 {@link #resumeFromSnapshot(TaskSnapshot, ChatContext, SseEmitter)}）。
-     */
 }

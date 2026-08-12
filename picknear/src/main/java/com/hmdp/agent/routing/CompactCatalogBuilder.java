@@ -20,7 +20,7 @@ import java.util.Map;
  * </p>
  */
 @Component
-public class CompactCatalogBuilder {
+public class CompactCatalogBuilder implements CatalogBuilder {
 
     private static final String NO_DESCRIPTION = "（无描述）";
     private static final String ELLIPSIS = "…";
@@ -31,7 +31,8 @@ public class CompactCatalogBuilder {
      * 仅在首句缺触发词/区分词时登记。
      */
     private static final Map<String, String> OVERRIDES = Map.of(
-            "publishTestBlog", "发布一篇测试博客，用户说「发博客」「写博客」「发布」「发一篇」时使用"
+            "publishTestBlog", "发布一篇测试博客，用户说「发博客」「写博客」「发布」「发一篇」时使用",
+            "queryPublishedBlogs", "查看/浏览当前用户自己的已发布博客，无需参数，用户说「我的博客」时使用"
     );
 
     /**

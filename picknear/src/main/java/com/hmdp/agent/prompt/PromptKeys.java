@@ -22,6 +22,9 @@ public final class PromptKeys {
     /** 任务规划用户模板 */
     public static final String PLANNER_USER = "agent.prompt.planner";
 
+    /** 任务规划用户模板 v2（意图→工具组两级路由） */
+    public static final String PLANNER_USER_V2 = "agent.prompt.planner.v2";
+
     /** 子 Agent 执行模板 */
     public static final String SUBAGENT_EXECUTION = "agent.prompt.subagent.execution";
 

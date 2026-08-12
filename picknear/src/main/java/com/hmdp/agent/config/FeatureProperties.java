@@ -18,7 +18,7 @@ public class FeatureProperties {
     /** 子 Agent 功能开关 */
     private SubAgent subagent = new SubAgent();
 
-    /** 规划工具路由开关（紧凑目录 + 不确定保底重跑） */
+    /** 规划工具路由开关（true=意图→工具组两级路由 TreePlanRouter；false=legacy 紧凑目录+UNCERTAIN 全量重跑） */
     private ToolRouting toolRouting = new ToolRouting();
 
     @Data
@@ -29,7 +29,7 @@ public class FeatureProperties {
 
     @Data
     public static class ToolRouting {
-        /** true=规划 prompt 用紧凑目录，识别不出时全量重跑一次；false=直接全量目录（与现状一致） */
+        /** true=两级路由（意图树，默认）；false=legacy（紧凑目录+__UNCERTAIN__全量重跑，与现状零行为差异） */
         private boolean enabled = true;
         /** 紧凑标签最大字符数，超出截断加 … */
         private int maxTagLength = 60;

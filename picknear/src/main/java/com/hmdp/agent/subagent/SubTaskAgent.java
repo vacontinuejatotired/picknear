@@ -186,7 +186,7 @@ public class SubTaskAgent {
                 }
                 String content = toolCallLoopExecutor.execute(
                         Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService, toolCtx,
-                        props.getMaxToolRounds(), props.getCompressLength());
+                        props.getMaxToolRounds(), props.getCompressLength(), props.getMaxTotalCalls());
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;
             } catch (ConfirmRequiredException e) {
