@@ -148,9 +148,40 @@ agent.session                                                  17.94s  (6 items)
 - 未来新想法 = 新增一个策略类 + 一行配置，不动既有策略。
 - prompt 用 `{{toolCallRule}}` 占位符运行时注入规则文本，不加模板副本。
 
-优化后的测试情况
+优化后的测试情况（batch，`agent.subtask.tool-loop: batch`，trace 1108b400）
 
-（待实现后回贴新 trace，对比 serial/batch 两态总耗时，确认 batch 下压缩 span 并发重叠）
+```
+agent.session                                                  16.69s  (7 items)
+├─ agent.phase1                                            2.08s  (2 items)
+│  ├─ chat qwen-plus-2025-07-28                          1.84s
+│  └─ agent.decision                                     0.01s
+├─ agent.round.1                                           13.48s  (2 items)
+│  ├─ agent.plan                                         6.66s  (3 items)
+│  │  ├─ agent.prompt.agent.system.planner             2.41s  （Langfuse 缓存未命中首拉）
+│  │  ├─ agent.prompt.agent.prompt.planner.v2          2.30s  （同上，环境噪声）
+│  │  └─ chat qwen-plus-2025-07-28                     1.92s
+│  └─ agent.subagent                                     6.82s  (5 items)
+│     ├─ subagent-exec-query-weather,query-published-blogs-chat  1.03s  （轮1：一次返回两个工具调用）
+│     ├─ agent.guard.-a-l-l-o-w.query-published-blogs  0.26s
+│     ├─ agent.guard.-a-l-l-o-w.query-weather          0.01s
+│     ├─ subagent-compress-query-published-blogs-chat     1.21s
+│     └─ subagent-exec-chat                               4.25s  （聚合：最终回答）
+└─ agent.round.2                                           1.00s  (1 item)
+   └─ agent.plan                                           1.00s  （空计划收尾检查）
+```
 
-[参考链路url](https://jp.cloud.langfuse.com/project/cmscnp4n40007ad0d81wlodt4/traces/ffef5e2ca09bb3773481f242c4f0b89f?observation=ff4c7178ee5d6f51)
-[参考链路json文件](.\json\trace-ffef5e2ca09bb3773481f242c4f0b89f.json)
+三个结构变化确认：
+
+1. **轮1 一次返回两个工具调用**——`subagent-exec-query-weather,query-published-blogs` 单轮 1.03s，不再拆两轮（串行是 0.70+0.61=1.31s 两次 LLM），省一次 LLM 往返。
+2. **聚合 LLM = 子 Agent 最后一次 `subagent-exec-chat`**（4.25s）——子 Agent 路径没有独立 merge LLM，工具执行完后由子 Agent 自己读压缩摘要生成最终回答（prompt 要求"所有工具执行完毕后用中文给出完整回答 + 末尾附 JSON 快照"）。独立聚合只存在于 legacy 回退路径（`feature.subagent.enabled=false` 时的 `LLM_REASON` + `TaskPlanner.merge`）。
+3. **guard span 回挂**——batch 并发曾把 guard span 变孤儿（Micrometer `Observation.Scope` 是线程局部的，worker 线程无观察上下文 → `AgentTracer.start` 父子关系捕获不到）。已修复：`BatchToolLoop` 派发前捕获主线程 Observation、任务内 `openScope()` 再执行，guard/tool span 回到 trace 树。
+
+两点说明：
+- 总耗时 16.69s vs 优化前 17.94s 只降 ~7%，因 1108b400 是重启后首条 trace，planner 两个 prompt 渲染各 2.3-2.4s（Langfuse HTTP 首拉缓存未命中，环境噪声）；稳态（缓存命中）下收益更明显，尤其**多工具 + 多长结果**时压缩从 N×4s 压到 ~4s。
+- 工具结果 ≤ `compress-length(80)` 时压缩直接返回原文（不调 LLM），所以短结果 trace 里看不到 `subagent-compress` span——是省调用，不是丢了。
+
+仍存在的优化点：**轮2 空计划收尾 ~1s**——子 Agent 已产出完整答案后主循环还复查一次规划（返回空计划）。可做"子 Agent 产出后跳过再规划"，收益 ~1s/请求，留待后续。
+
+[优化前参考链路url](https://jp.cloud.langfuse.com/project/cmscnp4n40007ad0d81wlodt4/traces/ffef5e2ca09bb3773481f242c4f0b89f?observation=ff4c7178ee5d6f51)
+[优化前参考链路json文件](.\json\trace-ffef5e2ca09bb3773481f242c4f0b89f.json)
+[优化后参考链路url](https://jp.cloud.langfuse.com/project/cmscnp4n40007ad0d81wlodt4/traces/1108b40071daf869091adc20ca192bcd)
