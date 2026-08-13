@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * 工具结果压缩器。
  * <p>
  * 把工具返回的原始结果压成 ≤ 上限字数的要点摘要，供后续工具循环步骤使用。
- * 手动工具循环（{@link ToolCallLoopExecutor}）只把压缩摘要存入上下文、不存原文，
+ * 手动工具循环（{@code AbstractToolLoop}）只把压缩摘要存入上下文、不存原文，
  * 每轮上下文增量 ≈ 压缩摘要长度，杜绝滚雪球（见设计文档 §4.4）。
  * </p>
  */

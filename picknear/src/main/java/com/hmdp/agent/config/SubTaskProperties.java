@@ -35,6 +35,15 @@ public class SubTaskProperties {
     /** 单次执行的总工具调用数上限（预算硬顶，超限强制收尾；防死循环，不抑制具体调用） */
     private int maxTotalCalls = 10;
 
+    /** 工具调用循环策略：serial=按轮逐个调用（现状，默认）；batch=批量+并行（见 SubAgentToolLoop 实现） */
+    private String toolLoop = "serial";
+
+    /** BatchToolLoop 用：轮内多个工具 cb.call 并发执行 */
+    private boolean parallelTools = true;
+
+    /** BatchToolLoop 用：轮内多个长结果的压缩 LLM 并发执行（耗时大头，N×4s → ~4s） */
+    private boolean parallelCompress = true;
+
     /** 工具结果压缩摘要的最大字符数（LLM 把原始结果压成要点后再入上下文，防滚雪球） */
     private int compressLength = 80;
 }

@@ -8,6 +8,8 @@ import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
+import com.hmdp.agent.subagent.loop.SubAgentToolLoop;
+import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.subagent.model.SubTaskResult;
@@ -25,7 +27,7 @@ import java.util.*;
  * 子任务执行 Agent。
  * <p>
  * 职责：接收 SubTaskExecution → 按 tasks 筛选 ToolCallback →
- * {@link ToolCallLoopExecutor} 手动循环执行工具（结果经 LLM 压缩后入上下文）→
+ * {@link com.hmdp.agent.subagent.loop.SubAgentToolLoop} 策略执行工具循环（结果经 LLM 压缩后入上下文）→
  * 从回复中提取 JSON 数据快照 → 返回 SubTaskResult。
  * 执行 Prompt 与系统提示词经 {@link PromptService} 外置（Langfuse → 内置兜底）。
  * </p>
@@ -35,7 +37,7 @@ import java.util.*;
 public class SubTaskAgent {
 
     @Resource
-    private ToolCallLoopExecutor toolCallLoopExecutor;
+    private SubAgentToolLoop toolLoop;
 
     @Resource
     private ToolBeanCollector toolBeanCollector;
@@ -89,15 +91,20 @@ public class SubTaskAgent {
         // 2. 推送：开始执行
         if (callback != null) callback.onExecuteStart(tasks.size());
 
-        // 3. 构建执行 Prompt（模板外置，PromptService 渲染 {{var}}）
-        String prompt = promptService.render(PromptKeys.SUBAGENT_EXECUTION,
-                SubAgentPromptBuilder.buildVariables(plan));
+        // 3. 构建执行 Prompt（模板外置，PromptService 渲染 {{var}}）。
+        //    工具调用规则文本按激活的 SubAgentToolLoop 策略注入（serial=逐个；batch=独立可同时）
+        String toolCallRule = toolLoop.toolCallRule();
+        Map<String, String> execVars = new LinkedHashMap<>(SubAgentPromptBuilder.buildVariables(plan));
+        execVars.put("toolCallRule", toolCallRule);
+        String prompt = promptService.render(PromptKeys.SUBAGENT_EXECUTION, execVars);
         // 系统提示词渲染一次（缓存命中后开销≈0），重试循环不重复渲染
-        String systemText = promptService.render(PromptKeys.SYSTEM_SUBAGENT,
-                Map.of("userId", plan.getUserId() != null ? String.valueOf(plan.getUserId()) : ""));
+        Map<String, String> sysVars = new HashMap<>();
+        sysVars.put("userId", plan.getUserId() != null ? String.valueOf(plan.getUserId()) : "");
+        sysVars.put("toolCallRule", toolCallRule);
+        String systemText = promptService.render(PromptKeys.SYSTEM_SUBAGENT, sysVars);
 
         // 4. 带退避重试调用（含总超时保护），携带 userId / conversationId 作为 ToolContext。
-        //    ChatModel 观察标记由 ToolCallLoopExecutor（subagent-exec）与 ToolResultCompressor
+        //    ChatModel 观察标记由 SubAgentToolLoop（subagent-exec）与 ToolResultCompressor
         //    （subagent-compress）各自设置，Langfuse generation 名按功能区分（见 ChatModelObservationConventionConfig）。
         String content;
         try {
@@ -153,7 +160,7 @@ public class SubTaskAgent {
      * 带指数退避和总超时控制的重试调用。
      * retryBackoff 为基础间隔，每次翻倍：1s → 2s → 4s
      * totalTimeout 为整个 execute() 的总超时（含重试），超时直接终止。
-     * 每次尝试委托 {@link ToolCallLoopExecutor} 执行手动工具循环。
+     * 每次尝试委托 {@link com.hmdp.agent.subagent.loop.SubAgentToolLoop} 执行工具循环。
      */
     private String executeWithRetry(String systemText, String prompt, SubTaskPlan plan,
                                      ToolCallback[] callbacks,
@@ -184,9 +191,10 @@ public class SubTaskAgent {
                 if (conversationId != null && !conversationId.isBlank()) {
                     toolCtx.put("conversationId", conversationId);
                 }
-                String content = toolCallLoopExecutor.execute(
-                        Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService, toolCtx,
-                        props.getMaxToolRounds(), props.getCompressLength(), props.getMaxTotalCalls());
+                SubAgentToolLoopContext ctx = new SubAgentToolLoopContext(
+                        Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService,
+                        toolCtx, props);
+                String content = toolLoop.execute(ctx);
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;
             } catch (ConfirmRequiredException e) {

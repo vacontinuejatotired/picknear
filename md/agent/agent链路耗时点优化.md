@@ -113,3 +113,44 @@ agent.session                                                  16.61s  (5 items)
 
 ## 3.工具调用优化
 规划时agent会拿到所有工具的提示词，应该按需加载。其次，子agent执行任务时会有未进行的任务占token，即使任务完成了也没更新历史摘要，可能是因为复用了提示词吧
+
+## 4.子Agent工具循环耗时优化 ##
+
+前情提要：输入为：查看我的博客以及长沙天气
+
+一上来就可以看到一个痛点：这条链路 17.94s 里，真正的数据查询只有 ~0.3s，剩下 ~15s 全是 LLM 调用。规划 LLM 5s、最终总结 3s 是必要开销，但有两块叠加是能省的：
+1. 子 agent **串行逐个调用工具**——prompt 强制"每次只调用一个"，每多一个工具就多一次 subagent-exec LLM 往返（~0.6s/个）。这条 trace 里 queryWeather（轮1）和 queryPublishedBlogs（轮2）被拆成两轮，白多一轮 LLM。
+2. **每个超长工具结果触发一次独立的压缩 LLM 调用**（4s/个，`ToolResultCompressor.compress`）。工具一多就线性叠加，且当前是串行执行。
+
+```
+agent.session                                                  17.94s  (6 items)
+├─ agent.prompt_hook                                       0.01s
+├─ agent.phase1                                            1.78s  (2 items)
+│  ├─ chat qwen-plus-2025-07-28                          1.53s
+│  └─ agent.decision                                     0.01s
+├─ agent.round.1                                           14.38s  (2 items)
+│  ├─ agent.plan                                         5.56s  (3 items)
+│  │  ├─ agent.prompt.agent.prompt.planner.v2          0.52s
+│  │  └─ chat qwen-plus-2025-07-28                     4.99s
+│  └─ agent.subagent                                     8.82s  (9 items)
+│     ├─ subagent-exec-query-weather,query-published-blogs-chat  0.70s  （轮1：返回 queryWeather）
+│     ├─ tool_call query-weather                         0.01s
+│     ├─ subagent-exec-query-published-blogs-chat         0.61s  （轮2：返回 queryPublishedBlogs）
+│     ├─ tool_call query-published-blogs                 0.32s
+│     ├─ subagent-compress-query-published-blogs-chat     4.03s  （长结果摘要，最大单点）
+│     └─ subagent-exec-chat                               3.05s  （最终总结）
+└─ agent.round.2                                           0.00s
+```
+
+选型：怎么让工具调用不串行叠加、又不破坏"上下文压缩防滚雪球"的既有设计？直接改 loop 塞开关会变成一坨 if/else，以后再有新的工具调用想法（比如"先并行跑独立工具→再走依赖链"、"单次全量调用后一次总结"）又得改老代码。所以复用规划侧的策略模式（`PlanRouter` 那套成功做法）：
+- 抽 `SubAgentToolLoop` 接口 = **扩展点**；原"按轮逐个调用"作为 `SerialToolLoop` 策略**原样保留**（默认，零行为差异）；
+- 新增 `BatchToolLoop`：prompt 允许一轮发多个独立工具调用 + 轮内工具/压缩并发（CompletableFuture），CONFIRM 统一重抛；
+- 未来新想法 = 新增一个策略类 + 一行配置，不动既有策略。
+- prompt 用 `{{toolCallRule}}` 占位符运行时注入规则文本，不加模板副本。
+
+优化后的测试情况
+
+（待实现后回贴新 trace，对比 serial/batch 两态总耗时，确认 batch 下压缩 span 并发重叠）
+
+[参考链路url](https://jp.cloud.langfuse.com/project/cmscnp4n40007ad0d81wlodt4/traces/ffef5e2ca09bb3773481f242c4f0b89f?observation=ff4c7178ee5d6f51)
+[参考链路json文件](.\json\trace-ffef5e2ca09bb3773481f242c4f0b89f.json)

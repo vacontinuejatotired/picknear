@@ -141,6 +141,10 @@ agent:
     max-retries: 3                            # 最大重试次数
     retry-backoff: 1s                         # 重试基础退避间隔
     max-tool-rounds: 6                        # 手动工具循环最大轮数（触顶强制总结）
+    max-total-calls: 10                       # 单次执行总工具调用数上限（预算硬顶，超限强制收尾）
+    tool-loop: batch                         # 工具循环策略：serial=按轮逐个（默认）；batch=批量+并行
+    parallel-tools: true                      # batch 用：轮内多个工具并发执行
+    parallel-compress: true                   # batch 用：轮内多个长结果压缩并发（N×4s → ~4s）
     compress-length: 80                       # 工具结果压缩摘要最大字符数（防上下文滚雪球）
   prompt:
     enabled: true                             # 提示词外置总开关（false → 全部走内置模板）
