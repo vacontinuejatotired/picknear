@@ -20,4 +20,24 @@ public final class TextUtils {
         int end = s.offsetByCodePoints(0, max);
         return s.substring(0, end) + "...";
     }
+
+    /**
+     * 生成给用户的异常摘要：取根因消息首行并截断到 80 字符。
+     * <p>
+     * 完整堆栈只进日志，避免把内部 SQL/框架细节直接暴露给用户。
+     * </p>
+     */
+    public static String errorSummary(Throwable t) {
+        if (t == null) return "未知错误";
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String msg = root.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return root.getClass().getSimpleName();
+        }
+        String firstLine = msg.split("\n", 2)[0];
+        return firstLine.length() > 80 ? firstLine.substring(0, 80) : firstLine;
+    }
 }

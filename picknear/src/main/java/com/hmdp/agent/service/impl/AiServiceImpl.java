@@ -14,6 +14,7 @@ import com.hmdp.agent.stream.StreamingChatInvoker;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
+import com.hmdp.agent.util.TextUtils;
 import com.hmdp.utils.UserHolder;
 
 import io.micrometer.observation.Observation;
@@ -108,7 +109,7 @@ public class AiServiceImpl implements AiService {
             // 响应已提交为 SSE：异常不能抛回 WebExceptionAdvice（会污染已提交的流），
             // 必须转为 SSE error 事件，否则前端收不到任何提示
             log.error("AI SSE 会话初始化异常, content={}", content, e);
-            SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用（" + errorSummary(e) + "），请稍后再试。"));
+            SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用（" + TextUtils.errorSummary(e) + "），请稍后再试。"));
             emitter.complete();
         }
     }
@@ -151,7 +152,7 @@ public class AiServiceImpl implements AiService {
                         streamingChatInvoker.streamWithRetry(systemText, finalContent, emitter);
                 if (streamOutcome.failed()) {
                     // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）
-                    String friendlyMsg = "抱歉，AI 服务暂时不可用（" + errorSummary(streamOutcome.lastError()) + "），请稍后再试。";
+                    String friendlyMsg = "抱歉，AI 服务暂时不可用（" + TextUtils.errorSummary(streamOutcome.lastError()) + "），请稍后再试。";
                     SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
                     SseUtils.safeSend(emitter, SseUtils.errorEvent(friendlyMsg));
                     emitter.complete();
@@ -171,26 +172,6 @@ public class AiServiceImpl implements AiService {
                 rootSpan.closeRootScope();
             }
         }
-    }
-
-    /**
-     * 生成给用户的异常摘要：取根因消息首行并截断到 80 字符。
-     * <p>
-     * 完整堆栈只进日志，避免把内部 SQL/框架细节直接暴露给用户。
-     * </p>
-     */
-    private static String errorSummary(Throwable t) {
-        if (t == null) return "未知错误";
-        Throwable root = t;
-        while (root.getCause() != null && root.getCause() != root) {
-            root = root.getCause();
-        }
-        String msg = root.getMessage();
-        if (msg == null || msg.isBlank()) {
-            return root.getClass().getSimpleName();
-        }
-        String firstLine = msg.split("\n", 2)[0];
-        return firstLine.length() > 80 ? firstLine.substring(0, 80) : firstLine;
     }
 
 }
