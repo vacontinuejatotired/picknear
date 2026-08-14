@@ -113,7 +113,7 @@ public class UserController {
     @GetMapping("/me")
     @Operation(summary = "获取当前用户信息", description = "获取当前登录用户的基本信息")
     public Result me(){
-        log.info("{}",UserHolder.getUserDTO());
+        log.debug("me() userId={}", UserHolder.getUserId());
         return Result.ok(UserHolder.getUserDTO());
     }
 

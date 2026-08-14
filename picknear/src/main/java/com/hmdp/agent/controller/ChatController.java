@@ -95,7 +95,7 @@ public class ChatController {
 
         // SSE 模式
         if (accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE)) {
-            log.info("SSE 模式：content={}", content);
+            log.debug("SSE 模式：content={}", content);
 
             // 观测：会话根 span（agent.session）。先创建 root 再构造 emitter（顺序：root 必须非 null）
             AgentSpan root = agentTracer.startSession(conversationId,
@@ -108,9 +108,9 @@ public class ChatController {
             SseEmitter emitter = new ObservedSseEmitter(SSE_TIMEOUT, root, taskScheduler, SSE_GUARD_TIMEOUT);
 
             emitter.onCompletion(() ->
-                    log.info("SSE 流完成, content={}, thread={}", content, Thread.currentThread().getName()));
-            emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", content));
-            emitter.onError(ex -> log.error("SSE 流异常, content={}", content, ex));
+                    log.debug("SSE 流完成, thread={}", Thread.currentThread().getName()));
+            emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", brief(content)));
+            emitter.onError(ex -> log.error("SSE 流异常, content={}", brief(content), ex));
 
             // 先推送 conversationId（JSON 格式，前端据此识别为元事件，不混入回答文本）
             try {
@@ -136,7 +136,7 @@ public class ChatController {
         }
 
         // JSON 模式
-        log.info("JSON 模式：content={}，accept={}", content, accept);
+        log.debug("JSON 模式：content={}，accept={}", content, accept);
         String result = aiService.chatReturnStringResult(content, conversationId);
 
         // 返回内容 + conversationId，供前端保存并下次传入
@@ -144,6 +144,14 @@ public class ChatController {
         data.put("content", result);
         data.put("conversationId", conversationId);
         return Result.ok(data);
+    }
+
+    /**
+     * 日志脱敏：用户输入截断到 50 字符，避免全文落盘
+     */
+    private static String brief(String s) {
+        if (s == null) return "null";
+        return s.length() <= 50 ? s : s.substring(0, 50) + "...";
     }
 
     /**
