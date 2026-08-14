@@ -3,6 +3,7 @@ package com.hmdp.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 分布式雪花ID预生成队列 — 提前生成一批ID放入本地队列，避免高并发下实时生成延迟
  */
 @Data
+@Slf4j
 public class SnowflakeIdQueue {
     /**
      * 批次ID队列，预先生成批次ID并存储在队列中，确保每次生成ID时都能快速获取一个唯一的批次ID
@@ -59,7 +61,7 @@ public class SnowflakeIdQueue {
         try {
             id = BATCH_ID_QUEUE.take();
         } catch (InterruptedException e) {
-            System.out.println("从批次ID队列中获取ID时发生异常: " + e.getMessage());
+            log.error("从批次ID队列中获取ID时发生异常: {}", e.getMessage());
             throw new RuntimeException(e);
         }
         return id;
