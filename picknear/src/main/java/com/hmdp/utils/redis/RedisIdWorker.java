@@ -1,7 +1,6 @@
 package com.hmdp.utils.redis;
 
 import cn.hutool.core.util.RandomUtil;
-import com.esotericsoftware.minlog.Log;
 import com.hmdp.entity.SnowflakeIdQueue;
 import com.hmdp.utils.UserHolder;
 import jakarta.annotation.PostConstruct;
@@ -136,7 +135,7 @@ public class RedisIdWorker {
      */
     public Long nextVersion(Long userId) {
         if (userId == null) {
-            Log.info("current userId is null");
+            log.warn("current userId is null");
             return -1L;
         }
         String key = RedisConstants.CURRENT_TOKEN_VERSION_KEY + userId;
