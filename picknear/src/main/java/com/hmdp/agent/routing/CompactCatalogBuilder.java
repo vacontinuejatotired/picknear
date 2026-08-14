@@ -60,7 +60,11 @@ public class CompactCatalogBuilder implements CatalogBuilder {
             Map.entry("queryMyFollows", List.of("我的关注", "我关注了谁", "关注列表"))
     );
 
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json;
+
+    public CompactCatalogBuilder(ObjectMapper json) {
+        this.json = json;
+    }
 
     /**
      * 构建紧凑目录：跳过 history 已完成/终失败工具，每工具一行

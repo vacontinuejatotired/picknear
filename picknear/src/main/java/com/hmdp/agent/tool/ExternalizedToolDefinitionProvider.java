@@ -33,11 +33,13 @@ public class ExternalizedToolDefinitionProvider implements ToolDefinitionProvide
     private final PromptService promptService;
     private final PromptProperties props;
     private final Cache<String, ToolDefinition> resolvedCache;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json;
 
-    public ExternalizedToolDefinitionProvider(PromptService promptService, PromptProperties props) {
+    public ExternalizedToolDefinitionProvider(PromptService promptService, PromptProperties props,
+                                              ObjectMapper json) {
         this.promptService = promptService;
         this.props = props;
+        this.json = json;
         this.resolvedCache = Caffeine.newBuilder().expireAfterWrite(props.getCacheTtl()).build();
     }
 

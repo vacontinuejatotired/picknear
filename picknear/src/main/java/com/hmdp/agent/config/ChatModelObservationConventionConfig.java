@@ -57,8 +57,6 @@ public class ChatModelObservationConventionConfig {
     /** 任务/工具标记（ThreadLocal）：当前调用对应的任务标识（如 subagent-exec 驱动执行的工具清单、compress 的工具名）；空 = 无 */
     private static final ThreadLocal<String> TASK = new ThreadLocal<>();
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-
     /** 子代理等调用方在调模型前打标，finally 中必须调 {@link #clear()} */
     public static void mark(String caller) {
         CALLER.set(caller);
@@ -80,7 +78,8 @@ public class ChatModelObservationConventionConfig {
 
     @Bean
     public ChatModelObservationConvention chatModelObservationConvention(TraceProperties traceProperties,
-                                                                         AttributeSanitizer sanitizer) {
+                                                                         AttributeSanitizer sanitizer,
+                                                                         ObjectMapper objectMapper) {
         log.info("[obs-convention] 已加载自定义 ChatModelObservationConvention（含 content 补发），includeContent={}",
                 traceProperties.getChatObservation().isIncludeContent());
         return new DefaultChatModelObservationConvention() {
@@ -105,7 +104,7 @@ public class ChatModelObservationConventionConfig {
                     log.info("[obs-convention] includeContent=false，跳过 content 补发");
                     return keyValues;
                 }
-                String requestContent = toRequestContentJson(context.getRequest(), sanitizer);
+                String requestContent = toRequestContentJson(context.getRequest(), sanitizer, objectMapper);
                 if (requestContent != null) {
                     keyValues = keyValues.and("gen_ai.request.content", requestContent);
                     log.info("[obs-convention] 写入 gen_ai.request.content，len={}", requestContent.length());
@@ -130,7 +129,7 @@ public class ChatModelObservationConventionConfig {
      * 注意 tool 消息的文本在 {@code getResponses()} 而非 getText()，须单独提取，
      * 否则 Langfuse 里工具结果全是空串（本次观测发现的坑）。
      */
-    private static String toRequestContentJson(Prompt request, AttributeSanitizer sanitizer) {
+    private static String toRequestContentJson(Prompt request, AttributeSanitizer sanitizer, ObjectMapper json) {
         if (request == null) {
             return null;
         }
@@ -146,7 +145,7 @@ public class ChatModelObservationConventionConfig {
             arr.add(item);
         }
         try {
-            return JSON.writeValueAsString(arr);
+            return json.writeValueAsString(arr);
         } catch (Exception e) {
             return null;
         }

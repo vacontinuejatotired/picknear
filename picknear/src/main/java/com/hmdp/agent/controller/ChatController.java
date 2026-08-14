@@ -1,6 +1,7 @@
 package com.hmdp.agent.controller;
 
 import com.hmdp.dto.Result;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.api.ObservedSseEmitter;
@@ -67,6 +68,9 @@ public class ChatController {
 
     @Resource
     private TaskPlanner taskPlanner;
+
+    @Resource
+    private ObjectMapper objectMapper;
 
     /**
      * 发送聊天消息 — 双模端点
@@ -206,7 +210,7 @@ public class ChatController {
                 return null;
             }
 
-            TaskSnapshot snapshot = TaskSnapshot.fromApproval(approval);
+            TaskSnapshot snapshot = TaskSnapshot.fromApproval(approval, objectMapper);
             // 重建 ChatContext（异步线程无 UserHolder，userId/conversationId 来自审批记录，
             // 否则数据权限切面报"身份验证失败"、历史不落库）
             ChatContext ctx = ChatContext.builder()

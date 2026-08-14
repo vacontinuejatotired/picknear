@@ -18,8 +18,6 @@ import java.util.List;
 @Data
 public class TaskSnapshot {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-
     /** 原始用户输入 */
     private String originalInput;
 
@@ -62,7 +60,7 @@ public class TaskSnapshot {
      * 注意：rootSpan 不可序列化不落库，resume 时用 confirm SSE 的新会话根 span。
      * </p>
      */
-    public static TaskSnapshot fromApproval(AgentApproval a) {
+    public static TaskSnapshot fromApproval(AgentApproval a, ObjectMapper json) {
         TaskSnapshot s = new TaskSnapshot();
         s.setOriginalInput(a.getOriginalInput());
         s.setPartialResponse(a.getPartialResponse());
@@ -74,7 +72,7 @@ public class TaskSnapshot {
         s.setUserId(a.getUserId());
         if (a.getCompletedTools() != null && !a.getCompletedTools().isBlank()) {
             try {
-                s.setCompletedTools(JSON.readValue(a.getCompletedTools(),
+                s.setCompletedTools(json.readValue(a.getCompletedTools(),
                         new TypeReference<List<String>>() {}));
             } catch (Exception e) {
                 s.setCompletedTools(List.of());

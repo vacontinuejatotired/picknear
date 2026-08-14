@@ -28,7 +28,11 @@ public class PlanParser {
     public static final String PLAN_START = "===PLAN_START===";
     public static final String PLAN_END = "===PLAN_END===";
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private final ObjectMapper JSON;
+
+    public PlanParser(ObjectMapper JSON) {
+        this.JSON = JSON;
+    }
 
     /**
      * 解析规划 LLM 原始回复。
@@ -67,7 +71,7 @@ public class PlanParser {
     }
 
     @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> readEntries(JsonNode plan) {
+    private List<Map<String, Object>> readEntries(JsonNode plan) {
         if (plan == null || !plan.isArray()) {
             return List.of();
         }

@@ -48,7 +48,8 @@ public class SubTaskAgent {
     @Resource
     private PromptService promptService;
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    @Resource
+    private ObjectMapper objectMapper;
 
     /**
      * 执行子任务计划，返回摘要。
@@ -250,7 +251,7 @@ public class SubTaskAgent {
 
         if (snapshotStr != null) {
             try {
-                Map<String, Object> snapshot = JSON.readValue(snapshotStr,
+                Map<String, Object> snapshot = objectMapper.readValue(snapshotStr,
                         new TypeReference<Map<String, Object>>() {});
                 for (Map.Entry<String, Object> entry : snapshot.entrySet()) {
                     executedTools.add(entry.getKey());

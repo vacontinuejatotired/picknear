@@ -1,8 +1,6 @@
  package com.hmdp.config;
 
  import com.fasterxml.jackson.databind.ObjectMapper;
- import com.fasterxml.jackson.databind.SerializationFeature;
- import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  import com.hmdp.entity.VoucherOrder;
  import com.hmdp.utils.constants.RabbitMqConstants;
  import org.springframework.amqp.core.*;
@@ -18,7 +16,6 @@
  import org.springframework.context.annotation.Configuration;
  import org.springframework.context.annotation.Primary;
 
- import java.text.SimpleDateFormat;
  import java.util.HashMap;
  import java.util.Map;
 
@@ -28,8 +25,6 @@
  */
  @Configuration
  public class RabbitConfig {
-
-     private static final String USERNAME = "qyh";
 
 //     @Bean
 //     @Primary
@@ -46,19 +41,8 @@
 //         return factory;
 //     }
      @Bean
-     public MessageConverter messageConverter() {// 1. 创建 ObjectMapper
-         ObjectMapper objectMapper = new ObjectMapper();
-
-         // 2. 注册 JavaTimeModule（关键！）
-         objectMapper.registerModule(new JavaTimeModule());
-
-         // 3. 禁用日期时间戳格式，使用可读格式
-         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-
-         // 4. 配置日期格式
-         objectMapper.setDateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
-
-         // 5. 创建 JSON 消息转换器
+     public MessageConverter messageConverter(ObjectMapper objectMapper) {// 复用 Spring 统一管理的 ObjectMapper（含 JavaTimeModule 等配置）
+         // 创建 JSON 消息转换器
          Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
 
          // 6. 设置类型映射（重要！）
@@ -78,9 +62,9 @@
      // 如果使用 RabbitTemplate，也可自定义
 //     @Bean("myRabbitTemplate")
      @Bean
-     public RabbitTemplate rabbitTemplate(ConnectionFactory cf) {
+     public RabbitTemplate rabbitTemplate(ConnectionFactory cf, ObjectMapper objectMapper) {
          RabbitTemplate template = new RabbitTemplate(cf);
-         template.setMessageConverter(messageConverter());
+         template.setMessageConverter(messageConverter(objectMapper));
          template.setMandatory(true);  // 如有返回，可观察
          return template;
      }
@@ -91,10 +75,11 @@
       * @return
       */
      @Bean
-     public RabbitListenerContainerFactory<?> rabbitListenerContainerFactory(ConnectionFactory connectionFactory) {
+     public RabbitListenerContainerFactory<?> rabbitListenerContainerFactory(ConnectionFactory connectionFactory,
+                                                                             ObjectMapper objectMapper) {
          SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
          factory.setConnectionFactory(connectionFactory);
-         factory.setMessageConverter(messageConverter());
+         factory.setMessageConverter(messageConverter(objectMapper));
          factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
          return factory;
      }

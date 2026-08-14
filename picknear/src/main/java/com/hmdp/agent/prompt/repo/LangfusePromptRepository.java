@@ -41,12 +41,13 @@ public class LangfusePromptRepository {
 
     private final PromptProperties props;
     private final RestClient restClient;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json;
     private final Cache<CacheKey, Optional<String>> contentCache;
     private final Cache<CacheKey, Long> failureCache;
 
-    public LangfusePromptRepository(PromptProperties props) {
+    public LangfusePromptRepository(PromptProperties props, ObjectMapper json) {
         this.props = props;
+        this.json = json;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout((int) props.getTimeout().toMillis());
         factory.setReadTimeout((int) props.getTimeout().toMillis());

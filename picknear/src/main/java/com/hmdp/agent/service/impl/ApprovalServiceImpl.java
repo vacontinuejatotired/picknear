@@ -30,7 +30,8 @@ import java.util.UUID;
 @Service
 public class ApprovalServiceImpl implements ApprovalService {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    @Resource
+    private ObjectMapper objectMapper;
     private static final int CONFIRM_ID_RANDOM_LEN = 24;
 
     @Resource
@@ -194,10 +195,10 @@ public class ApprovalServiceImpl implements ApprovalService {
         return "cfm_" + UUID.randomUUID().toString().replace("-", "").substring(0, CONFIRM_ID_RANDOM_LEN);
     }
 
-    private static String toJsonArray(List<String> list) {
+    private String toJsonArray(List<String> list) {
         if (list == null || list.isEmpty()) return "[]";
         try {
-            return JSON.writeValueAsString(list);
+            return objectMapper.writeValueAsString(list);
         } catch (Exception e) {
             return "[]";
         }
