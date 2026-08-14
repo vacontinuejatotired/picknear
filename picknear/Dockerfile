@@ -4,7 +4,7 @@
 FROM maven:3.9-eclipse-temurin-17-alpine AS builder
 
 ENV LANG=C.UTF-8
-ENV MAVEN_OPTS="-Dfile.encoding=UTF-8"
+ENV MAVEN_OPTS="-Dfile.encoding=UTF-8 -Daether.connector.http.retryHandler.count=5 -Daether.connector.http.connectionTimeout=30000 -Daether.connector.http.readTimeout=60000"
 
 WORKDIR /build
 
@@ -13,12 +13,14 @@ COPY pom.xml .
 # 国内 Maven 镜像配置（源自本机 D:\apache-maven-3.8.8-bin\...\conf\settings.xml）
 COPY docker/maven/settings.xml /build/maven-settings.xml
 
-# --mount=type=cache 复用 Maven 本地仓库，二次构建不再重新下载依赖
-RUN --mount=type=cache,target=/root/.m2 mvn -s /build/maven-settings.xml dependency:go-offline -B 
+# Maven 本地仓库 bind-mount 构建上下文里的 .m2（build.sh 构建前从宿主 /home/docker/.m2 拷贝进 context）：
+# VM 容器网络不稳（下载依赖会被掐断），用宿主预热的 .m2 保证构建零网络依赖。
+# 注意：source 相对 build context，compose 直建需自行把 .m2 放进 context。
+RUN --mount=type=bind,source=.m2,target=/root/.m2,rw mvn -s /build/maven-settings.xml dependency:go-offline -B
 
 COPY src src/
 # -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快
-RUN --mount=type=cache,target=/root/.m2 mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B 
+RUN --mount=type=bind,source=.m2,target=/root/.m2,rw mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B
 
 # 拆分层，配合 JarLauncher 路径
 RUN java -Djarmode=layertools -jar target/*.jar extract --destination extracted
@@ -34,7 +36,12 @@ LABEL org.opencontainers.image.version="1.0.0"
 
 ENV TZ=Asia/Shanghai
 ENV LANG=C.UTF-8
-RUN apk add --no-cache tzdata && \
+# 换 apk 镜像源为阿里云（VM 到 Alpine 官方 dl-cdn.alpinelinux.org 慢/冻结，曾卡 210s 被 cancel）；
+# 版本自适应（v3.23 等），不写死。与 maven/registry 镜像源同理。
+RUN VER=$(cut -d. -f1-2 /etc/alpine-release) && \
+    echo "https://mirrors.aliyun.com/alpine/v${VER}/main" > /etc/apk/repositories && \
+    echo "https://mirrors.aliyun.com/alpine/v${VER}/community" >> /etc/apk/repositories && \
+    apk add --no-cache tzdata && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 先建用户再 COPY --chown。避免在 COPY 完 ~200MB 依赖后执行 chown -R /app：

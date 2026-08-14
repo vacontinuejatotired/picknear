@@ -17,6 +17,13 @@ target/
 
 # 日志
 logs/
+# JVM 崩溃转储 / 压测残留（对齐 build.sh 的排除；大文件进 context 会触发 hgfs short read）
+*.log
+hs_err_pid*.log
+replay_pid*.log
+jmeter/
+*.jmx
+arthas-boot.jar
 
 # OS
 .DS_Store
