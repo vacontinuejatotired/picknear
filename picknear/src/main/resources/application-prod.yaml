@@ -65,9 +65,6 @@ mybatis-plus:
 debug: false
 
 app:
-  cookie:
-    same-site: None
-    secure: true
   oss:
     region: cn-beijing
     endpoint: oss-cn-beijing.aliyuncs.com
