@@ -15,7 +15,7 @@ import com.hmdp.agent.util.SseUtils;
 import com.hmdp.agent.hook.AfterAiHookChain;
 import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
-import com.hmdp.agent.hook.PromptHookChain;
+import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.service.AgentHistoryService;
 import com.hmdp.utils.UserHolder;
 
@@ -24,8 +24,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -44,10 +42,7 @@ public class AiServiceImpl implements AiService {
     private ChatClient chatClient;
 
     @Resource
-    private PromptHookChain promptHookChain;
-
-    @Resource
-    private ChatMemory chatMemory;
+    private PromptHookExecutor promptHookExecutor;
 
     @Resource
     private ToolBeanCollector toolBeanCollector;
@@ -90,22 +85,10 @@ public class AiServiceImpl implements AiService {
 
         Long userId = UserHolder.getUserId();
 
-        // 1. 构造 Hook 上下文
-        ChatContext ctx = ChatContext.builder()
-                .userId(userId)
-                .conversationId(conversationId)
-                .originalContent(content)
-                .history(chatMemory.get(conversationId))
-                .build();
-
-        // 2. 执行 Hook 链
-        HookResult hookResult = promptHookChain.execute(content, ctx);
-
-        // 3. 处理决策
-        String finalContent = processHookResult(hookResult, content, conversationId);
-        if (finalContent == null) {
-            // BLOCK 时返回错误信息
-            return "❌ " + hookResult.getReason();
+        // 1-3. Hook 链执行 + 决策（双模共用 PromptHookExecutor）
+        PromptHookExecutor.HookOutcome outcome = promptHookExecutor.execute(content, conversationId, userId, null);
+        if (outcome.blocked()) {
+            return "❌ " + outcome.blockReason();
         }
 
         // 4. 正常调用 LLM（系统提示词每次请求经 PromptService 注入，支持按用户个性化）
@@ -114,7 +97,7 @@ public class AiServiceImpl implements AiService {
         try {
             result = chatClient.prompt()
                     .system(promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId)))
-                    .user(finalContent)
+                    .user(outcome.finalContent())
                     .call().content();
         } finally {
             ChatModelObservationConventionConfig.clear();
@@ -143,7 +126,7 @@ public class AiServiceImpl implements AiService {
     /**
      * 实际执行 SSE 流式逻辑：同步段（会话/Hook/决策）+ 异步段（逐 token 推送）。
      * <p>
-     * 同步段任一环（会话 ID 同步、{@code chatMemory.get}、Hook 链、决策处理）抛异常时，
+     * 同步段任一环（会话 ID 同步、Hook 链、决策处理）抛异常时，
      * 会向上传播到 {@link #chatWithToolcall} 统一转为 SSE 错误事件。
      * </p>
      */
@@ -153,32 +136,15 @@ public class AiServiceImpl implements AiService {
         // 0. 将会话 ID 同步到工具收集器
         toolBeanCollector.setConversationId(conversationId);
 
-        // 1. 构造 Hook 上下文（在主线程执行，UserHolder 有效）
-        ChatContext ctx = ChatContext.builder()
-                .userId(userId)
-                .conversationId(conversationId)
-                .originalContent(content)
-                .history(chatMemory.get(conversationId))
-                .build();
-        ctx.setRootSpan(rootSpan);
-
-        // 2. 执行 Hook 链（观测：agent.prompt_hook，链执行后结束）
-        HookResult hookResult;
-        try (AgentSpan hookSpan = agentTracer.start(AgentSpanSpec.PROMPT_HOOK, null)) {
-            hookResult = promptHookChain.execute(content, ctx);
-            hookSpan.set(AgentField.HOOK_DECISION, String.valueOf(hookResult.getDecision()));
-            if (hookResult.getHookName() != null) {
-                hookSpan.set(AgentField.HOOK_NAME, hookResult.getHookName());
-            }
-        }
-
-        // 3. 处理决策（仍在主线程）
-        String finalContent = processHookResult(hookResult, content, conversationId);
-        if (finalContent == null) {
-            SseUtils.safeSend(emitter, SseUtils.errorEvent(hookResult.getReason()));
+        // 1-3. Hook 链执行 + 决策（双模共用 PromptHookExecutor；rootSpan 供跨线程挂载）
+        PromptHookExecutor.HookOutcome outcome = promptHookExecutor.execute(content, conversationId, userId, rootSpan);
+        if (outcome.blocked()) {
+            SseUtils.safeSend(emitter, SseUtils.errorEvent(outcome.blockReason()));
             emitter.complete();
             return;
         }
+        ChatContext ctx = outcome.ctx();
+        String finalContent = outcome.finalContent();
 
         // 4. 流式调用 AI（真正的逐 token 推送，异步线程）
         //    观测：先 resume 根 span（跨线程传播，架构文档 §6.2），后续 span 自动挂树
@@ -302,39 +268,6 @@ public class AiServiceImpl implements AiService {
             }
         } catch (Exception e) {
             log.error("记录会话历史失败, conversationId={}", conversationId, e);
-        }
-    }
-
-    /**
-     * 处理 Hook 链的决策结果
-     *
-     * @param result         Hook 链决策
-     * @param content        原始用户输入
-     * @param conversationId 会话 ID
-     * @return 替换后的文本（可用于 LLM 调用），若 BLOCK 则返回 null
-     */
-    private String processHookResult(HookResult result, String content, String conversationId) {
-        switch (result.getDecision()) {
-            case BLOCK -> {
-                log.warn("Prompt 被拦截 [reason={}, hook={}]", result.getReason(), result.getHookName());
-                return null;
-            }
-            case REPLACE -> {
-                log.info("Prompt 被替换 [hook={}]", result.getHookName());
-                // 如果有清洗后的历史，替换 ChatMemory 中的内容
-                if (result.getReplacedHistory() != null) {
-                    chatMemory.clear(conversationId);
-                    chatMemory.add(conversationId, result.getReplacedHistory());
-                    log.info("对话历史已清洗 [conversationId={}]", conversationId);
-                }
-                return result.getReplacedText();
-            }
-            case PASS -> {
-                return content;
-            }
-            default -> {
-                return content;
-            }
         }
     }
 
