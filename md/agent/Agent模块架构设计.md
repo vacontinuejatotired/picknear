@@ -271,48 +271,39 @@ Accept: */* 或 无 Accept 头  → 普通 JSON 同步响应
 
 ### 3.5 服务层 —— AiService / AiServiceImpl
 
-**文件**: `service/AiService.java`, `service/impl/AiServiceImpl.java`
+**文件**: `service/AiService.java`, `service/impl/AiServiceImpl.java`（编排层，2026-08 拆分后仅 ~200 行）
 
 #### 接口定义
 
 ```java
 public interface AiService {
-    /** 同步模式：等待完整回复后返回 */
+    /** JSON 同步模式：等待完整回复后返回 */
     String chatReturnStringResult(String content, String conversationId);
 
-    /** SSE 两阶段模式 */
-    void chatWithToolcall(String content, String conversationId, SseEmitter emitter);
+    /** SSE 流式模式（双模端点，Accept: text/event-stream） */
+    void chatWithToolcall(String content, String conversationId, SseEmitter emitter, AgentSpan rootSpan);
 }
 ```
 
-#### 核心实现 — 两阶段编排
+#### 核心实现 — 编排（拆分后）
 
-**Phase 1** — 纯文本 AI 调用（不带工具），带有 3 次重试 + 喂错机制：
+`AiServiceImpl` 已收敛为纯协调层，三段职责分别下沉到独立组件（拆分提交 `3af10f8` / `24986d1` / `89a1ce7`）：
 
-```java
-int maxAttempts = 3;
-String currentContent = finalContent;
-for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-        String result = chatClient.prompt()
-                .user(currentContent)
-                .call().content();          // ← 无 .tools()，纯文本
-        log.info("[Phase1] AI 初次回复, result={}", result);
-        // 后处理
-        HookResult afterResult = afterAiHookChain.execute(finalContent, result, ctx);
-        responseRouter.route(afterResult, finalContent, result, ctx, emitter);
-        return;
-    } catch (Exception e) {
-        if (attempt < maxAttempts) {
-            currentContent = finalContent + "\n\n[系统提示] ...失败，请重试：" + e.getMessage();
-        }
-    }
-}
-// 所有重试耗尽
-emitter.send(errorEvent("抱歉，AI 服务暂时不可用..."));
+```
+JSON 模式：PromptHookExecutor.execute() → ChatClient 同步调用 → HistoryRecorder.recordBestEffort()
+
+SSE 模式：PromptHookExecutor.execute() →（异步线程 resume 根 span）→
+          StreamingChatInvoker.streamWithRetry() → SseResponseProcessor.process()
 ```
 
-**Phase 2** 由 AiResponseRouter 在 PLANNING 决策时委托给 TaskPlanner。
+| 组件 | 职责 |
+|------|------|
+| `hook/PromptHookExecutor` | Hook 链执行 + 决策（BLOCK/REPLACE/PASS），双模共用 |
+| `stream/StreamingChatInvoker` | ChatModel 层流式直调 + SSE 逐 token 推送 + 3 次重试（错误回喂 LLM）+ phase1 观测 |
+| `stream/SseResponseProcessor` | AfterAiHook 链 + decision 观测 + AiResponseRouter 路由 + 历史落库 |
+| `history/HistoryRecorder` | 最佳努力历史落库（失败静默），JSON/SSE 双模共用 |
+
+> Phase 2（PLANNING）由 AiResponseRouter 在决策时委托给 TaskPlanner（见 3.7）。
 
 ### 3.6 AfterAiHook 后处理层
 
@@ -920,7 +911,11 @@ hmdp:
 | `agent/config/DashScopeHttpConfig.java` | DashScope HTTP 连接池 |
 | `agent/controller/ChatController.java` | SSE/JSON 双模入口 |
 | `agent/service/AiService.java` | AI 服务接口 |
-| `agent/service/impl/AiServiceImpl.java` | 两阶段编排（Phase 1 + 重试） |
+| `agent/service/impl/AiServiceImpl.java` | 编排层（拆分后：Hook 段 → 流式调用 → 后处理，纯协调） |
+| `agent/hook/PromptHookExecutor.java` | Hook 链执行 + 决策（双模共用） |
+| `agent/stream/StreamingChatInvoker.java` | 流式调用 + 重试 + SSE 推送 |
+| `agent/stream/SseResponseProcessor.java` | SSE 后处理（AfterAiHook → 路由 → 落库） |
+| `agent/history/HistoryRecorder.java` | 最佳努力历史落库（双模共用） |
 | `agent/response/AiResponseRouter.java` | 后处理路由器 |
 | `agent/util/SseUtils.java` | SSE 事件构建 + JSON 序列化 |
 | `agent/tool/ToolBeanCollector.java` | @TargetTool 自动扫描 + Guard 包装 |
@@ -928,12 +923,15 @@ hmdp:
 | `agent/tool/impl/WeatherQueryTool.java` | 天气查询 |
 | `agent/tool/impl/StatsQueryTool.java` | 统计查询（测试） |
 | `agent/task/TaskPlanner.java` | 规划器（主循环） |
-| `agent/task/TaskExecutor.java` | 串行任务执行器 |
-| `agent/task/TaskQueue.java` | 任务队列 |
 | `agent/task/TaskReport.java` | 执行报告 |
 | `agent/task/SubTask.java` | 子任务数据模型 |
 | `agent/task/TaskType.java` | 枚举 |
 | `agent/task/SubTaskStatus.java` | 枚举 |
+| `agent/legacy/task/TaskExecutor.java` | 【废弃归档】串行任务执行器（回退路径） |
+| `agent/legacy/task/TaskQueue.java` | 【废弃归档】任务队列 |
+| `agent/legacy/plan/LegacyPlanRouter.java` | 【废弃归档】legacy 规划策略 |
+| `agent/legacy/routing/ToolRouter.java` | 【废弃归档】规划工具路由门面 |
+| `agent/legacy/routing/CatalogBuilder.java` | 【废弃归档】目录构建死抽象 |
 | `agent/task/TaskSnapshot.java` | 任务快照 |
 
 ### 权限校验模块

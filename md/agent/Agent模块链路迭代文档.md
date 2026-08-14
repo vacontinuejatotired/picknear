@@ -20,6 +20,10 @@ Phase 7 ───→ Phase 8 ───→ Phase 9 ───→ Phase 10 ──�
      ▼ 最新迭代（Phase 14–15：规划/工具循环策略化；Phase 8 观测持续演进）
 Phase 14 ───→ Phase 15
 意图→工具组两级路由   子Agent工具循环策略化
+     │
+     ▼ 架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）
+Phase 16
+AiService拆编排层   legacy包归档   ObjectMapper统一
 ```
 
 ---
@@ -987,6 +991,51 @@ SubTaskAgent.execute()
 
 ---
 
+## Phase 16：AiService 编排拆分 + 废弃代码归档（架构整理，非功能迭代）
+
+**提交**: `3af10f8` "抽取 PromptHookExecutor"、`24986d1` "抽取 StreamingChatInvoker"、`89a1ce7` "抽取 SseResponseProcessor 与 HistoryRecorder"、`7930990` "废弃代码归档到 legacy 包"、`257ebf2` "统一 ObjectMapper"
+
+### 背景
+
+AiServiceImpl 长期承担"双模入口 + Hook 链 + 决策 + 流式重试 + 后处理 + 历史落库"全部职责（321 行），JSON/SSE 双模各有重复样板；废弃组件（TaskExecutor/TaskQueue/LegacyPlanRouter 等）与新链组件混居同包，新增工具/排查时认知负担重。本轮为纯结构整理，**零行为差异**（双模入口、观测埋点、SSE 事件流、重试策略均不变）。
+
+### 架构
+
+```
+AiServiceImpl（编排层，~200 行）
+├─ JSON 模式：PromptHookExecutor → ChatClient 同步调用 → HistoryRecorder
+└─ SSE 模式：PromptHookExecutor →（异步 resume 根 span）→ StreamingChatInvoker → SseResponseProcessor
+```
+
+| 新组件 | 职责 | 拆自 |
+|--------|------|------|
+| `hook/PromptHookExecutor` | Hook 链执行 + 决策（BLOCK/REPLACE/PASS），双模共用 | AiServiceImpl 重复段 |
+| `stream/StreamingChatInvoker` | ChatModel 流式直调 + SSE 逐 token + 3 次重试（喂错）+ phase1 观测 | AiServiceImpl 异步段 |
+| `stream/SseResponseProcessor` | AfterAiHook + decision 观测 + AiResponseRouter + 历史落库 | AiServiceImpl 后处理段 |
+| `history/HistoryRecorder` | 最佳努力历史落库（失败静默），双模共用 | recordTurnBestEffort |
+
+### 废弃归档（`com.hmdp.agent.legacy`，package-info 声明"新代码禁止依赖"）
+
+| 归档位置 | 组件 | 现状 |
+|----------|------|------|
+| `legacy.task` | TaskExecutor、TaskQueue | `feature.subagent.enabled=false` 回退路径使用（保留研究） |
+| `legacy.plan` | LegacyPlanRouter | `feature.tool-routing.enabled=false` 激活 |
+| `legacy.routing` | ToolRouter、CatalogBuilder（死抽象） | 旧链配套 |
+
+> `SubTask`/`SubTaskStatus`/`TaskType`/`TaskReport` 留在原包——新链（TreePlanRouter/PlanValidator/ToolLoop）仍在用，不是废弃组件。
+
+### 其他整理
+
+- **ObjectMapper 统一**（`257ebf2`）：agent 内 10 处 `new ObjectMapper()` 收敛为注入 Spring 统一实例（含 JavaTimeModule/宽松反序列化）；纯静态工具（SseUtils/ResolvedToolPrompt/UserIdPlaceholderResolver/TaskExecutor）保留自有实例（无 Spring 上下文、仅序列化简单 Map）
+- **统一业务状态码**（`10d2f70`）：`Result.code` 可选字段（NON_NULL，旧前端零改动）+ `ErrorCode` 枚举 + `BizException`
+
+### 关键变化
+
+1. AiServiceImpl 从 321 行 → ~200 行，注入从 12 个 → 8 个，`doChatWithToolcall` 退化为四行式编排
+2. 双模重复逻辑（Hook 段、历史落库）收敛为单一组件
+3. legacy 链组件显式归档，import legacy 即"此处依赖废弃组件"标记
+4. 全局 ObjectMapper 配置统一，消除手动实例无 JavaTimeModule/未知字段严格模式的隐患
+
 ## 模块关系总图
 
 ```
@@ -1089,6 +1138,14 @@ SubTaskAgent.execute()
 | **回复处理** | 意图树归属校验丢弃越权工具 + 空命中跳过 | 触顶无工具强制总结 |
 | **工具注册** | 意图树登记节点归属（跨组工具多列防漏选） | SubAgentToolLoop 策略化（serial 零差异 / batch 并行） |
 | **安全性** | WriteGuardConsistencyCheck 审批一致性 + self 占位符三层修复 | 重复调用检测（计数不抑制）+ 总调用预算防死循环 |
+
+| 维度 | Phase 16 |
+|------|----------|
+| **输入处理** | PromptHookExecutor 双模收敛（Hook 链 + 决策） |
+| **调用执行** | StreamingChatInvoker（流式 + 3 次重试喂错）+ ObjectMapper 统一注入 |
+| **回复处理** | SseResponseProcessor（AfterAiHook→路由→落库）+ HistoryRecorder 双模共用 |
+| **工具注册** | legacy 链（TaskExecutor/TaskQueue/LegacyPlanRouter/ToolRouter）归档独立包 |
+| **安全性** | 统一业务状态码（Result.code + ErrorCode + BizException） |
 
 ### 关键设计原则
 
