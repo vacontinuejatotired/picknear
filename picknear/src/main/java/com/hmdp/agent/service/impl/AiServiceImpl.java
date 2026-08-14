@@ -1,23 +1,19 @@
 package com.hmdp.agent.service.impl;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.history.HistoryRecorder;
+import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.observability.model.AgentField;
-import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
-import com.hmdp.agent.response.AiResponseRouter;
 import com.hmdp.agent.service.AiService;
+import com.hmdp.agent.stream.SseResponseProcessor;
+import com.hmdp.agent.stream.StreamingChatInvoker;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.agent.hook.AfterAiHookChain;
-import com.hmdp.agent.hook.ChatContext;
-import com.hmdp.agent.hook.HookResult;
-import com.hmdp.agent.hook.PromptHookExecutor;
-import com.hmdp.agent.service.AgentHistoryService;
-import com.hmdp.agent.stream.StreamingChatInvoker;
 import com.hmdp.utils.UserHolder;
 
 import io.micrometer.observation.Observation;
@@ -47,12 +43,6 @@ public class AiServiceImpl implements AiService {
     @Resource
     private ToolBeanCollector toolBeanCollector;
 
-    @Resource
-    private AfterAiHookChain afterAiHookChain;
-
-    @Resource
-    private AiResponseRouter responseRouter;
-
     @Resource(name = "aiTaskExecutor")
     private Executor aiTaskExecutor;
 
@@ -63,7 +53,10 @@ public class AiServiceImpl implements AiService {
     private StreamingChatInvoker streamingChatInvoker;
 
     @Resource
-    private AgentHistoryService historyService;
+    private SseResponseProcessor sseResponseProcessor;
+
+    @Resource
+    private HistoryRecorder historyRecorder;
 
     @Resource
     private PromptService promptService;
@@ -102,7 +95,7 @@ public class AiServiceImpl implements AiService {
         log.info("AI 回复：{}", result);
 
         // 历史会话：JSON 模式成功回合落库（BLOCK 已提前 return，不落库）
-        recordTurnBestEffort(userId, conversationId, content, result);
+        historyRecorder.recordBestEffort(userId, conversationId, content, result);
         return result;
     }
 
@@ -166,24 +159,8 @@ public class AiServiceImpl implements AiService {
                 }
                 String fullResponse = streamOutcome.fullResponse();
 
-                // 后处理：AfterAiHookChain → AiResponseRouter（观测：agent.decision）
-                try (AgentSpan decision = agentTracer.start(AgentSpanSpec.DECISION, null)) {
-                    HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
-                    decision.set(AgentField.DECISION, String.valueOf(afterResult.getDecision()));
-                    if (afterResult.getHookName() != null) {
-                        decision.set(AgentField.HOOK_NAME, afterResult.getHookName());
-                    }
-                    // 内容已逐 token 推送，通知路由跳过重复发送
-                    responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
-
-                    // 历史会话：PASS/REPLACE 在此落库。
-                    // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
-                    if (afterResult.isPass()) {
-                        recordTurnBestEffort(userId, conversationId, content, fullResponse);
-                    } else if (afterResult.isReplace()) {
-                        recordTurnBestEffort(userId, conversationId, content, afterResult.getReplacedText());
-                    }
-                }
+                // 后处理：AfterAiHook → 决策观测 → 响应路由 → 历史落库（SseResponseProcessor）
+                sseResponseProcessor.process(ctx, content, finalContent, fullResponse, emitter);
             }
         }, aiTaskExecutor);
         } finally {
@@ -193,23 +170,6 @@ public class AiServiceImpl implements AiService {
             if (rootSpan != null) {
                 rootSpan.closeRootScope();
             }
-        }
-    }
-
-    /**
-     * 最佳努力记录历史回合：失败只记日志、绝不向上抛。
-     * <p>
-     * 原因：SSE 模式下该方法位于重试循环内，抛异常会被 retry catch 捕获 → 重跑 LLM 浪费 token；
-     * JSON 模式下抛异常会中断整个响应。历史持久化是收尾附加能力，不能影响聊天主链路。
-     * </p>
-     */
-    private void recordTurnBestEffort(Long userId, String conversationId, String userContent, String assistantContent) {
-        try {
-            if (userId != null && assistantContent != null && !assistantContent.isBlank()) {
-                historyService.recordTurn(userId, conversationId, userContent, assistantContent);
-            }
-        } catch (Exception e) {
-            log.error("记录会话历史失败, conversationId={}", conversationId, e);
         }
     }
 
