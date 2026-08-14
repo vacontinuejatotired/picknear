@@ -1,6 +1,7 @@
 package com.hmdp.agent.routing;
 
 import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.legacy.routing.CatalogBuilder;
 import com.hmdp.agent.task.TaskReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;

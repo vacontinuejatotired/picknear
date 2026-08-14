@@ -1,7 +1,8 @@
-package com.hmdp.agent.routing;
+package com.hmdp.agent.legacy.routing;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.routing.CompactCatalogBuilder;
 import com.hmdp.agent.task.TaskReport;
 import jakarta.annotation.Resource;
 import org.springframework.ai.tool.ToolCallback;

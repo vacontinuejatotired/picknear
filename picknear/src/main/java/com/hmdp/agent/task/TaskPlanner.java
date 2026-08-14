@@ -6,6 +6,8 @@ import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolInvocationContext;
 import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.legacy.task.TaskExecutor;
+import com.hmdp.agent.legacy.task.TaskQueue;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;

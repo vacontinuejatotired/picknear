@@ -1,4 +1,7 @@
-package com.hmdp.agent.task;
+package com.hmdp.agent.legacy.task;
+
+import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.SubTaskStatus;
 
 import java.util.ArrayList;
 import java.util.List;

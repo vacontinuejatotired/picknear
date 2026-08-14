@@ -3,6 +3,7 @@ package com.hmdp.agent.routing;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.legacy.routing.CatalogBuilder;
 import com.hmdp.agent.task.TaskReport;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;

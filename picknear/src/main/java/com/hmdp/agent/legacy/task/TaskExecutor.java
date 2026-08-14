@@ -1,4 +1,4 @@
-package com.hmdp.agent.task;
+package com.hmdp.agent.legacy.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
@@ -10,6 +10,9 @@ import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
+import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.SubTaskStatus;
+import com.hmdp.agent.task.TaskType;
 import com.hmdp.agent.util.SseUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;

@@ -1,7 +1,12 @@
-package com.hmdp.agent.plan;
+package com.hmdp.agent.legacy.plan;
 
+import com.hmdp.agent.legacy.routing.ToolRouter;
+import com.hmdp.agent.plan.PlanOutcome;
+import com.hmdp.agent.plan.PlanRequest;
+import com.hmdp.agent.plan.PlanRouter;
+import com.hmdp.agent.plan.PlanSupport;
+import com.hmdp.agent.plan.ValidationOptions;
 import com.hmdp.agent.prompt.PromptKeys;
-import com.hmdp.agent.routing.ToolRouter;
 import com.hmdp.agent.task.SubTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
