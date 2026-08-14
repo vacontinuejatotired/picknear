@@ -204,14 +204,15 @@ public class AuthServiceImpl implements AuthService {
             return null;
         }
 
-        // 返回码解释（状态码透传的基础）
-        if (code == 200L) {
+        // 返回码解释（状态码透传的基础）：统一走 TokenRefreshCode 枚举，避免魔法数字
+        TokenRefreshCode refreshCode = TokenRefreshCode.fromCode(code);
+        if (refreshCode == TokenRefreshCode.SUCCESS) {
             updateLocalVersionCache(userId, oldVersion);
             log.info("{}刷新成功 userId={}, version={}", isExpired ? "过期" : "临期", userId, oldVersion);
             return new TokenPair(newToken, newRefreshToken, oldVersion);
         }
 
-        if (code == 422L) {
+        if (refreshCode == TokenRefreshCode.REFRESH_TOKEN_MISMATCH) {
             // C2 并发容错：RT 不匹配，但同一会话可能已被并发刷新轮换 →
             // 原子读取当前凭证自愈（ReadCurrentToken.lua 内含版本守卫，不会把新登录凭证交给旧会话）
             List<String> current = stringRedisTemplate.execute(readCurrentTokenScript,
@@ -229,11 +230,12 @@ public class AuthServiceImpl implements AuthService {
             return null;
         }
 
-        if (code == 413L) {
+        if (refreshCode == TokenRefreshCode.TOKEN_BEFORE_LOGIN) {
             log.warn("token 版本已被更新登录顶替，拒绝刷新 userId={}, oldVersion={}", userId, oldVersion);
             return null;
         }
-        if (code == 421L || code == 431L) {
+        if (refreshCode == TokenRefreshCode.REFRESH_TOKEN_NOT_FOUND
+                || refreshCode == TokenRefreshCode.ORIGIN_VERSION_NULL) {
             log.warn("会话不存在/版本键缺失，拒绝刷新 userId={}, code={}", userId, code);
             return null;
         }
