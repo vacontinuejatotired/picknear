@@ -10,6 +10,7 @@ import com.hmdp.dto.TokenPair;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.service.FileService;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
@@ -144,7 +145,7 @@ public class UserController {
         Long currentUserId = UserHolder.getUserId();
         if (!currentUserId.equals(userId)) {
             log.warn("越权访问详情: currentUserId={}, targetUserId={}", currentUserId, userId);
-            return Result.fail("无权访问该用户详细信息");
+            return Result.fail(ErrorCode.FORBIDDEN, "无权访问该用户详细信息");
         }
         // 查询详情
         UserInfo info = userInfoService.getById(userId);
