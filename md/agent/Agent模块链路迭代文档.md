@@ -16,6 +16,10 @@ Phase 0 ───→ Phase 1 ───→ Phase 2 ───→ Phase 3 ───
      ▼ 后续迭代（Phase 7–13：执行智能体化 + 全链路观测治理）
 Phase 7 ───→ Phase 8 ───→ Phase 9 ───→ Phase 10 ───→ Phase 11 ───→ Phase 12 ───→ Phase 13
 子Agent执行   全链路可观测   历史会话      提示词外置     CONFIRM审批   MaaS迁移     规划工具路由
+     │
+     ▼ 最新迭代（Phase 14–15：规划/工具循环策略化；Phase 8 观测持续演进）
+Phase 14 ───→ Phase 15
+意图→工具组两级路由   子Agent工具循环策略化
 ```
 
 ---
@@ -549,6 +553,24 @@ Langfuse 云（Basic 认证 + x-langfuse-ingestion-version:4 实时摄取）
 回复:  emitter 直发 → 五路径统一收敛 root.end() + safeSend 静默终态
 ```
 
+#### 演进补充（08-12）：AgentField 字段注册表 + generation 名编码
+
+**提交**: `77da911` "refactor(agent): 观测上报字段收敛到 AgentField 注册表 + 类型化 set"、`6483db5` "feat(agent): LLM generation 名编码任务/工具标识（subagent-exec-{task}-chat / subagent-compress-{tool}-chat）"
+
+- **AgentField 注册表**：上报 key 原散落 7 类 21+ 处字符串字面量、脱敏级别由调用点临时选。`AgentField` 一处编码「key + 脱敏级别 + 所属 span 类型」，改字段只动注册表；主入口 `AgentSpan.set(AgentField, value)` 类型化（参数化字段 `set(field, segment, value)` 运行时填充，如 `tool.{i}.name`）
+- **SanitizeLevel 两档**：SUMMARY（脱敏 + 截断 200）/ DIAGNOSTIC（脱敏 + 截断 4KB），级别在注册表声明、调用点不再选脱敏方法；`status()` 从直写改为 SUMMARY 脱敏（行为差异）
+- **字段兼容**：key 与旧字面量完全一致、观测数据无改名；旧 `attribute(String, value)` 标 `@Deprecated` 保留逃生口（命中注册表走声明级别，未命中降级 SUMMARY）；删除 `AgentSpanSpec.SSE`、`start()` Map 重载
+- **generation 名编码**：`ChatModelObservationConventionConfig.mark(caller, task)` 重载，generation 名拼 `caller-task-base`——`subagent-exec-{任务工具名清单}-chat <model>`（工具循环执行）、`subagent-compress-{工具名}-chat <model>`（压缩调用，ToolResultCompressor 打被压缩工具名），Langfuse 调用树可直接按任务/工具识别
+
+#### 核心新增
+| 文件 | 职责 |
+|------|------|
+| `observability/model/AgentField.java` | 字段注册表（key + 脱敏级别 + 所属 span 类型，一处编码） |
+| `observability/support/SanitizeLevel.java` | 脱敏级别枚举（SUMMARY 200 / DIAGNOSTIC 4KB） |
+| `observability/api/AgentSpan.java` | set 三态（AgentField / +segment / 逃生口 attribute） |
+| `observability/core/AgentSpanImpl.java` | 类型化 set 落地 + 注册表级别分派 |
+| `config/ChatModelObservationConventionConfig.java` | mark(caller, task) 重载，generation 名编码 |
+
 ---
 
 ## Phase 9：历史会话落库与查询
@@ -781,6 +803,8 @@ ToolCallback[]（GuardedToolCallback 透明包裹）
 
 **提交**: `7c15746` "docs(agent): 收录规划工具路由设计文档"、`9275d77` "feat(agent): 工具路由前置——rawInputSchema 访问器 + tool-routing 功能开关"、`65043eb` "feat(agent): 新增路由组件 CompactCatalogBuilder + ToolRouter"、`3138016` "refactor(agent): TaskPlanner 规划编排切换紧凑目录，__UNCERTAIN__ 时全量重跑一次"
 
+> ⚠️ 该方案已被下方 **Phase 14** 取代为默认（`feature.tool-routing.enabled=true` → TreePlanRouter）；本 Phase 内容保留为 `enabled=false` 时的 legacy 兜底（LegacyPlanRouter，与现状零行为差异）。
+
 ### 架构
 
 ```
@@ -834,6 +858,135 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
 
 ---
 
+## Phase 14：意图→工具组两级路由（plan 包解耦 + 意图树按需加载 + self 占位符三层修复）
+
+**提交**: `90e2290` "feat(agent): 意图→工具组两级路由——plan 包解耦 + 意图树按需加载 + self 占位符三层修复"
+
+### 架构
+
+```
+askAiForPlan（TaskPlanner 只做编排，decompose 细节全部下沉）
+   │ PlanRouter 策略（DI 由 feature.tool-routing.enabled 决定，无布尔透传）
+   ▼
+┌────────────────────────────────┐   ┌──────────────────────────────────┐
+│ TreePlanRouter（默认 · 两级路由） │   │ LegacyPlanRouter（enabled=false）  │
+│ ① ToolIntentTree.matchNodes    │   │  紧凑目录 + __UNCERTAIN__ 全量重跑  │
+│ ② TreeCatalogBuilder 剪枝目录   │   │  （= Phase 13 行为，零差异兜底）    │
+│ ③ 规划 LLM 单次两段式           │   └──────────────────────────────────┘
+│    {intents:[...],plan:[...]}  │
+│ ④ PlanParser 解析               │
+│ ⑤ PlanValidator 校验            │ ← 存在/历史/意图树归属/self 占位符
+└────────────────────────────────┘
+   ▼
+SubTask 列表（TOOL_CALL）→ execute
+```
+
+### 输入处理
+- **意图树三层次级**（根 → 查询/写操作 → 业务类别 → 工具叶子）：`ToolIntentTree` 静态表 + 纯函数（无 Spring 依赖、可独立单测），新增工具在此登记节点归属；关键词命中，空白输入放行全部节点、非空白零命中 → 空集
+- `TreeCatalogBuilder` 按命中节点剪枝目录（顶层分节「查询/写操作」→ 业务节点 → 工具叶子，复用 `CompactCatalogBuilder.shortTag`；跨组工具刻意各列一次防漏选）；无命中节点返回空串（空命中信号 → 跳过规划调用，不回归全量）
+- 新规划 prompt `agent.prompt.planner.v2.txt`：第一段声明意图路径（「查询→博客」可多条，无命中输出空数组），第二段只从声明路径对应类别内挑工具
+
+### 调用执行
+- **PlanRouter 策略化**：`PlanRouter` 接口封装完整「产计划」流水线（Phase1 直解 → 目录构建 → 规划 LLM 调用 → 解析校验），`TreePlanRouter`（`@ConditionalOnProperty tool-routing.enabled=true`，默认）/ `LegacyPlanRouter`（false）由 DI 激活；TaskPlanner.decompose 从 ~280 行收敛到纯编排 + 观测
+- **PlanParser**：兼容对象/数组两种 wire format，`===PLAN_START===/===PLAN_END===` 标记优先，无标记时取首个 `[`/`{` 深度计数闭合匹配（字符串字面量跳过、支持嵌套），提取不到 → 空计划（Fail-Open）
+- **PlanValidator 校验顺序**：工具存在（callbackIndex 全量索引，防子集外工具误判「不存在」）→ 历史状态（已完成/终失败跳过）→ 意图树归属（enforceTree：声明意图优先、空则退关键词命中节点；越权工具丢弃 + WARN，不拒整单）→ self 占位符解析
+- **PlanSupport**：两策略共用编排原语（plannerCall 渲染系统/用户模板 + 注入真实 userId、历史摘要构建、parseAndValidate 组合入口）
+- **self 占位符三层修复**：① 规划 prompt（`agent.system.planner.txt` + `agent.prompt.planner.v2.txt`）注入真实 userId + 写死「禁止 self/me/我的」规则，并引导有读写需求时先读后写；② `PlanValidator` 构建 SubTask 前 `resolveParams` 替换明确占位符；③ `GuardedToolCallback` 执行前最后一层 `resolvePayload`（JSON 解析→替换→序列化），覆盖快照恢复路径；只替换明确占位符（self/me/my/当前用户/我的…），不替换任意非数字串（防误换「张三的博客」）
+- **WriteGuardConsistencyCheck**：启动 fail-fast 校验 WRITE 子树工具全在 `hmdp.prompt-guard.confirm-tools`（写操作审批是安全边界，审批决策不从路由层派生）
+
+### 回复处理
+- Phase1 直解同样套意图树校验（堵住主回复解析绕过组路由的洞）
+- `PlanOutcome` 记录来源 from_response / ai_plan / empty 供观测；空命中跳过规划调用（不回归全量）
+
+### 核心新增
+| 文件 | 职责 |
+|------|------|
+| `plan/PlanRouter.java` | 规划策略接口（plan(PlanRequest) → PlanOutcome） |
+| `plan/TreePlanRouter.java` | 默认两级路由策略（意图树命中 → 剪枝目录 → 两段式规划） |
+| `plan/LegacyPlanRouter.java` | legacy 策略（紧凑目录 + UNCERTAIN 全量重跑，零行为差异） |
+| `plan/PlanSupport.java` | 共享编排原语（plannerCall / 历史摘要 / parseAndValidate） |
+| `plan/PlanParser.java` | wire format 解析（标记 + 深度计数 JSON 提取，兼容对象/数组） |
+| `plan/PlanValidator.java` | 校验（存在/历史/意图树归属/self 占位符），越权丢弃不拒整单 |
+| `plan/ValidationOptions.java` / `ParsedPlan.java` / `PlanOutcome.java` / `PlanRequest.java` | 规划管线数据模型（enforceTree 开关、声明意图、来源、请求上下文） |
+| `plan/UserIdPlaceholderResolver.java` | self 占位符单一事实源（校验层 + 执行层共用） |
+| `routing/ToolIntentTree.java` | 意图树数据模型（三层次级，关键词命中/意图归一化/写工具集） |
+| `routing/TreeCatalogBuilder.java` | 意图树剪枝目录（空命中返回空串信号） |
+| `routing/CatalogBuilder.java` | 目录构建策略接口（Compact/Tree 共用） |
+| `config/WriteGuardConsistencyCheck.java` | 写操作审批一致性启动校验 |
+| `prompts/agent.prompt.planner.v2.txt` | 两级路由规划模板（两段式输出 + userId + 禁占位符） |
+
+### 关键变化
+```
+输入:  全量/紧凑目录 → 意图树关键词剪枝（按用户输入按需加载相关工具组）
+执行:  单段规划 → 单次 LLM 两段式（第一段意图路径 → 第二段只从声明路径选工具）
+回复:  UNCERTAIN 全量重跑 → 意图树归属校验丢弃越权工具；空命中直接跳过规划调用
+```
+
+---
+
+## Phase 15：子 Agent 工具循环策略化（SubAgentToolLoop —— 批量+压缩并行 A/B）
+
+**提交**: `087eeb6` "feat(agent): 子 Agent 工具循环策略化（SubAgentToolLoop）——批量+压缩并行 A/B，保留原按轮调用"
+
+### 架构
+
+```
+SubTaskAgent.execute()
+   │ @Resource 注入 SubAgentToolLoop（@ConditionalOnProperty agent.subtask.tool-loop）
+   ▼
+┌───────────────────────────────────────────────┐
+│ AbstractToolLoop（模板方法 · 循环骨架）            │
+│   for round: callModel → 无工具调用返回文本        │
+│     → executeRound(钩子) → 按剩余任务重渲染       │
+│     → 预算检查 → 触顶强制无工具总结               │
+│   预算: maxTotalCalls=10 硬顶 / maxToolRounds=6  │
+└──────────────────┬────────────────────────────┘
+                   │ 本轮怎么执行工具（钩子）
+        ┌──────────┴──────────┐
+        ▼                     ▼
+ SerialToolLoop           BatchToolLoop
+（serial 默认 · 零差异）     （batch · 一轮多调用+并行）
+ 逐工具 call→压缩→下一个      ① cb.call 并发（parallelTools）
+                           ② 长结果压缩并发（parallelCompress N×4s→~4s）
+                           ③ 串行组装响应
+```
+
+### 输入处理
+- 原 `ToolCallLoopExecutor` 固定「按轮逐个调用」无法 A/B 实验；压缩 LLM 是耗时大头（~4s/个），串行 N 个长结果 = N×4s
+- `SubAgentToolLoopContext`：callbacks（Guard 包装后已按 plan.tasks 过滤）/ systemText / initialPrompt / plan / promptService / toolContext / props
+- 每轮用更新后的计划重渲染执行 prompt：`remaining` 缩到未执行任务、`doneSummary` 回填已压缩摘要（防 token 滚雪球，跨轮只传摘要）
+
+### 调用执行
+- **策略接口 + 模板方法**：`SubAgentToolLoop`（execute + toolCallRule）→ `AbstractToolLoop` 承载循环骨架（与旧 execute 逐行对齐）；子类只实现 `executeRound` 钩子与 `toolCallRule()` 规则文本
+- **SerialToolLoop**（`tool-loop=serial`，默认零差异）：prompt 规则「每次只调用一个工具」，轮内串行 call + 立即压缩，逻辑与旧实现完全一致
+- **BatchToolLoop**（`tool-loop=batch`，当前 yaml 生效）：三阶段——① `cb.call` 用 `CompletableFuture`+`aiTaskExecutor` 并发；② 长结果压缩 LLM 并发；③ 串行组装 ToolResponse；`runConcurrent` 捕获主线程 Observation + `openScope` 到 worker（修复 guard span 孤儿）；批内普通异常不中断、收集后 join 组「错误：…」，任一 `ConfirmRequiredException` 统一 join 后 throw（本轮其余结果丢弃、冒泡审批）；prompt 规则「独立且无依赖的工具可以一次同时调用多个」
+- **重复调用检测**：同工具同参数连续重复仅 `dupCounter++` + warn，不抑制（数据可能已被工具流之外修改）
+- **预算**：`maxTotalCalls=10` 总调用硬顶提前 break，`maxToolRounds=6` 触顶强制无工具总结（历史只留压缩摘要，模型基于摘要作答）
+
+### 回复处理
+- 触顶/达预算强制总结：`callModel(history, List.of(), ...)` 不带工具让 LLM 基于摘要产出最终回复
+- `ConfirmRequiredException` 两种策略都冒泡到 TaskPlanner 建审批（不重试、不入历史）
+
+### 核心新增
+| 文件 | 职责 |
+|------|------|
+| `subagent/loop/SubAgentToolLoop.java` | 工具循环策略接口（execute + toolCallRule） |
+| `subagent/loop/AbstractToolLoop.java` | 模板方法：共享循环骨架 + 预算/重复检测 + 重渲染 |
+| `subagent/loop/SerialToolLoop.java` | 原「按轮逐个调用」（默认，零行为差异） |
+| `subagent/loop/BatchToolLoop.java` | 批量 + 并发（一轮多调用 + 压缩并行 + 观测传播） |
+| `subagent/loop/SubAgentToolLoopContext.java` | 策略执行上下文（过滤后 callbacks / prompt / plan / props） |
+| `subagent/SubTaskAgent.java` | 注入 SubAgentToolLoop 策略 + 渲染 toolCallRule |
+| `subagent/ToolCallLoopExecutor.java` | 删除（逻辑迁入 AbstractToolLoop/SerialToolLoop） |
+
+### 关键变化
+```
+输入:  固定单轮 prompt → 每轮按剩余任务 + 压缩摘要重渲染执行 prompt
+执行:  固定逐个调用 → 策略化（serial 零差异兜底 / batch 一轮多调用 + 压缩并发）
+回复:  每轮 LLM 总结 → 触顶无工具强制总结；generation 名带 subagent-exec-{task} 编码
+```
+
+---
+
 ## 模块关系总图
 
 ```
@@ -861,9 +1014,9 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
                     ┌─────┴─────┐  ┌─────────┴─────────┐
                     │ 直接返回   │  │    TaskPlanner     │
                     └───────────┘  │  (专用线程池)       │
-                                   │ askAiForPlan       │ ← ToolRouter 紧凑目录 + UNCERTAIN 保底
-                                   │ decompose/validate │ ← callbackIndex 全量校验
-                                   │ execute            │ ← SubTaskAgent(子Agent)/TaskExecutor 回退
+                                   │ askAiForPlan       │ ← PlanRouter 两级路由(意图树/legacy兜底)
+                                   │ decompose/validate │ ← callbackIndex 全量校验 + 意图树归属
+                                   │ execute            │ ← SubTaskAgent(SubAgentToolLoop Serial/Batch)
                                    │ CONFIRM 暂停/续流   │ ← agent_approval 审批流
                                    └─────────┬─────────┘
                                              │ (最多 5 轮)
@@ -893,11 +1046,13 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
  1. [前置链] TaskTriggerHook 检测到触发词 → 标记 ChatContext.planning = true；注入/敏感词放行
  2. [Phase 1] AiServiceImpl 纯文本调用（PromptService 渲染，Langfuse/内置兜底）→ 回复"好的，我来帮你查"
  3. [后置链] AfterAiHookChain 看到 planning=true → 进入 Phase 2
- 4. [TaskPlanner.askAiForPlan] ToolRouter 生成紧凑目录（queryWeather/queryPublishedBlogs/… 名字+短标签+参数名）
-    → 规划 LLM 一次调用完成路由+定参
-    → [{tool:"queryPublishedBlogs",params:{}},
-        {tool:"queryWeather",params:{city:"长沙"}}]
-    → 若识别不出输出 {"tool":"__UNCERTAIN__"} → 全量目录重跑一次（保底）
+ 4. [TaskPlanner.askAiForPlan] PlanRouter（TreePlanRouter）→ ToolIntentTree.matchNodes(输入) 命中「博客/天气」节点
+    → TreeCatalogBuilder 剪枝目录（顶层【查询】→ 博客/天气业务节点 → 工具叶子）
+    → 规划 LLM 两段式输出
+    → {"intents":["查询→博客","查询→天气"],"plan":[{tool:"queryPublishedBlogs",params:{}},
+        {tool:"queryWeather",params:{city:"长沙"}}]}
+    → PlanParser 解析 → PlanValidator 意图树归属校验 + self 占位符解析（userId 若为 self/me 替换为真实 ID）
+    → 若输入零关键词命中意图树 → 空命中跳过规划调用（不回归全量）
  5. [validatePlan] callbackIndex 全量校验 → 过滤已完成/终失败 → TOOL_CALL 列表
  6. [SubTaskAgent.execute] 子 Agent 带工具调用：
     → queryPublishedBlogs → 我的博客列表（前 10 条按点赞降序）
@@ -927,6 +1082,14 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
 | **工具注册** | 按计划动态过滤 | — | — | 描述外置(三级解析) | callBypass审批直调 | 按需访问器rawName等 | 紧凑目录构建 |
 | **安全性** | 防越权调用 | 属性脱敏+白名单 | 跨用户归属校验 | — | 高风险写操作审批暂停 | — | — |
 
+| 维度 | Phase 14 | Phase 15 |
+|------|----------|----------|
+| **输入处理** | 意图树关键词剪枝（按需加载命中工具组） | 剩余任务 + 压缩摘要重渲染执行 prompt |
+| **调用执行** | PlanRouter 策略化 · 单次两段式（意图路径→计划） | BatchToolLoop 并发调用 + 压缩并行（预算硬顶） |
+| **回复处理** | 意图树归属校验丢弃越权工具 + 空命中跳过 | 触顶无工具强制总结 |
+| **工具注册** | 意图树登记节点归属（跨组工具多列防漏选） | SubAgentToolLoop 策略化（serial 零差异 / batch 并行） |
+| **安全性** | WriteGuardConsistencyCheck 审批一致性 + self 占位符三层修复 | 重复调用检测（计数不抑制）+ 总调用预算防死循环 |
+
 ### 关键设计原则
 
 1. **可插拔**：策略/校验器/守卫/钩子/路由组件均可独立新增，无需修改核心流程
@@ -937,3 +1100,5 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
 6. **观测贯穿**：全链路 span 埋点 + ObservedSseEmitter 根 span 收敛 + 属性脱敏，排查有据
 7. **Fail-Open 保底**：提示词外置未配置、工具路由关闭等一律回落现状，零行为差异
 8. **审批可暂停**：高风险写操作 CONFIRM 真暂停，快照落库后确认续流，误放可拒
+9. **规划/循环策略化**：PlanRouter、SubAgentToolLoop 均为策略接口，DI/配置选实现（两级路由 ↔ legacy、serial ↔ batch），新想法一行配置接入、灰度 A/B 零风险
+10. **意图树归属校验**：越权工具按归属校验丢弃而非全量重跑；写操作审批是安全边界，靠 WriteGuardConsistencyCheck 启动 fail-fast 兜底一致性
