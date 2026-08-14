@@ -1,9 +1,6 @@
 package com.hmdp.utils.redis;
-
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.util.DigestUtils;
-
-
 /**
  * 无锁 RedisScript 实现 — 重写 getSha1() 预计算 SHA1，避免高并发下 synchronized 锁竞争
  */
