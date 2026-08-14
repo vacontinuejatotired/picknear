@@ -42,6 +42,9 @@ private*
 # Docker Compose 环境变量
 .env
 
+# 本机编译验证临时目录（Windows 侧 target 不可写时，编译复制到此目录进行，用完即删）
+build-tmp/
+
 #日志文件，测试token文件
 **/*.log
 **/*.csv
