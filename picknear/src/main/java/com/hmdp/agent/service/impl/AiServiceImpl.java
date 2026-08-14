@@ -17,6 +17,7 @@ import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.service.AgentHistoryService;
+import com.hmdp.agent.stream.StreamingChatInvoker;
 import com.hmdp.utils.UserHolder;
 
 import io.micrometer.observation.Observation;
@@ -24,7 +25,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -60,10 +60,7 @@ public class AiServiceImpl implements AiService {
     private AgentTracer agentTracer;
 
     @Resource
-    private io.micrometer.observation.ObservationRegistry observationRegistry;
-
-    @Resource
-    private org.springframework.ai.chat.model.ChatModel chatModel;
+    private StreamingChatInvoker streamingChatInvoker;
 
     @Resource
     private AgentHistoryService historyService;
@@ -153,95 +150,40 @@ public class AiServiceImpl implements AiService {
             // rootSpan 为 null（旧调用方/快照恢复）时跳过 resume，埋点整体 Fail-Open
             try (Observation.Scope rootScope = phase1Root != null
                     ? agentTracer.resume(phase1Root) : Observation.Scope.NOOP) {
-                int maxAttempts = 3;
-                Exception lastError = null;
-                String currentContent = finalContent;
                 // 系统提示词渲染一次（缓存命中后开销≈0），重试循环不重复渲染
                 String systemText = promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId));
 
-                // 观测：Phase1 整段（含重试循环），属性 attempt 标记成功轮次
-                try (AgentSpan phase1 = agentTracer.start(AgentSpanSpec.PHASE1, null)) {
-                    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                        try {
-                            phase1.set(AgentField.ATTEMPT, String.valueOf(attempt));
-                            // 流式断链修复（2026-08-03）：绕开 ChatClient 层，直接调 ChatModel 层流式。
-                            // 原因（字节码+实测三层验证）：ChatClient.stream() 内部有 ChatClient 层观察对象
-                            // （spring.ai.chat.client），被 handler 链上 meter 优先的 composite 匹配、
-                            // 不产生 tracing span；model 层观察对象从 Reactor context 读到它作为父，
-                            // TracingContext 缺失 → 断链（新 traceId）。绕开后 context 里只有下面
-                            // 写入的当前栈顶 observation（phase1），model 层观察对象直接挂上。
-                            // 观察标记：流式 observation 在订阅时 start()，标记需覆盖 stream 创建到消费结束
-                            ChatModelObservationConventionConfig.mark("phase1");
-                            String fullResponse;
-                            try {
-                                Observation streamParent = observationRegistry.getCurrentObservation();
-                                org.springframework.ai.chat.prompt.Prompt streamPrompt =
-                                        new org.springframework.ai.chat.prompt.Prompt(
-                                                java.util.List.of(
-                                                        new org.springframework.ai.chat.messages.SystemMessage(systemText),
-                                                        new org.springframework.ai.chat.messages.UserMessage(currentContent)));
-                                reactor.core.publisher.Flux<org.springframework.ai.chat.model.ChatResponse> stream =
-                                        chatModel.stream(streamPrompt);
-                                if (streamParent != null) {
-                                    stream = stream.contextWrite(rctx -> rctx.put("micrometer.observation", streamParent));
-                                }
-                                StringBuilder buffer = new StringBuilder();
-                                // OpenAI 兼容流式首 chunk 只有 role、content=null，getText() 为 null；
-                                // Flux.map 不允许 mapper 返回 null（会抛 NPE），需转空串再按空串过滤
-                                for (String token : stream.map(r -> {
-                                        String text = r.getResult().getOutput().getText();
-                                        return text != null ? text : "";
-                                    }).toIterable()) {
-                                    if (!token.isEmpty()) {
-                                        buffer.append(token);
-                                        SseUtils.safeSend(emitter, SseUtils.escapeJson(token));
-                                    }
-                                }
-                                fullResponse = buffer.toString();
-                            } finally {
-                                ChatModelObservationConventionConfig.clear();
-                            }
-
-                            log.info("[Phase1] AI 流式回复完成, length={}", fullResponse.length());
-                            phase1.set(AgentField.STREAM_LEN, String.valueOf(fullResponse.length()));
-
-                            // 后处理：AfterAiHookChain → AiResponseRouter（观测：agent.decision）
-                            try (AgentSpan decision = agentTracer.start(AgentSpanSpec.DECISION, null)) {
-                                HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
-                                decision.set(AgentField.DECISION, String.valueOf(afterResult.getDecision()));
-                                if (afterResult.getHookName() != null) {
-                                    decision.set(AgentField.HOOK_NAME, afterResult.getHookName());
-                                }
-                                // 内容已逐 token 推送，通知路由跳过重复发送
-                                responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
-
-                                // 历史会话：PASS/REPLACE 在此落库。
-                                // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
-                                if (afterResult.isPass()) {
-                                    recordTurnBestEffort(userId, conversationId, content, fullResponse);
-                                } else if (afterResult.isReplace()) {
-                                    recordTurnBestEffort(userId, conversationId, content, afterResult.getReplacedText());
-                                }
-                            }
-                            return; // 成功，退出
-                        } catch (Exception e) {
-                            lastError = e;
-                            log.warn("AI 流式调用失败 [attempt={}/{}]", attempt, maxAttempts, e);
-                            if (attempt < maxAttempts) {
-                                // 把错误喂给 AI，让 AI 重试生成回复
-                                currentContent = finalContent + "\n\n[系统提示] 上一步调用因以下异常失败，请重试："
-                                        + e.getClass().getSimpleName() + ": " + e.getMessage();
-                            }
-                        }
-                    }
-                    phase1.set(AgentField.STATUS, "FAILED");
+                // 流式调用 + 重试（StreamingChatInvoker：ChatModel 直调 + 逐 token 推送 + phase1 观测）
+                StreamingChatInvoker.StreamOutcome streamOutcome =
+                        streamingChatInvoker.streamWithRetry(systemText, finalContent, emitter);
+                if (streamOutcome.failed()) {
+                    // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）
+                    String friendlyMsg = "抱歉，AI 服务暂时不可用（" + errorSummary(streamOutcome.lastError()) + "），请稍后再试。";
+                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
+                    SseUtils.safeSend(emitter, SseUtils.errorEvent(friendlyMsg));
+                    emitter.complete();
+                    return;
                 }
+                String fullResponse = streamOutcome.fullResponse();
 
-                // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）
-                String friendlyMsg = "抱歉，AI 服务暂时不可用（" + errorSummary(lastError) + "），请稍后再试。";
-                SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
-                SseUtils.safeSend(emitter, SseUtils.errorEvent(friendlyMsg));
-                emitter.complete();
+                // 后处理：AfterAiHookChain → AiResponseRouter（观测：agent.decision）
+                try (AgentSpan decision = agentTracer.start(AgentSpanSpec.DECISION, null)) {
+                    HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
+                    decision.set(AgentField.DECISION, String.valueOf(afterResult.getDecision()));
+                    if (afterResult.getHookName() != null) {
+                        decision.set(AgentField.HOOK_NAME, afterResult.getHookName());
+                    }
+                    // 内容已逐 token 推送，通知路由跳过重复发送
+                    responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
+
+                    // 历史会话：PASS/REPLACE 在此落库。
+                    // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
+                    if (afterResult.isPass()) {
+                        recordTurnBestEffort(userId, conversationId, content, fullResponse);
+                    } else if (afterResult.isReplace()) {
+                        recordTurnBestEffort(userId, conversationId, content, afterResult.getReplacedText());
+                    }
+                }
             }
         }, aiTaskExecutor);
         } finally {
