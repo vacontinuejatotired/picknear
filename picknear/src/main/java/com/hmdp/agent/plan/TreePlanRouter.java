@@ -28,17 +28,19 @@ public class TreePlanRouter implements PlanRouter {
     private final PlanSupport support;
     private final TreeCatalogBuilder treeCatalogBuilder;
     private final FeatureProperties featureProperties;
+    private final ToolIntentTree intentTree;
 
     public TreePlanRouter(PlanSupport support, TreeCatalogBuilder treeCatalogBuilder,
-                          FeatureProperties featureProperties) {
+                          FeatureProperties featureProperties, ToolIntentTree intentTree) {
         this.support = support;
         this.treeCatalogBuilder = treeCatalogBuilder;
         this.featureProperties = featureProperties;
+        this.intentTree = intentTree;
     }
 
     @Override
     public PlanOutcome plan(PlanRequest req) {
-        Set<String> matched = ToolIntentTree.matchNodes(req.userInput());
+        Set<String> matched = intentTree.matchNodes(req.userInput());
         // Phase1 直解（同样套树校验，堵住主回复解析绕过组路由的洞）
         List<SubTask> fromResponse = support.parseAndValidate(req, req.aiResponse(),
                 ValidationOptions.tree(matched, req.userId()));

@@ -29,6 +29,12 @@ import java.util.UUID;
 @Component
 public class PlanValidator {
 
+    private final ToolIntentTree intentTree;
+
+    public PlanValidator(ToolIntentTree intentTree) {
+        this.intentTree = intentTree;
+    }
+
     /**
      * 校验并构建任务。
      *
@@ -59,7 +65,7 @@ public class PlanValidator {
             if (history.isFinalFailed(toolName)) {
                 continue;
             }
-            if (opts.enforceTree() && !ToolIntentTree.toolIn(toolName, allowed)) {
+            if (opts.enforceTree() && !intentTree.toolIn(toolName, allowed)) {
                 log.warn("  [规划] 工具 {} 不属于声明的意图节点 {}, 丢弃", toolName, allowed);
                 continue;
             }
@@ -84,11 +90,11 @@ public class PlanValidator {
     }
 
     /** 声明意图优先，空则退关键词命中节点（仅 enforceTree 生效） */
-    private static Set<String> resolveAllowed(ParsedPlan parsed, ValidationOptions opts) {
+    private Set<String> resolveAllowed(ParsedPlan parsed, ValidationOptions opts) {
         if (!opts.enforceTree()) {
             return Set.of();
         }
-        Set<String> declared = ToolIntentTree.resolveIntents(parsed.declaredIntents());
+        Set<String> declared = intentTree.resolveIntents(parsed.declaredIntents());
         return declared.isEmpty() ? opts.fallbackNodes() : declared;
     }
 

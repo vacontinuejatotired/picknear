@@ -19,15 +19,17 @@ import java.util.List;
 public class WriteGuardConsistencyCheck {
 
     private final PromptGuardProperties guardProperties;
+    private final ToolIntentTree intentTree;
 
-    public WriteGuardConsistencyCheck(PromptGuardProperties guardProperties) {
+    public WriteGuardConsistencyCheck(PromptGuardProperties guardProperties, ToolIntentTree intentTree) {
         this.guardProperties = guardProperties;
+        this.intentTree = intentTree;
     }
 
     @PostConstruct
     void validate() {
         List<String> confirmTools = guardProperties.getConfirmTools();
-        List<String> missing = ToolIntentTree.writeTools().stream()
+        List<String> missing = intentTree.writeTools().stream()
                 .filter(t -> !confirmTools.contains(t))
                 .sorted()
                 .toList();
@@ -36,6 +38,6 @@ public class WriteGuardConsistencyCheck {
                     "WRITE 子树工具未纳入审批名单 hmdp.prompt-guard.confirm-tools: " + missing
                             + "（写操作必须走用户审批）");
         }
-        log.info("写操作审批一致性校验通过：WRITE 子树 {} 全部在 confirm-tools", ToolIntentTree.writeTools());
+        log.info("写操作审批一致性校验通过：WRITE 子树 {} 全部在 confirm-tools", intentTree.writeTools());
     }
 }
