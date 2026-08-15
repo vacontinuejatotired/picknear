@@ -1,5 +1,7 @@
 package com.hmdp.agent.hook;
 
+import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -32,18 +34,25 @@ public class PromptHookExecutor {
      *
      * @param content        原始用户输入
      * @param conversationId 会话 ID
-     * @param userId         当前用户 ID（异步线程无 UserHolder，须显式传入）
-     * @param rootSpan       会话根 span（SSE 模式传入用于跨线程挂载；JSON 模式为 null）
+     * @param userId         当前用户 ID（AgentContext 未设置时的兜底；入口已设置则忽略）
+     * @param rootSpan       会话根 span（AgentContext 未设置时的兜底；入口已设置则忽略）
      */
     public HookOutcome execute(String content, String conversationId, Long userId, AgentSpan rootSpan) {
-        // 1. 构造 Hook 上下文（主线程执行，userId 显式传入）
-        ChatContext ctx = ChatContext.builder()
-                .userId(userId)
-                .conversationId(conversationId)
-                .originalContent(content)
-                .history(chatMemory.get(conversationId))
-                .build();
-        ctx.setRootSpan(rootSpan);
+        // 1. 构造 Hook 上下文（数据来源统一为 AgentContext：入口创建、异步边界 Propagator 传播）。
+        //    AgentContext 未设置时回退显式参数（直调/测试路径，Fail-Open），行为与旧手拼一致。
+        AgentContext agentCtx = AgentContextHolder.get();
+        ChatContext ctx;
+        if (agentCtx != null) {
+            ctx = ChatContext.from(agentCtx);
+        } else {
+            ctx = ChatContext.builder()
+                    .userId(userId)
+                    .conversationId(conversationId)
+                    .originalContent(content)
+                    .history(chatMemory.get(conversationId))
+                    .build();
+            ctx.setRootSpan(rootSpan);
+        }
 
         // 2. 执行 Hook 链（观测：agent.prompt_hook，链执行后结束）
         HookResult hookResult;

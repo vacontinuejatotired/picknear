@@ -74,6 +74,9 @@ public class ChatController {
     @Resource
     private ObjectMapper objectMapper;
 
+    @Resource
+    private org.springframework.ai.chat.memory.ChatMemory chatMemory;
+
     /**
      * 发送聊天消息 — 双模端点
      * <p>
@@ -107,11 +110,13 @@ public class ChatController {
             AgentSpan root = agentTracer.startSession(conversationId,
                     String.valueOf(UserHolder.getUserId()));
 
-            // 请求级 AgentContext：入口创建一次，同步段 Holder 读取、异步段 Propagator 自动传播
+            // 请求级 AgentContext：入口创建一次，同步段 Holder 读取、异步段 Propagator 自动传播。
+            // history 在此拉取（与 PromptHookExecutor 原逻辑同源），Hook 链无需再查 chatMemory
             AgentContextHolder.set(AgentContext.builder()
                     .userId(UserHolder.getUserId())
                     .conversationId(conversationId)
                     .originalInput(content)
+                    .history(chatMemory.get(conversationId))
                     .rootSpan(root)
                     .build());
             try {
@@ -160,6 +165,7 @@ public class ChatController {
                 .userId(UserHolder.getUserId())
                 .conversationId(conversationId)
                 .originalInput(content)
+                .history(chatMemory.get(conversationId))
                 .build());
         try {
             String result = aiService.chatReturnStringResult(content, conversationId);

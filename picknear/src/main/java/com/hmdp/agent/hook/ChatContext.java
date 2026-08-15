@@ -1,5 +1,6 @@
 package com.hmdp.agent.hook;
 
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.task.TaskSnapshot;
 import org.springframework.ai.chat.messages.Message;
@@ -73,6 +74,25 @@ public class ChatContext {
     // ---- builder ----
 
     public static Builder builder() { return new Builder(); }
+
+    /**
+     * 从请求级 {@link AgentContext} 构建（数据来源统一）。
+     * <p>
+     * ChatContext 的 userId / conversationId / originalContent / history / rootSpan
+     * 全部取自 AgentContext——入口（ChatController.chat/confirm）创建一次，
+     * 消费方不再各自手拼同一份数据。
+     * </p>
+     */
+    public static ChatContext from(AgentContext agentCtx) {
+        ChatContext ctx = ChatContext.builder()
+                .userId(agentCtx.userId())
+                .conversationId(agentCtx.conversationId())
+                .originalContent(agentCtx.originalInput())
+                .history(agentCtx.history())
+                .build();
+        ctx.setRootSpan(agentCtx.rootSpan());
+        return ctx;
+    }
 
     public static class Builder {
         private Long userId;
