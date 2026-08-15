@@ -2,6 +2,8 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolInvocationContext;
@@ -96,6 +98,67 @@ public class TaskPlanner {
     @Resource
     private PlanRouter planRouter;
 
+    // ============================================================
+    // 异步段上下文解析（第 2 步收敛）：AgentContext（Propagator 传播）优先，ChatContext 兜底
+    // ============================================================
+
+    /**
+     * 解析用户 ID：优先 AgentContextHolder（请求入口创建、异步边界 Propagator 传播），
+     * 未设置时回退 ChatContext（直调/测试路径），再兜底 fallback（审批记录/快照）。
+     */
+    private static Long resolveUserId(ChatContext ctx, Long fallback) {
+        AgentContext agentCtx = AgentContextHolder.get();
+        if (agentCtx != null && agentCtx.userId() != null) {
+            return agentCtx.userId();
+        }
+        if (ctx != null && ctx.getUserId() != null) {
+            return ctx.getUserId();
+        }
+        return fallback;
+    }
+
+    /**
+     * 解析会话 ID：优先级同 {@link #resolveUserId}。
+     */
+    private static String resolveConversationId(ChatContext ctx, String fallback) {
+        AgentContext agentCtx = AgentContextHolder.get();
+        if (agentCtx != null && agentCtx.conversationId() != null) {
+            return agentCtx.conversationId();
+        }
+        if (ctx != null && ctx.getConversationId() != null) {
+            return ctx.getConversationId();
+        }
+        return fallback;
+    }
+
+    /**
+     * 解析原始输入：优先级同 {@link #resolveUserId}（快照恢复时 ctx 无原文，取 fallback）。
+     */
+    private static String resolveOriginalContent(ChatContext ctx, String fallback) {
+        AgentContext agentCtx = AgentContextHolder.get();
+        if (agentCtx != null && agentCtx.originalInput() != null) {
+            return agentCtx.originalInput();
+        }
+        if (ctx != null && ctx.getOriginalContent() != null) {
+            return ctx.getOriginalContent();
+        }
+        return fallback;
+    }
+
+    /**
+     * 解析根 span：优先级同 {@link #resolveUserId}（explicitRootSpan 由调用方决定兜底顺序）。
+     */
+    private static AgentSpan resolveRootSpan(ChatContext ctx, AgentSpan fallback) {
+        AgentContext agentCtx = AgentContextHolder.get();
+        if (agentCtx != null && agentCtx.rootSpan() != null) {
+            return agentCtx.rootSpan();
+        }
+        if (ctx != null && ctx.getRootSpan() != null) {
+            return ctx.getRootSpan();
+        }
+        return fallback;
+    }
+
     /**
      * 异步入口：在 subtaskExecutor 上执行规划，不阻塞 SSE 主线程。
      * <p>
@@ -114,8 +177,8 @@ public class TaskPlanner {
     public void planAndExecuteAsync(String input, String aiResponse, ChatContext ctx,
                                     AgentSpan explicitRootSpan, SseEmitter emitter) {
         CompletableFuture.runAsync(() -> {
-            // 快照恢复路径 ctx=null 时无根 span，跳过 resume（Fail-Open，span 变孤儿仅 WARN）
-            AgentSpan rootSpan = ctx != null ? ctx.getRootSpan() : null;
+            // 根 span 优先级：AgentContext（入口创建，Propagator 传播）→ ChatContext → explicit 参数
+            AgentSpan rootSpan = resolveRootSpan(ctx, explicitRootSpan);
             if (rootSpan == null && explicitRootSpan != null) {
                 rootSpan = explicitRootSpan; // 断链修复（2026-08-04）：快照携带的根 span 兜底
             }
@@ -142,12 +205,15 @@ public class TaskPlanner {
      */
     private void completeTurn(ChatContext ctx, String result, SseEmitter emitter) {
         boolean paused = ctx != null && ctx.getPendingSnapshot() != null;
-        if (!paused && ctx != null && ctx.getUserId() != null) {
+        // 上下文来源：AgentContext（Propagator 传播）优先，ChatContext 兜底
+        Long userId = resolveUserId(ctx, null);
+        if (!paused && userId != null) {
             try {
-                historyService.recordTurn(ctx.getUserId(), ctx.getConversationId(),
-                        ctx.getOriginalContent(), result);
+                historyService.recordTurn(userId, resolveConversationId(ctx, null),
+                        resolveOriginalContent(ctx, null), result);
             } catch (Exception e) {
-                log.error("记录 PLANNING 回合历史失败, conversationId={}", ctx.getConversationId(), e);
+                log.error("记录 PLANNING 回合历史失败, conversationId={}",
+                        resolveConversationId(ctx, null), e);
             }
         }
         if (!paused) {
@@ -173,6 +239,9 @@ public class TaskPlanner {
         String currentResponse = aiResponse;
         var toolCallbacks = toolBeanCollector.getToolCallbacks();
         boolean useSubAgent = featureProperties.getSubagent().isEnabled();
+        // 异步段上下文（第 2 步收敛）：AgentContext 优先，ChatContext 兜底——本循环内统一取值
+        Long userId = resolveUserId(ctx, null);
+        String conversationId = resolveConversationId(ctx, null);
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
             int r = round + 1;
@@ -183,7 +252,7 @@ public class TaskPlanner {
                 try {
                     // decompose() 只返回 TOOL_CALL，不再追加 LLM_REASON
                     List<SubTask> tasks = decompose(input, currentResponse, toolCallbacks, history,
-                            ctx != null ? ctx.getUserId() : null);
+                            userId);
                     roundSpan.set(AgentField.TOOL_COUNT, String.valueOf(tasks.size()));
                     if (tasks.isEmpty()) {
                         roundSpan.set(AgentField.PLAN_VALID, "false");
@@ -211,8 +280,8 @@ public class TaskPlanner {
                                     .currentResponse(currentResponse)
                                     .tasks(tasks)
                                     .historySummary(buildHistorySummary(history))
-                                    .userId(ctx != null ? ctx.getUserId() : null)
-                                    .conversationId(ctx != null ? ctx.getConversationId() : null)
+                                    .userId(userId)
+                                    .conversationId(conversationId)
                                     .round(round)
                                     .build();
 
@@ -254,8 +323,8 @@ public class TaskPlanner {
 
                         TaskQueue queue = new TaskQueue(execTasks);
                         TaskExecutor executor = new TaskExecutor(toolCallbacks,
-                                ctx != null ? ctx.getUserId() : null,
-                                ctx != null ? ctx.getConversationId() : null,
+                                userId,
+                                conversationId,
                                 chatClient, TASK_TIMEOUT_MS, agentTracer, promptService);
                         executor.executeAll(queue);
 
@@ -329,9 +398,10 @@ public class TaskPlanner {
         snapshot.setRound(round);
         snapshot.setPendingToolName(ic.getToolName());
         snapshot.setPendingToolArguments(ic.getArguments());
-        snapshot.setConversationId(ctx != null ? ctx.getConversationId() : ic.getConversationId());
-        snapshot.setUserId(ctx != null ? ctx.getUserId() : ic.getUserId());
-        snapshot.setRootSpan(ctx != null ? ctx.getRootSpan() : null);
+        // 上下文来源：AgentContext 优先，ChatContext 兜底，最后取守卫异常携带的调用上下文
+        snapshot.setConversationId(resolveConversationId(ctx, ic.getConversationId()));
+        snapshot.setUserId(resolveUserId(ctx, ic.getUserId()));
+        snapshot.setRootSpan(resolveRootSpan(ctx, null));
         if (ctx != null) {
             ctx.setPendingSnapshot(snapshot);
         }
@@ -358,7 +428,8 @@ public class TaskPlanner {
      */
     public void resumeFromSnapshot(TaskSnapshot snapshot, ChatContext ctx, SseEmitter emitter) {
         CompletableFuture.runAsync(() -> {
-            AgentSpan rootSpan = ctx != null ? ctx.getRootSpan() : (snapshot != null ? snapshot.getRootSpan() : null);
+            // 根 span 优先级：AgentContext（confirm 入口重建，Propagator 传播）→ ChatContext → 快照
+            AgentSpan rootSpan = resolveRootSpan(ctx, snapshot != null ? snapshot.getRootSpan() : null);
             try (Observation.Scope scope = rootSpan != null ? agentTracer.resume(rootSpan)
                     : Observation.Scope.NOOP) {
                 try {
@@ -403,8 +474,9 @@ public class TaskPlanner {
             SseUtils.safeSend(emitter, SseUtils.errorEvent("待确认工具不可用，无法继续"));
             return null;
         }
-        Long uid = ctx != null ? ctx.getUserId() : snapshot.getUserId();
-        String cid = ctx != null ? ctx.getConversationId() : snapshot.getConversationId();
+        // 上下文来源：AgentContext 优先，ChatContext 兜底，最后取快照（跨请求持久化语义）
+        Long uid = resolveUserId(ctx, snapshot.getUserId());
+        String cid = resolveConversationId(ctx, snapshot.getConversationId());
         Map<String, Object> toolCtxMap = new HashMap<>();
         if (uid != null) toolCtxMap.put("userId", uid);
         if (cid != null && !cid.isBlank()) toolCtxMap.put("conversationId", cid);
