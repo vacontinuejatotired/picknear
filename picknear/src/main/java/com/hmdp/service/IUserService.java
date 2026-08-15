@@ -34,8 +34,4 @@ public interface IUserService extends IService<User> {
 
     /** 重置密码 — 验证码 + 新密码，免旧密码 */
     Result resetPassword(String phone, String code, String newPassword);
-
-    Result sign();
-
-    Result getSignCount();
 }

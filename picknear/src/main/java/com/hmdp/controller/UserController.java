@@ -12,6 +12,7 @@ import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.enums.ErrorCode;
 import com.hmdp.service.FileService;
+import com.hmdp.service.ISignService;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
@@ -52,6 +53,8 @@ public class UserController {
 
     @Resource
     private IUserInfoService userInfoService;
+    @Resource
+    private ISignService signService;
     @Resource
     private CacheClient cacheClient;
     @Resource
@@ -162,12 +165,12 @@ public class UserController {
     @PostMapping("/sign")
     @Operation(summary = "用户签到", description = "今日签到功能")
     public Result sign(){
-        return userService.sign();
+        return signService.sign();
     }
     @GetMapping("/sign/count")
     @Operation(summary = "签到统计", description = "查询连续签到天数统计")
     public Result signCount(){
-        return userService.getSignCount();
+        return signService.getSignCount();
     }
 
     /**
