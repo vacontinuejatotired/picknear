@@ -1223,6 +1223,14 @@ PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开�
 - 行为零变化：观测结构（round span → subagent/工具级 span）、推送顺序、CONFIRM 冒泡均不变
 - TaskPlannerTest 同步：子 Agent 路径断言改 mock SubAgentRoundExecutor，清理不再注入的死 mock
 
+## Phase 23：ApprovalService 决策收敛（markApproved/markRejected 去重，卫生）
+
+**提交**: `f80b6c2`
+
+- markApproved/markRejected 70% 重复（同一套「查记录 → 状态/过期预检 → 原子 CAS」语义）
+- 收敛为私有 `markDecided`：差异仅目标状态 / 成功结果 / 日志文案 / approved 的 CAS 额外 expiredAt 双保险条件
+- 决策语义单一来源，后续新增状态流转只改一处；行为零变化（CAS 条件、返回值、日志逐一对齐）
+
 ## 模块关系总图
 
 ```
