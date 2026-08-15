@@ -1,8 +1,8 @@
 # Agent 上下文传递机制设计（AgentContext）
 
-> **版本**: v1.1
+> **版本**: v1.2
 > **日期**: 2026-08
-> **状态**: 第 1 步（骨架落地）已实施 ✅；第 2/3 步（消费方迁移、ChatContext 并入）待实施
+> **状态**: 第 1 步（骨架落地）✅、第 2 步（消费方迁移）✅ 已实施；第 3 步（ChatContext 并入）待实施
 > **目标**: 设计一个专门给 AI 链路传递上下文的统一机制，替代当前散落的手递方案
 > **相关**: `md/agent/Agent模块架构设计.md`、`上下文传递优化设计.md`（token 压缩，不同主题）
 
@@ -185,12 +185,15 @@ public class AgentContextPropagator implements TaskDecorator {
 - [x] `ToolBeanCollector.conversationId` 删除（`AiServiceImpl` 两处调用删除，GuardedToolCallback 兜底改 Holder）
 - [x] 编译 + 单测验证（`AgentContextHolderTest` / `AgentContextPropagatorTest` 8 用例全绿；行为不变：所有读取点仍走原路径，只是新增了可用来源）
 
-### 第 2 步：消费方迁移（中风险，逐步替换手递）
-- `PromptHookExecutor`：从 `AgentContextHolder` 构建（`ChatContext.builder()` 数据来源统一）
-- `TaskPlanner`：`ctx != null ? ... : ...` 三元收敛——同步段传 ChatContext、异步段从 Holder 读
-- `GuardedToolCallback`：conversationId 兜底改 `AgentContextHolder.get()`
-- `ChatController.confirm()`：重建上下文改用 AgentContext（替代手拼 ChatContext）
-- 每处迁移独立提交，编译 + 单测
+### 第 2 步：消费方迁移（中风险，逐步替换手递）—— ✅ 已实施
+
+- [x] `PromptHookExecutor`：从 `AgentContextHolder` 构建（`ChatContext.from(AgentContext)` 工厂，数据来源统一；ChatController 创建 AgentContext 时携带 history）
+- [x] `TaskPlanner`：`ctx != null ? ... : ...` 三元收敛——异步段从 Holder 读（resolveUserId/resolveConversationId/resolveOriginalContent/resolveRootSpan 四 helper，AgentContext → ChatContext → 调用方兜底），decompose/SubTaskPlan/TaskExecutor/handleConfirmPause/resumeFromSnapshot/executeApprovedTool/completeTurn 七处替换
+- [x] `GuardedToolCallback`：conversationId 兜底改 `AgentContextHolder.get()`（随第 1 步完成）
+- [x] `ChatController.confirm()`：重建上下文改用 AgentContext（替代手拼 ChatContext）
+
+> 注：`SubTaskPlan` 手递 userId/conversationId 保留（作持久化兜底），子 Agent 执行线程经
+> subtaskExecutor 的 Propagator 直接可读父级 AgentContext——字段取消列入第 3 步评估。
 
 ### 第 3 步：ChatContext 并入（目标态）
 - `ChatContext` 删除，Hook 链接口（`PromptHookChain`/`AfterAiHookChain`/`TaskTriggerHook`）签名改 `AgentContext`

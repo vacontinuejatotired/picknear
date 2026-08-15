@@ -1076,9 +1076,9 @@ PromptSeeder（工具模板键清单，自动纳入新工具）
 
 ## Phase 18：AgentContext 请求级上下文（统一上下文载体，架构整理）
 
-**提交**: `（本提交）` "AgentContext 上下文传递机制第 1 步（骨架落地）"
+**提交**: `27ab8af` "第 1 步（骨架落地）"、`e1dcd3f`/`d56508a`/`a987b07` "第 2 步（消费方迁移 3 处）"
 
-**设计文档**: `md/agent/Agent上下文传递机制设计.md`（分 3 步实施，本阶段为第 1 步）
+**设计文档**: `md/agent/Agent上下文传递机制设计.md`（分 3 步实施，本阶段完成第 1/2 步）
 
 ### 背景
 
@@ -1111,14 +1111,18 @@ GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没�
 ### 关键变化
 
 1. `AgentConfig` 两个线程池（aiTaskExecutor / subtaskExecutor）装配 TaskDecorator —— 子 Agent 执行线程自动可读父级请求上下文（两层模型：父级 AgentContext 自动传播 + 子级 SubTaskPlan 显式传任务数据）
-2. `ChatController.chat()`（SSE/JSON 双模）与 `confirm()`（SSE 续流，从 AgentApproval 重建）入口创建 AgentContext，finally 与根 span 清理同点
+2. `ChatController.chat()`（SSE/JSON 双模）与 `confirm()`（SSE 续流，从 AgentApproval 重建）入口创建 AgentContext，finally 与根 span 清理同点；chat() 创建时携带 history（chatMemory 拉取收敛到入口）
 3. **删除 `ToolBeanCollector.conversationId` 单例状态**（无效设计）：字段 + getter/setter + `AiServiceImpl` 两处 `setConversationId` 调用全部移除；`GuardedToolCallback` 会话 ID 兜底顺序改为 ToolContext → AgentContextHolder → 构造冻结值（仅最后防线）
-4. 行为零变化：所有消费方仍走原路径（ChatContext / ToolContext 手递），AgentContext 只是新增可用来源——消费方迁移见第 2/3 步
+4. **消费方迁移（第 2 步）**：
+   - `ChatContext.from(AgentContext)` 工厂：userId/conversationId/originalContent/history/rootSpan 统一取自 AgentContext；`PromptHookExecutor` 与 `confirm()` 均改走工厂（替代手拼）
+   - `TaskPlanner` 新增 4 个 resolve helper（AgentContext → ChatContext → 调用方兜底），七处 `ctx != null ? ... : ...` 三元收敛（decompose / SubTaskPlan / TaskExecutor / handleConfirmPause / resumeFromSnapshot / executeApprovedTool / completeTurn）
+   - 行为零变化：AgentContext 未设置时（直调/测试路径）逐级回退，语义与旧手递一致
 
 ### 验证
 
 - 新增单测（无 Mockito，本机可跑）：`AgentContextHolderTest`（require 缺失抛错、线程隔离）、`AgentContextPropagatorTest`（捕获/恢复/finally 清理/嵌套任务传播），8 个用例全绿
-- build-tmp 全量编译通过；VM 链路验证（SSE 对话 + CONFIRM 续流 + 工具调用）待部署后回归
+- build-tmp 全量编译通过（第 1/2 步各提交前均验证）；VM 链路验证（SSE 对话 + CONFIRM 续流 + 工具调用）待部署后回归
+- 第 3 步（ChatContext 并入 Hook 链签名）待实施，`SubTaskPlan` 手递字段保留作持久化兜底
 
 ## 模块关系总图
 
