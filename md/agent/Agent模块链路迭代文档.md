@@ -1128,6 +1128,37 @@ GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没�
 - build-tmp 全量编译通过（main + test-compile，三步各提交前均验证）
 - **VM 链路回归待部署**：SSE 对话 + CONFIRM 续流 + 工具调用（Langfuse 检查 round/tool_call span 仍挂会话树）、JSON 模式、`feature.subagent.enabled=false` 回退路径、`feature.tool-routing.enabled=false` legacy 路径
 
+## Phase 19：TaskPlanner 编排门面化（594 → 158 行，架构整理）
+
+**提交**: `fa51eb5` "第 1 步（历史聚合/上下文解析下沉）"、`5677723` "第 2 步（CONFIRM 中间态组件）"、`b027d4e` "第 3 步（主循环独立，门面化）"
+
+### 背景
+
+TaskPlanner 594 行、14 个 @Resource，混杂 6 类职责：异步入口 + 主循环编排、CONFIRM 暂停、CONFIRM 恢复、回退路径、历史聚合、上下文解析——编排层的"上帝类"。
+
+### 拆分设计（3 步，组件依赖单向无循环）
+
+```
+TaskPlanner（门面 158 行）—— 异步入口 ×2 / resumeFromSnapshot / completeTurn / resumePlan 编排
+├── PlanLoopExecutor（~190）—— 主循环：decompose → 子Agent/回退执行 → 聚合（catch 委托 pause）
+├── ConfirmFlowManager（~140）—— CONFIRM 中间态：pause（快照+审批+事件）/ 恢复执行 / 防二次审批
+├── TaskReportHelper（~60）—— 历史摘要 / recordHistory / 回退聚合（纯逻辑）
+└── AgentContextResolver（~60）—— 4 个 resolve helper（静态工具）
+```
+
+关键决策：
+1. **中间态单组件**：暂停/恢复围绕 TaskSnapshot 同一份中间态，合并为 `ConfirmFlowManager`（用户决策），不拆成暂停/恢复两个
+2. **无循环依赖**：恢复后的续跑（resumePlan 调主循环）留在门面，ConfirmFlowManager 不依赖编排层；主循环 catch 单向委托 pause
+3. `ATTR_PENDING_SNAPSHOT` 常量上移 `AgentContext`（两组件共用）；resolve helper 收进 `AgentContextResolver`
+
+### 效果
+
+| 指标 | 前 | 后 |
+|------|----|----|
+| TaskPlanner | 594 行 / 14 @Resource | **158 行 / 6 @Resource**（纯编排门面） |
+| 新组件 | — | 4 个，各 ≤190 行、职责单一 |
+| 行为 | — | 零变化（纯搬迁 + 委托，循环/观测/SSE 顺序不变） |
+
 ## 模块关系总图
 
 ```
