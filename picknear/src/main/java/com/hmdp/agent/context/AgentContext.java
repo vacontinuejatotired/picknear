@@ -28,6 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class AgentContext {
 
+    /** CONFIRM 暂停快照暂存 key（attributes 扩展区约定，TaskPlanner/ConfirmFlowManager 共用） */
+    public static final String ATTR_PENDING_SNAPSHOT = "pendingSnapshot";
+
     /** 当前登录用户 ID（可空：非登录态场景） */
     private final Long userId;
 
