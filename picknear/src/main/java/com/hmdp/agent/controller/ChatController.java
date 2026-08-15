@@ -241,23 +241,18 @@ public class ChatController {
             }
 
             TaskSnapshot snapshot = TaskSnapshot.fromApproval(approval, objectMapper);
-            // 重建 ChatContext（异步线程无 UserHolder，userId/conversationId 来自审批记录，
-            // 否则数据权限切面报"身份验证失败"、历史不落库）
-            ChatContext ctx = ChatContext.builder()
-                    .userId(approval.getUserId())
-                    .conversationId(approval.getConversationId())
-                    .originalContent(approval.getOriginalInput())
-                    .build();
-            ctx.setRootSpan(root);
 
             // 请求级 AgentContext：从审批记录重建（跨请求持久化上下文 → 请求级上下文），
-            // resumeFromSnapshot 提交到 subtaskExecutor 时由 Propagator 自动携带
-            AgentContextHolder.set(AgentContext.builder()
+            // resumeFromSnapshot 提交到 subtaskExecutor 时由 Propagator 自动携带；
+            // ChatContext 由 AgentContext 构建（from 工厂，数据来源统一，替代手拼）
+            AgentContext agentCtx = AgentContext.builder()
                     .userId(approval.getUserId())
                     .conversationId(approval.getConversationId())
                     .originalInput(approval.getOriginalInput())
                     .rootSpan(root)
-                    .build());
+                    .build();
+            AgentContextHolder.set(agentCtx);
+            ChatContext ctx = ChatContext.from(agentCtx);
             try {
                 taskPlanner.resumeFromSnapshot(snapshot, ctx, emitter);
             } finally {
