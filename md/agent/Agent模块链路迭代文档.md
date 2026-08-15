@@ -1184,6 +1184,25 @@ ChatController（219 行）—— 只留 HTTP 端点 + 双模分发（isSse）+ 
 - ChatController 281 → 219 行；SSE 超时/TTL 常量、AgentTracer/TaskScheduler 依赖收敛出 Controller
 - 新增 SSE 端点零重复装配；生命周期约定单一来源
 
+## Phase 21：SubTaskAgent 拆分——重试与解析独立（架构整理）
+
+**提交**: `25e5bda`
+
+### 背景
+
+SubTaskAgent 307 行，execute() 编排里混杂 65 行重试编排（指数退避/总超时/CONFIRM 透传）与 65 行回复解析（JSON 快照/截断/降级）——子 Agent 执行器的"编排 + 纯逻辑"混杂。
+
+### 方案
+
+```
+SubTaskAgent（167 行）—— 只留 execute() 编排 + filterCallbacks
+├── SubAgentRetryRunner（新，~75 行）—— executeWithRetry：退避/超时/CONFIRM 原样透传/错误注入
+└── SubTaskResultParser（新，~80 行）—— parse：快照提取/JSON 解析/data 截断/摘要裁剪
+```
+
+- 行为零变化：CONFIRM 透传语义、降级兜底、截断阈值（RAW_DATA_MAX_LENGTH）均原样搬迁
+- 拆后重试与解析可独立单测
+
 ## 模块关系总图
 
 ```
