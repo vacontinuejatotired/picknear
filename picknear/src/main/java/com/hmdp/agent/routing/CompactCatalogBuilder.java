@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.legacy.routing.CatalogBuilder;
 import com.hmdp.agent.task.TaskReport;
+import com.hmdp.agent.tool.ToolRegistry;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
@@ -37,34 +38,16 @@ public class CompactCatalogBuilder implements CatalogBuilder {
     );
 
     /**
-     * 按需过滤关键词（toolName → 触发词）：用户输入命中任一词才把该工具列入紧凑目录，
-     * 减少 planner 的候选工具数（省 token + 降低误选）。新增工具时须在此登记，
-     * 未登记的工具保守放行（不全过滤，防漏）。
+     * 按需过滤关键词（toolName → 触发词）由 {@link ToolRegistry} 提供：
+     * 工具类上 {@code @ToolMeta(keywords=...)} 声明，用户输入命中任一词才把该工具列入紧凑目录，
+     * 减少 planner 的候选工具数（省 token + 降低误选）。未登记关键词的工具保守放行（不全过滤，防漏）。
      */
-    private static final Map<String, List<String>> TRIGGER_KEYWORDS = Map.ofEntries(
-            Map.entry("queryPublishedBlogs", List.of("我的博客", "我发的", "看看博客", "浏览博客", "查看博客", "能看什么", "看博客")),
-            Map.entry("publishTestBlog", List.of("发博客", "写博客", "发布", "发一篇", "测试博客")),
-            Map.entry("queryBlogsByTitle", List.of("找博客", "搜博客", "搜索博客", "找一篇", "查一下关于", "有没有博客")),
-            Map.entry("queryTotalBlogs", List.of("统计博客", "博客总数", "博客数量", "多少篇博客", "多少博客", "查一下博客数量")),
-            Map.entry("queryTotalUsers", List.of("统计用户", "用户总数", "用户数量", "多少用户", "多少人注册", "查一下用户数")),
-            Map.entry("queryTotalShops", List.of("统计店铺", "店铺总数", "店铺数量", "多少店铺", "商铺", "查一下店铺")),
-            Map.entry("queryWeather", List.of("天气", "气温", "温度", "冷不冷", "热不热", "下雨", "晴天", "冷吗", "热吗")),
-            Map.entry("queryShopTypes", List.of("店铺类型", "分类", "有哪些类型", "类型列表", "美食", "酒店", "影院")),
-            Map.entry("queryShopsByType", List.of("类型的店铺", "美食店", "酒店有哪些", "按类型", "找店", "店铺列表", "有哪些店")),
-            Map.entry("queryShopById", List.of("店铺详情", "这家店", "店铺怎么样", "店怎么样", "店铺信息")),
-            Map.entry("queryVouchersByShop", List.of("优惠券", "有什么券", "领券", "抢券", "券")),
-            Map.entry("queryMyVoucherOrders", List.of("我的订单", "我买的券", "下单记录", "订单")),
-            Map.entry("queryBlogById", List.of("博客详情", "这篇博客", "看看这篇", "博客信息")),
-            Map.entry("queryBlogComments", List.of("评论", "看看评论", "回复")),
-            Map.entry("queryUserBlogs", List.of("某人的博客", "这个作者的博客", "他发的", "她发的", "的博客")),
-            Map.entry("queryUserProfile", List.of("资料", "作者是谁", "用户信息", "个人信息", "是谁")),
-            Map.entry("queryMyFollows", List.of("我的关注", "我关注了谁", "关注列表"))
-    );
-
     private final ObjectMapper json;
+    private final ToolRegistry toolRegistry;
 
-    public CompactCatalogBuilder(ObjectMapper json) {
+    public CompactCatalogBuilder(ObjectMapper json, ToolRegistry toolRegistry) {
         this.json = json;
+        this.toolRegistry = toolRegistry;
     }
 
     /**
@@ -94,7 +77,7 @@ public class CompactCatalogBuilder implements CatalogBuilder {
     /** 用户输入命中该工具任一触发词 → 相关；无输入/未登记关键词 → 保守放行 */
     private boolean isRelevant(String toolName, String userInput) {
         if (userInput == null || userInput.isBlank()) return true;
-        List<String> keywords = TRIGGER_KEYWORDS.get(toolName);
+        List<String> keywords = toolRegistry.keywordsOf(toolName);
         if (keywords == null || keywords.isEmpty()) return true;
         for (String kw : keywords) {
             if (userInput.contains(kw)) return true;

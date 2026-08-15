@@ -8,6 +8,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.permission.annotation.RequiredDataPermission;
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.util.TextUtils;
@@ -41,6 +42,7 @@ public class BlogTool {
             按点赞数降序返回前5条（标题+内容摘要+点赞数），并附博客总数。
             注意：只看当前用户自己发布的博客，不能看别人的。
             """)
+    @ToolMeta(keywords = {"我的博客", "我发的", "看看博客", "浏览博客", "查看博客", "能看什么", "看博客"}, intents = {"blog"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
     public List<BlogBrief> queryPublishedBlogs(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
@@ -65,6 +67,7 @@ public class BlogTool {
             用户说"发博客"、"写博客"、"发布"、"发一篇"时使用。
             注意：只能发固定内容的测试数据，不支持自定义标题和正文。
             """)
+    @ToolMeta(keywords = {"发博客", "写博客", "发布", "发一篇", "测试博客"}, intents = {"publish"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.CREATE)
     public Blog publishTestBlog(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
@@ -90,6 +93,7 @@ public class BlogTool {
             按标题模糊搜索博客，和「找一篇关于…的博客」「搜索/查询博客」一起使用。
             返回标题包含关键词的前10条（标题+内容摘要+点赞数，并附总数），适合批量查同主题文章。
             """)
+    @ToolMeta(keywords = {"找博客", "搜博客", "搜索博客", "找一篇", "查一下关于", "有没有博客"}, intents = {"blog"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
     public List<BlogBrief> queryBlogsByTitle(@ToolParam(description = "搜索关键词，例如：旅游——会搜到标题含「旅游」的博客") String title) {
         long total = blogService.query().like("title", title).count();

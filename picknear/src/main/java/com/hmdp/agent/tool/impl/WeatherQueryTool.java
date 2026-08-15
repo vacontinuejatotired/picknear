@@ -1,6 +1,7 @@
 package com.hmdp.agent.tool.impl;
 
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.annotation.ToolMeta;
 
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -20,6 +21,7 @@ public class WeatherQueryTool {
             查询某城市的当前天气（温度、晴雨），和「天气怎么样」「冷不冷/热不热」一起使用。
             参数city传入城市名即可，如：北京、上海。
             """)
+    @ToolMeta(keywords = {"天气", "气温", "温度", "冷不冷", "热不热", "下雨", "晴天", "冷吗", "热吗"}, intents = {"weather"})
     public String queryWeather(@ToolParam(description = "城市名称，如：北京、上海、广州") String city) {
         log.info("queryWeather: {}", city);
         return "The weather in " + city + " is sunny";
