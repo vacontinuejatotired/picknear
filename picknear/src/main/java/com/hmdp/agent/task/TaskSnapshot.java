@@ -11,8 +11,8 @@ import java.util.List;
  * 任务快照，用于 CONFIRM 续跑。
  * <p>
  * 当子任务队列中包含需要用户确认的工具时，
- * 将当前进度缓存到 {@link com.hmdp.prompthook.ChatContext#pendingSnapshot} 中，
- * 用户确认后通过 {@link TaskPlanner#resumeFromSnapshot(TaskSnapshot, com.hmdp.agent.hook.ChatContext, org.springframework.web.servlet.mvc.method.annotation.SseEmitter)} 恢复执行。
+ * 将当前进度暂存到 {@link com.hmdp.agent.context.AgentContext} 的 attributes（key=pendingSnapshot）中，
+ * 用户确认后通过 {@link TaskPlanner#resumeFromSnapshot(TaskSnapshot, com.hmdp.agent.context.AgentContext, org.springframework.web.servlet.mvc.method.annotation.SseEmitter)} 恢复执行。
  * </p>
  */
 @Data
@@ -39,7 +39,7 @@ public class TaskSnapshot {
     /** 审批记录 confirmId（resume 后 markExecuted 用） */
     private String pendingConfirmId;
 
-    /** 所属会话 ID（审批记录写入用，resume 重建 ChatContext 用） */
+    /** 所属会话 ID（审批记录写入用，resume 重建 AgentContext 用） */
     private String conversationId;
 
     /** 所属用户 ID（异步线程无 UserHolder，审批记录写入用） */

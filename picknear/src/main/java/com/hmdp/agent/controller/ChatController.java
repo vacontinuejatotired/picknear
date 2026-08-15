@@ -8,7 +8,6 @@ import com.hmdp.agent.observability.api.ObservedSseEmitter;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.entity.AgentApproval;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.service.AiService;
 import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.service.ApprovalService.ApprovalDecisionResult;
@@ -243,8 +242,7 @@ public class ChatController {
             TaskSnapshot snapshot = TaskSnapshot.fromApproval(approval, objectMapper);
 
             // 请求级 AgentContext：从审批记录重建（跨请求持久化上下文 → 请求级上下文），
-            // resumeFromSnapshot 提交到 subtaskExecutor 时由 Propagator 自动携带；
-            // ChatContext 由 AgentContext 构建（from 工厂，数据来源统一，替代手拼）
+            // resumeFromSnapshot 提交到 subtaskExecutor 时由 Propagator 自动携带
             AgentContext agentCtx = AgentContext.builder()
                     .userId(approval.getUserId())
                     .conversationId(approval.getConversationId())
@@ -252,9 +250,8 @@ public class ChatController {
                     .rootSpan(root)
                     .build();
             AgentContextHolder.set(agentCtx);
-            ChatContext ctx = ChatContext.from(agentCtx);
             try {
-                taskPlanner.resumeFromSnapshot(snapshot, ctx, emitter);
+                taskPlanner.resumeFromSnapshot(snapshot, agentCtx, emitter);
             } finally {
                 AgentContextHolder.clear();
             }

@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * AI 会话请求上下文（请求级：一个请求一条链路）。
  * <p>
  * 统一承载 AI 链路中散落的 userId / conversationId / originalInput / history / rootSpan，
- * 替代 UserHolder（异步丢失）、ChatContext（仅 Hook 链）、ToolContext（依赖手动塞）、
+ * 替代 UserHolder（异步丢失）、ChatContext（已并入）、ToolContext（依赖手动塞）、
  * TaskSnapshot（跨请求重建）之间的手递。请求入口创建一次放入 {@link AgentContextHolder}：
  * 同步段直接读取，异步边界由 {@link AgentContextPropagator}（TaskDecorator）自动捕获/恢复。
  * </p>
