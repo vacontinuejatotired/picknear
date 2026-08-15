@@ -1,7 +1,7 @@
 package com.hmdp.agent.hook.impl;
 
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.hook.AfterAiHook;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
 import org.springframework.stereotype.Component;
 
@@ -28,7 +28,7 @@ public class TaskTriggerHook implements AfterAiHook {
     );
 
     @Override
-    public HookResult afterAi(String input, String response, ChatContext ctx) {
+    public HookResult afterAi(String input, String response, AgentContext ctx) {
         // 门槛 5：短回复（如"我来查一下"）恰是"需要动手"的信号，不应被拦；
         // 原先 20 字门槛会把查天气/查数据类短回复全部 PASS
         if (response == null || response.length() < 5

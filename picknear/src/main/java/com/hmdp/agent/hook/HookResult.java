@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * Prompt Hook 的决策结果
  * <p>
- * 由 {@link PromptHook#beforePrompt(String, String, ChatContext)} 返回，
+ * 由 {@link PromptHook#beforePrompt(String, String, com.hmdp.agent.context.AgentContext)} 返回，
  * {@link PromptHookChain} 根据所有 Hook 的结果聚合出最终决策。
  * </p>
  *
