@@ -17,6 +17,7 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.CacheClient;
 import com.hmdp.utils.redis.RedisConstants;
+import com.hmdp.utils.security.CookieWriter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -102,7 +103,7 @@ public class UserController {
         // 清除客户端 access_token（前端 localStorage 不再更新）
         response.setHeader("authorization", "");
         // 清除客户端 refresh_token Cookie（MaxAge=0 使浏览器立即删除）
-        Cookie clearCookie = new Cookie("refresh_token", null);
+        Cookie clearCookie = new Cookie(CookieWriter.REFRESH_TOKEN_COOKIE_NAME, null);
         clearCookie.setHttpOnly(true);
         clearCookie.setPath("/");
         clearCookie.setMaxAge(0);
@@ -252,22 +253,12 @@ public class UserController {
 
     /**
      * 设置 Refresh Token 到 httpOnly Cookie（JS 不可读，自动随请求发送）
-     * SameSite/Secure 按当前连接是否 HTTPS 动态判断：
-     * HTTPS 连接 → SameSite=None + Secure；HTTP 连接 → SameSite=Lax 不加 Secure
-     * （避免浏览器因 Secure 标志拒绝 HTTP cookie；跨源 HTTPS 场景需 None+Secure）
+     * SameSite/Secure 由 CookieWriter 按连接是否 HTTPS 动态判断
      */
     private void setRefreshTokenCookie(HttpServletRequest request, HttpServletResponse response, String refreshToken) {
-        boolean isSecure = request.isSecure();
-        String sameSite = isSecure ? "None" : "Lax";
-        response.addHeader("Set-Cookie", String.format(
-                "%s=%s; HttpOnly; %sSameSite=%s; Path=/; MaxAge=%d",
-                "refresh_token", refreshToken,
-                isSecure ? "Secure; " : "",
-                sameSite,
-                7 * 24 * 60 * 60
-        ));
         // 双通道：httpOnly Cookie（同源自动携带）+ 响应头（前端存 localStorage 显式携带），
         // 后端拦截器 Cookie/头 读到任一个即可刷新，规避跨 host / 浏览器清 cookie 导致的丢失
+        response.addHeader("Set-Cookie", CookieWriter.refreshTokenCookie(refreshToken, request.isSecure()));
         response.setHeader("Refresh-Token", refreshToken);
     }
 }

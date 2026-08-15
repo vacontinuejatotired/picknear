@@ -6,9 +6,12 @@ import com.hmdp.dto.LuaResult;
 import com.hmdp.dto.TokenPair;
 import com.hmdp.dto.ValidationResult;
 import com.hmdp.entity.TokenVersionCache;
+import com.hmdp.entity.UserInfo;
 import com.hmdp.entity.UserinfoCache;
 import com.hmdp.enums.TokenRefreshCode;
 import com.hmdp.service.AuthService;
+import com.hmdp.service.IUserInfoService;
+import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.BatchLoadCache;
 import com.hmdp.utils.cache.CaffeineConstants;
 import com.hmdp.utils.redis.RedisConstants;
@@ -25,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 认证服务实现 — Token 生成/校验/刷新/注销/验证码消费，无 HTTP 依赖
@@ -55,6 +59,8 @@ public class AuthServiceImpl implements AuthService {
     private DefaultRedisScript<String> consumeVerifyCodeScript;
     @Resource(name = "REDIS_LOGIN_SET_TOKEN")
     private DefaultRedisScript<String> REDIS_LOGIN_SET_TOKEN;
+    @Resource
+    private IUserInfoService userInfoService;
 
     // ==================== 登录生成 ====================
 
@@ -242,6 +248,77 @@ public class AuthServiceImpl implements AuthService {
 
         log.warn("未知刷新返回码 code={} userId={}", code, userId);
         return null;
+    }
+
+    // ==================== 带锁刷新 / 会话判定 / 用户上下文 ====================
+
+    @Override
+    public TokenRefreshResult refreshTokenPairWithLock(String accessToken, String refreshToken,
+                                                       Long userId, Long oldVersion, boolean isExpired) {
+        // 分布式锁保护：同一用户同时只有一个刷新请求执行
+        String lockKey = "lock:refresh:" + userId;
+        boolean locked = Boolean.TRUE.equals(stringRedisTemplate.opsForValue()
+                .setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS));
+        if (!locked) {
+            log.info("【Token刷新】刷新锁被占用，跳过刷新 userId={}", userId);
+            return TokenRefreshResult.skipped();
+        }
+        try {
+            if (oldVersion == null) {
+                log.warn("【Token刷新】无法获取 version, userId={}", userId);
+                return TokenRefreshResult.failed();
+            }
+            TokenPair newPair = refreshTokenPair(accessToken, refreshToken, userId, oldVersion, isExpired);
+            if (newPair == null) {
+                log.warn("【Token刷新】刷新失败 userId={}", userId);
+                return TokenRefreshResult.failed();
+            }
+            return TokenRefreshResult.ok(newPair);
+        } finally {
+            stringRedisTemplate.delete(lockKey);
+        }
+    }
+
+    @Override
+    public boolean isSessionSuperseded(Long userId, Long version) {
+        if (version == null) {
+            return false;
+        }
+        String validVersion = stringRedisTemplate.opsForValue()
+                .get(RedisConstants.LOGIN_VALID_VERSION_KEY + userId);
+        if (validVersion == null) {
+            return false;
+        }
+        try {
+            return Long.parseLong(validVersion) > version;
+        } catch (NumberFormatException e) {
+            log.warn("validVersion 非数字 userId={}, validVersion={}", userId, validVersion);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean saveUserToContext(Long userId) {
+        try {
+            UserHolder.saveUserId(userId);
+            String userInfoKey = CaffeineConstants.USERINFO_CACHE_KEY + userId;
+            UserinfoCache cache = userinfoCaffeine.get(userInfoKey);
+            // Caffeine load 返回空值时不阻塞等待异步加载
+            // 兜底：nickName 或 icon 为空时从 DB 同步回填
+            if (cache.getNickName() == null || cache.getNickName().isEmpty()
+                    || cache.getIcon() == null || cache.getIcon().isEmpty()) {
+                UserInfo userInfo = userInfoService.getById(userId);
+                if (userInfo != null) {
+                    cache = new UserinfoCache(userId, userInfo.getNickName(), userInfo.getIcon());
+                    userinfoCaffeine.put(userInfoKey, cache);
+                }
+            }
+            UserHolder.saveUserDTO(cache);
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to save to ThreadLocal for userId: {}", userId, e);
+            return false;
+        }
     }
 
     // ==================== 登出 ====================
