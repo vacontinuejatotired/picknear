@@ -1203,6 +1203,26 @@ SubTaskAgent（167 行）—— 只留 execute() 编排 + filterCallbacks
 - 行为零变化：CONFIRM 透传语义、降级兜底、截断阈值（RAW_DATA_MAX_LENGTH）均原样搬迁
 - 拆后重试与解析可独立单测
 
+## Phase 22：主循环双路径独立（SubAgentRoundExecutor / FallbackRoundExecutor，架构整理）
+
+**提交**: `6e0f3de`
+
+### 背景
+
+PlanLoopExecutor（237 行）主循环体里内联两个 60-70 行的执行分支：子 Agent 路径（plan 构建/执行/记录，含 subagent span 观测）与回退路径（LLM_REASON 追加/TaskExecutor 串行直调/推送/聚合）——循环骨架里混着两套执行细节。
+
+### 方案
+
+```
+PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开关选路径
+├── SubAgentRoundExecutor（新，~60 行）—— 一轮子 Agent 执行（观测 agent.subagent 整段）
+└── FallbackRoundExecutor（新，~75 行）—— 一轮回退执行（TASK_TIMEOUT 常量随迁）
+```
+
+- 主循环 if/else 收敛为两行委托，feature 开关选择更直观
+- 行为零变化：观测结构（round span → subagent/工具级 span）、推送顺序、CONFIRM 冒泡均不变
+- TaskPlannerTest 同步：子 Agent 路径断言改 mock SubAgentRoundExecutor，清理不再注入的死 mock
+
 ## 模块关系总图
 
 ```
