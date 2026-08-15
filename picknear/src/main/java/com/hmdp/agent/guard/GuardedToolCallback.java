@@ -1,5 +1,7 @@
 package com.hmdp.agent.guard;
 
+import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -269,8 +271,8 @@ public class GuardedToolCallback implements ToolCallback {
     }
 
     /**
-     * 优先从 ToolContext 读取会话 ID（运行时由 executor 注入真实会话），
-     * 否则回退构造时冻结的默认值（启动 UUID，仅兜底）。
+     * 会话 ID 解析顺序：ToolContext（executor 运行时注入）→ AgentContextHolder
+     * （请求级上下文，异步边界由 Propagator 传播）→ 构造时冻结值（仅最后防线）。
      */
     private String effectiveConversationId(ToolContext toolContext) {
         if (toolContext != null && toolContext.getContext() != null) {
@@ -278,6 +280,10 @@ public class GuardedToolCallback implements ToolCallback {
             if (cid instanceof String s && !s.isBlank()) {
                 return s;
             }
+        }
+        AgentContext ctx = AgentContextHolder.get();
+        if (ctx != null && ctx.conversationId() != null && !ctx.conversationId().isBlank()) {
+            return ctx.conversationId();
         }
         return conversationId;
     }

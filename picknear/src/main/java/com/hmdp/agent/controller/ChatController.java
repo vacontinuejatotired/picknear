@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.api.ObservedSseEmitter;
+import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.entity.AgentApproval;
 import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.service.AiService;
@@ -105,49 +107,71 @@ public class ChatController {
             AgentSpan root = agentTracer.startSession(conversationId,
                     String.valueOf(UserHolder.getUserId()));
 
-            // 断链修复（2026-08-04）：ObservedSseEmitter 将 SSE 生命周期与会话根 span 绑定——
-            // complete / completeWithError / 容器超时 / 容器错误 / 兜底 TTL 任一路径都收敛结束根 span。
-            // 原因：onCompletion 回调在客户端断开时可能不触发（生产实测），根 span 永不 end/导出 → 平铺。
-            // 三回调只留日志（end/finish 收敛到包装类，幂等）。
-            SseEmitter emitter = new ObservedSseEmitter(SSE_TIMEOUT, root, taskScheduler, SSE_GUARD_TIMEOUT);
-
-            emitter.onCompletion(() ->
-                    log.debug("SSE 流完成, thread={}", Thread.currentThread().getName()));
-            emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", brief(content)));
-            emitter.onError(ex -> log.error("SSE 流异常, content={}", brief(content), ex));
-
-            // 先推送 conversationId（JSON 格式，前端据此识别为元事件，不混入回答文本）
+            // 请求级 AgentContext：入口创建一次，同步段 Holder 读取、异步段 Propagator 自动传播
+            AgentContextHolder.set(AgentContext.builder()
+                    .userId(UserHolder.getUserId())
+                    .conversationId(conversationId)
+                    .originalInput(content)
+                    .rootSpan(root)
+                    .build());
             try {
-                emitter.send(SseEmitter.event()
-                        .data("{\"type\":\"meta\",\"conversationId\":\"" + conversationId + "\"}"));
-            } catch (IOException e) {
-                log.error("推送 conversationId 失败", e);
-                emitter.completeWithError(e);
-                return null;
-            }
+                // 断链修复（2026-08-04）：ObservedSseEmitter 将 SSE 生命周期与会话根 span 绑定——
+                // complete / completeWithError / 容器超时 / 容器错误 / 兜底 TTL 任一路径都收敛结束根 span。
+                // 原因：onCompletion 回调在客户端断开时可能不触发（生产实测），根 span 永不 end/导出 → 平铺。
+                // 三回调只留日志（end/finish 收敛到包装类，幂等）。
+                SseEmitter emitter = new ObservedSseEmitter(SSE_TIMEOUT, root, taskScheduler, SSE_GUARD_TIMEOUT);
 
-            // 委托 AiService 异步推送。
-            // 兜底 try/catch：SSE 响应已提交，任何异常都必须转为 SSE error 事件，
-            // 否则会逃逸到 WebExceptionAdvice 往已提交的流里写 JSON，前端收不到提示。
-            try {
-                aiService.chatWithToolcall(content, conversationId, emitter, root);
-            } catch (Exception e) {
-                log.error("SSE 会话初始化异常，content={}", content, e);
-                SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用，请稍后再试。"));
-                emitter.complete();
+                emitter.onCompletion(() ->
+                        log.debug("SSE 流完成, thread={}", Thread.currentThread().getName()));
+                emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", brief(content)));
+                emitter.onError(ex -> log.error("SSE 流异常, content={}", brief(content), ex));
+
+                // 先推送 conversationId（JSON 格式，前端据此识别为元事件，不混入回答文本）
+                try {
+                    emitter.send(SseEmitter.event()
+                            .data("{\"type\":\"meta\",\"conversationId\":\"" + conversationId + "\"}"));
+                } catch (IOException e) {
+                    log.error("推送 conversationId 失败", e);
+                    emitter.completeWithError(e);
+                    return null;
+                }
+
+                // 委托 AiService 异步推送。
+                // 兜底 try/catch：SSE 响应已提交，任何异常都必须转为 SSE error 事件，
+                // 否则会逃逸到 WebExceptionAdvice 往已提交的流里写 JSON，前端收不到提示。
+                try {
+                    aiService.chatWithToolcall(content, conversationId, emitter, root);
+                } catch (Exception e) {
+                    log.error("SSE 会话初始化异常，content={}", content, e);
+                    SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用，请稍后再试。"));
+                    emitter.complete();
+                }
+                return emitter;
+            } finally {
+                // 与根 span 清理同点：请求线程的 AgentContext 在此清理（异步段由 Propagator 清理）
+                AgentContextHolder.clear();
             }
-            return emitter;
         }
 
         // JSON 模式
         log.debug("JSON 模式：content={}，accept={}", content, accept);
-        String result = aiService.chatReturnStringResult(content, conversationId);
+        // 请求级 AgentContext：JSON 模式同步执行，无异步段，但保持入口创建语义统一
+        AgentContextHolder.set(AgentContext.builder()
+                .userId(UserHolder.getUserId())
+                .conversationId(conversationId)
+                .originalInput(content)
+                .build());
+        try {
+            String result = aiService.chatReturnStringResult(content, conversationId);
 
-        // 返回内容 + conversationId，供前端保存并下次传入
-        Map<String, Object> data = new HashMap<>();
-        data.put("content", result);
-        data.put("conversationId", conversationId);
-        return Result.ok(data);
+            // 返回内容 + conversationId，供前端保存并下次传入
+            Map<String, Object> data = new HashMap<>();
+            data.put("content", result);
+            data.put("conversationId", conversationId);
+            return Result.ok(data);
+        } finally {
+            AgentContextHolder.clear();
+        }
     }
 
     /**
@@ -220,7 +244,19 @@ public class ChatController {
                     .build();
             ctx.setRootSpan(root);
 
-            taskPlanner.resumeFromSnapshot(snapshot, ctx, emitter);
+            // 请求级 AgentContext：从审批记录重建（跨请求持久化上下文 → 请求级上下文），
+            // resumeFromSnapshot 提交到 subtaskExecutor 时由 Propagator 自动携带
+            AgentContextHolder.set(AgentContext.builder()
+                    .userId(approval.getUserId())
+                    .conversationId(approval.getConversationId())
+                    .originalInput(approval.getOriginalInput())
+                    .rootSpan(root)
+                    .build());
+            try {
+                taskPlanner.resumeFromSnapshot(snapshot, ctx, emitter);
+            } finally {
+                AgentContextHolder.clear();
+            }
             return emitter;
         }
 
