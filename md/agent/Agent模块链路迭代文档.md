@@ -1074,6 +1074,52 @@ PromptSeeder（工具模板键清单，自动纳入新工具）
 3. `ToolIntentTree` 从静态类改实例组件：NODE_DEFS 仅留节点定义，tools 运行时由 `ToolRegistry.intentsOf` 反向聚合；四个消费方（TreeCatalogBuilder/TreePlanRouter/PlanValidator/WriteGuardConsistencyCheck）注入适配
 4. 行为零变化：17 个工具的触发词/归属原样迁移到注解
 
+## Phase 18：AgentContext 请求级上下文（统一上下文载体，架构整理）
+
+**提交**: `（本提交）` "AgentContext 上下文传递机制第 1 步（骨架落地）"
+
+**设计文档**: `md/agent/Agent上下文传递机制设计.md`（分 3 步实施，本阶段为第 1 步）
+
+### 背景
+
+AI 链路中"当前请求是谁、哪个会话、原始输入是什么、观测根在哪"散落在 **5+ 个载体**手递：
+`UserHolder`（异步线程丢失）、`ChatContext`（仅 Hook 链）、Spring AI `ToolContext`（依赖手动塞）、
+`TaskSnapshot`（跨请求重建）、`ToolBeanCollector.conversationId`（单例 volatile，**实际无效**：
+GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没人读"，高并发互相覆盖）。
+
+### 方案：ThreadLocal 同步段 + TaskDecorator 异步边界
+
+```
+请求入口（ChatController.chat / confirm）
+    AgentContext ctx = AgentContext.builder()...build();
+    AgentContextHolder.set(ctx);        ← 同步段读取
+    ... 业务调用 ...
+    finally { AgentContextHolder.clear(); }
+
+异步边界（CompletableFuture.runAsync(..., aiTaskExecutor / subtaskExecutor)）
+    AgentContextPropagator（TaskDecorator）自动：捕获 → 执行前 set → finally remove
+```
+
+### 核心新增
+
+| 组件 | 职责 |
+|------|------|
+| `context/AgentContext.java` | 请求级值对象：userId / conversationId / originalInput / history / rootSpan + attributes 扩展点（主字段不可变，attributes 线程安全） |
+| `context/AgentContextHolder.java` | ThreadLocal 载体：set / get / require（缺失抛错，Fail-Fast）/ clear |
+| `context/AgentContextPropagator.java` | TaskDecorator：提交线程捕获 → 执行线程恢复 → finally 清理（硬约束，防池化线程污染） |
+
+### 关键变化
+
+1. `AgentConfig` 两个线程池（aiTaskExecutor / subtaskExecutor）装配 TaskDecorator —— 子 Agent 执行线程自动可读父级请求上下文（两层模型：父级 AgentContext 自动传播 + 子级 SubTaskPlan 显式传任务数据）
+2. `ChatController.chat()`（SSE/JSON 双模）与 `confirm()`（SSE 续流，从 AgentApproval 重建）入口创建 AgentContext，finally 与根 span 清理同点
+3. **删除 `ToolBeanCollector.conversationId` 单例状态**（无效设计）：字段 + getter/setter + `AiServiceImpl` 两处 `setConversationId` 调用全部移除；`GuardedToolCallback` 会话 ID 兜底顺序改为 ToolContext → AgentContextHolder → 构造冻结值（仅最后防线）
+4. 行为零变化：所有消费方仍走原路径（ChatContext / ToolContext 手递），AgentContext 只是新增可用来源——消费方迁移见第 2/3 步
+
+### 验证
+
+- 新增单测（无 Mockito，本机可跑）：`AgentContextHolderTest`（require 缺失抛错、线程隔离）、`AgentContextPropagatorTest`（捕获/恢复/finally 清理/嵌套任务传播），8 个用例全绿
+- build-tmp 全量编译通过；VM 链路验证（SSE 对话 + CONFIRM 续流 + 工具调用）待部署后回归
+
 ## 模块关系总图
 
 ```

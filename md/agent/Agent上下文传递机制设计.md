@@ -1,7 +1,8 @@
 # Agent 上下文传递机制设计（AgentContext）
 
-> **版本**: v1.0（草案，待审查）
+> **版本**: v1.1
 > **日期**: 2026-08
+> **状态**: 第 1 步（骨架落地）已实施 ✅；第 2/3 步（消费方迁移、ChatContext 并入）待实施
 > **目标**: 设计一个专门给 AI 链路传递上下文的统一机制，替代当前散落的手递方案
 > **相关**: `md/agent/Agent模块架构设计.md`、`上下文传递优化设计.md`（token 压缩，不同主题）
 
@@ -176,12 +177,13 @@ public class AgentContextPropagator implements TaskDecorator {
 
 ## 6. 分步实施计划
 
-### 第 1 步：骨架落地（低风险，纯新增 + 装配）
-- 新增 `AgentContext` / `AgentContextHolder` / `AgentContextPropagator`
-- `AgentConfig` 两个线程池装配 TaskDecorator
-- `ChatController.chat()` / `confirm()` 创建 + finally 清理
-- `ToolBeanCollector.conversationId` 删除（`AiServiceImpl` 两处调用删除，GuardedToolCallback 兜底改 Holder）
-- 编译 + 全量单测验证（行为不变：所有读取点仍走原路径，只是新增了可用来源）
+### 第 1 步：骨架落地（低风险，纯新增 + 装配）—— ✅ 已实施
+
+- [x] 新增 `AgentContext` / `AgentContextHolder` / `AgentContextPropagator`
+- [x] `AgentConfig` 两个线程池装配 TaskDecorator
+- [x] `ChatController.chat()` / `confirm()` 创建 + finally 清理
+- [x] `ToolBeanCollector.conversationId` 删除（`AiServiceImpl` 两处调用删除，GuardedToolCallback 兜底改 Holder）
+- [x] 编译 + 单测验证（`AgentContextHolderTest` / `AgentContextPropagatorTest` 8 用例全绿；行为不变：所有读取点仍走原路径，只是新增了可用来源）
 
 ### 第 2 步：消费方迁移（中风险，逐步替换手递）
 - `PromptHookExecutor`：从 `AgentContextHolder` 构建（`ChatContext.builder()` 数据来源统一）
