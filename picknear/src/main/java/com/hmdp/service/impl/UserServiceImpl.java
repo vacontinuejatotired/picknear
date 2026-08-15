@@ -1,6 +1,5 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
@@ -80,27 +79,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 查用户
         User user = query().eq("phone", phone).one();
 
-        // 新用户自动注册：手机号不存在则创建账号
+        // 新用户自动注册：手机号不存在则创建账号，直接生成 Token 返回
         if (user == null) {
-            String nickName = SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomNumbers(6);
-            user = new User().setPhone(phone)
-                    .setPassword(PasswordEncoder.encode(password))
-                    .setCreateTime(LocalDateTime.now())
-                    .setUpdateTime(LocalDateTime.now());
-            save(user);
-            // 同步创建 UserInfo 记录
-            UserInfo newInfo = new UserInfo();
-            newInfo.setUserId(user.getId());
-            newInfo.setNickName(nickName);
-            userInfoService.save(newInfo);
-            log.info("【密码登录-自动注册】phone={}, userId={}", phone, user.getId());
-
-            // 直接生成 Token 返回
-            TokenPair tokenPair = authService.generateTokenPair(user.getId());
-            UserDTO userDTO = new UserDTO();
-            BeanUtil.copyProperties(user, userDTO);
+            user = createUser(phone, PasswordEncoder.encode(password));
             log.info("【密码登录成功（新用户）】userId={}", user.getId());
-            return tokenPair;
+            return authService.generateTokenPair(user.getId());
         }
 
         // 已有用户：校验密码
@@ -145,12 +128,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
 
         // 生成 Token
-        TokenPair tokenPair = authService.generateTokenPair(user.getId());
-        UserDTO userDTO = new UserDTO();
-        BeanUtil.copyProperties(user, userDTO);
-
         log.info("【密码登录成功】userId={}", user.getId());
-        return tokenPair;
+        return authService.generateTokenPair(user.getId());
     }
 
     /**
@@ -166,26 +145,36 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 查用户 → 不存在则自动创建
         User user = query().eq("phone", phone).one();
         if (user == null) {
-            String nickName = SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomNumbers(6);
-            user = new User().setPhone(phone)
-                    .setCreateTime(LocalDateTime.now())
-                    .setUpdateTime(LocalDateTime.now());
-            save(user);
-            // 同步创建 UserInfo 记录（nickName 已迁移至此）
-            UserInfo newInfo = new UserInfo();
-            newInfo.setUserId(user.getId());
-            newInfo.setNickName(nickName);
-            userInfoService.save(newInfo);
-            log.info("新用户已创建 phone={}, userId={}", phone, user.getId());
+            user = createUser(phone, null);
         }
 
         // 生成 Token
-        TokenPair tokenPair = authService.generateTokenPair(user.getId());
-        UserDTO userDTO = new UserDTO();
-        BeanUtil.copyProperties(user, userDTO);
-
         log.info("【验证码登录成功】userId={}", user.getId());
-        return tokenPair;
+        return authService.generateTokenPair(user.getId());
+    }
+
+    /**
+     * 自动注册：创建 User 记录 + 同步创建 UserInfo 记录（nickName 已迁移至此）。
+     * 密码登录/验证码登录共用，消除重复注册逻辑。
+     *
+     * @param encodedPassword 加密后的密码；验证码注册传 null（无密码）
+     */
+    private User createUser(String phone, String encodedPassword) {
+        String nickName = SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomNumbers(6);
+        User user = new User().setPhone(phone)
+                .setCreateTime(LocalDateTime.now())
+                .setUpdateTime(LocalDateTime.now());
+        if (encodedPassword != null) {
+            user.setPassword(encodedPassword);
+        }
+        save(user);
+        // 同步创建 UserInfo 记录
+        UserInfo newInfo = new UserInfo();
+        newInfo.setUserId(user.getId());
+        newInfo.setNickName(nickName);
+        userInfoService.save(newInfo);
+        log.info("新用户已创建 phone={}, userId={}", phone, user.getId());
+        return user;
     }
 
     @Override
@@ -320,7 +309,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (RegexUtils.isPhoneInvalid(phone)) {
             throw new IllegalArgumentException("手机号不规范");
         }
-        String freqKey = "login:code:freq:" + phone;
+        String freqKey = RedisConstants.LOGIN_CODE_FREQ_KEY + phone;
         if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(freqKey))) {
             return Result.fail("发送太频繁，请稍后再试");
         }
