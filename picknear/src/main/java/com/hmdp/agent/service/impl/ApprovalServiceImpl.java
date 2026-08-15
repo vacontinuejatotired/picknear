@@ -83,34 +83,25 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     @Override
     public ApprovalDecisionResult markApproved(String confirmId, Long userId) {
-        AgentApproval a = getByConfirmId(confirmId, userId);
-        if (a == null) {
-            return ApprovalDecisionResult.NOT_FOUND;
-        }
-        if (!AgentApproval.STATUS_PENDING.equals(a.getStatus())) {
-            return ApprovalDecisionResult.NOT_PENDING;
-        }
-        if (a.getExpiredAt() != null && a.getExpiredAt().isBefore(LocalDateTime.now())) {
-            markExpired(confirmId);
-            return ApprovalDecisionResult.EXPIRED;
-        }
-        // 原子 CAS：status=pending 且未过期才置 approved（防双击/清扫竞态双执行）
-        int rows = approvalMapper.update(null, new LambdaUpdateWrapper<AgentApproval>()
-                .eq(AgentApproval::getConfirmId, confirmId)
-                .eq(AgentApproval::getUserId, userId)
-                .eq(AgentApproval::getStatus, AgentApproval.STATUS_PENDING)
-                .ge(AgentApproval::getExpiredAt, LocalDateTime.now())
-                .set(AgentApproval::getStatus, AgentApproval.STATUS_APPROVED)
-                .set(AgentApproval::getDecidedAt, LocalDateTime.now()));
-        if (rows == 1) {
-            log.info("审批通过 [confirmId={}, userId={}]", confirmId, userId);
-            return ApprovalDecisionResult.APPROVED;
-        }
-        return ApprovalDecisionResult.NOT_PENDING;
+        return markDecided(confirmId, userId, AgentApproval.STATUS_APPROVED,
+                ApprovalDecisionResult.APPROVED, "审批通过");
     }
 
     @Override
     public ApprovalDecisionResult markRejected(String confirmId, Long userId) {
+        return markDecided(confirmId, userId, AgentApproval.STATUS_REJECTED,
+                ApprovalDecisionResult.REJECTED, "审批拒绝");
+    }
+
+    /**
+     * 决策收敛（markApproved/markRejected 共用）：查记录 → 状态/过期预检 → 原子 CAS 置目标状态。
+     * <p>
+     * 差异仅两处：目标状态（approved/rejected）、approved 的 CAS 额外带 expiredAt 条件（双保险，
+     * 与预检配合保证未过期才能通过）。
+     * </p>
+     */
+    private ApprovalDecisionResult markDecided(String confirmId, Long userId, String targetStatus,
+                                               ApprovalDecisionResult successResult, String logMsg) {
         AgentApproval a = getByConfirmId(confirmId, userId);
         if (a == null) {
             return ApprovalDecisionResult.NOT_FOUND;
@@ -122,15 +113,20 @@ public class ApprovalServiceImpl implements ApprovalService {
             markExpired(confirmId);
             return ApprovalDecisionResult.EXPIRED;
         }
-        int rows = approvalMapper.update(null, new LambdaUpdateWrapper<AgentApproval>()
+        // 原子 CAS：status=pending 才置目标状态（防双击/清扫竞态双执行）
+        LambdaUpdateWrapper<AgentApproval> wrapper = new LambdaUpdateWrapper<AgentApproval>()
                 .eq(AgentApproval::getConfirmId, confirmId)
                 .eq(AgentApproval::getUserId, userId)
                 .eq(AgentApproval::getStatus, AgentApproval.STATUS_PENDING)
-                .set(AgentApproval::getStatus, AgentApproval.STATUS_REJECTED)
-                .set(AgentApproval::getDecidedAt, LocalDateTime.now()));
+                .set(AgentApproval::getStatus, targetStatus)
+                .set(AgentApproval::getDecidedAt, LocalDateTime.now());
+        if (AgentApproval.STATUS_APPROVED.equals(targetStatus)) {
+            wrapper.ge(AgentApproval::getExpiredAt, LocalDateTime.now());
+        }
+        int rows = approvalMapper.update(null, wrapper);
         if (rows == 1) {
-            log.info("审批拒绝 [confirmId={}, userId={}]", confirmId, userId);
-            return ApprovalDecisionResult.REJECTED;
+            log.info("{} [confirmId={}, userId={}]", logMsg, confirmId, userId);
+            return successResult;
         }
         return ApprovalDecisionResult.NOT_PENDING;
     }
