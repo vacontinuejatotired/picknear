@@ -907,9 +907,11 @@ hmdp:
 | 文件路径 | 角色 |
 |---------|------|
 | `annotation/TargetTool.java` | 工具标记注解 |
+| `annotation/ToolMeta.java` | 工具业务元数据注解（keywords 触发词 + intents 意图归属，工具注册表单一体） |
 | `agent/config/AgentConfig.java` | ChatClient（无默认工具）+ 线程池 |
 | `agent/config/DashScopeHttpConfig.java` | DashScope HTTP 连接池 |
 | `agent/controller/ChatController.java` | SSE/JSON 双模入口 |
+| `agent/tool/ToolRegistry.java` | 工具注册表（工具名 + @ToolMeta 元数据聚合，单一事实源） |
 | `agent/service/AiService.java` | AI 服务接口 |
 | `agent/service/impl/AiServiceImpl.java` | 编排层（拆分后：Hook 段 → 流式调用 → 后处理，纯协调） |
 | `agent/hook/PromptHookExecutor.java` | Hook 链执行 + 决策（双模共用） |

@@ -24,6 +24,10 @@ Phase 14 ───→ Phase 15
      ▼ 架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）
 Phase 16
 AiService拆编排层   legacy包归档   ObjectMapper统一
+     │
+     ▼ 架构整理（Phase 17：工具注册表单一来源）
+Phase 17
+@ToolMeta注解   ToolRegistry聚合   4处注册表收敛
 ```
 
 ---
@@ -1036,6 +1040,40 @@ AiServiceImpl（编排层，~200 行）
 3. legacy 链组件显式归档，import legacy 即"此处依赖废弃组件"标记
 4. 全局 ObjectMapper 配置统一，消除手动实例无 JavaTimeModule/未知字段严格模式的隐患
 
+## Phase 17：工具注册表单一来源（@ToolMeta + ToolRegistry，架构整理）
+
+**提交**: `8212159` "工具注册表单一来源第 1 步"、`5f80e1e` "意图树归属改由 ToolRegistry 聚合"
+
+### 背景
+
+新增/维护工具的元数据散落在 4 处硬编码注册表，漏改一处即线上 bug：
+`CompactCatalogBuilder.TRIGGER_KEYWORDS`（触发词）、`PromptSeeder.TOOL_NAMES`（提示词种子清单）、`ToolIntentTree.NODES`（意图树工具归属）、`@Tool` 注解（工具定义）——**同一份"工具名+元数据"四处维护、各自漂移**。
+
+### 方案：注解即事实源
+
+```
+@ToolMeta(keywords={"触发词"}, intents={"节点id"})   ← 唯一登记点（标在 @Tool 方法上）
+        ↓ 启动扫描
+ToolRegistry（懒构建）── 提供 allToolNames() / keywordsOf() / intentsOf()
+        ↓ 消费方注入查询
+CompactCatalogBuilder（关键词过滤） / ToolIntentTree（节点归属，运行时聚合）
+PromptSeeder（工具模板键清单，自动纳入新工具）
+```
+
+### 核心新增
+
+| 组件 | 职责 |
+|------|------|
+| `annotation/ToolMeta.java` | 方法级注解：keywords（紧凑目录过滤触发词）+ intents（意图树节点归属） |
+| `tool/ToolRegistry.java` | 注册表单一体：工具名取自 ToolBeanCollector（工具定义即事实源），元数据扫描 @ToolMeta；懒构建防初始化顺序问题 |
+
+### 关键变化
+
+1. 4 处注册表收敛为 1 处注解；**新增工具 = 建工具类 + @Tool 方法 + @ToolMeta**，过滤/路由/种子自动感知
+2. `CompactCatalogBuilder` 删静态 TRIGGER_KEYWORDS 表（-17 行）；`PromptSeeder` 删静态 TOOL_NAMES 表
+3. `ToolIntentTree` 从静态类改实例组件：NODE_DEFS 仅留节点定义，tools 运行时由 `ToolRegistry.intentsOf` 反向聚合；四个消费方（TreeCatalogBuilder/TreePlanRouter/PlanValidator/WriteGuardConsistencyCheck）注入适配
+4. 行为零变化：17 个工具的触发词/归属原样迁移到注解
+
 ## 模块关系总图
 
 ```
@@ -1146,6 +1184,14 @@ AiServiceImpl（编排层，~200 行）
 | **回复处理** | SseResponseProcessor（AfterAiHook→路由→落库）+ HistoryRecorder 双模共用 |
 | **工具注册** | legacy 链（TaskExecutor/TaskQueue/LegacyPlanRouter/ToolRouter）归档独立包 |
 | **安全性** | 统一业务状态码（Result.code + ErrorCode + BizException） |
+
+| 维度 | Phase 17 |
+|------|----------|
+| **输入处理** | @ToolMeta 注解声明触发词/意图归属（方法级） |
+| **调用执行** | ToolRegistry 启动聚合（懒构建）：allToolNames/keywordsOf/intentsOf |
+| **回复处理** | —（纯结构整理，行为零变化） |
+| **工具注册** | 4 处硬编码注册表（TRIGGER_KEYWORDS/TOOL_NAMES/NODES.tools）收敛为注解单一来源；ToolIntentTree 实例化聚合 |
+| **安全性** | —（WriteGuardConsistencyCheck 校验逻辑不变，仅注入适配） |
 
 ### 关键设计原则
 
