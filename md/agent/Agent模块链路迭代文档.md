@@ -1159,6 +1159,31 @@ TaskPlanner（门面 158 行）—— 异步入口 ×2 / resumeFromSnapshot / co
 | 新组件 | — | 4 个，各 ≤190 行、职责单一 |
 | 行为 | — | 零变化（纯搬迁 + 委托，循环/观测/SSE 顺序不变） |
 
+## Phase 20：ChatController SSE 装配下沉 SseSessionFactory（架构整理）
+
+**提交**: `e7bb5d5`
+
+### 背景
+
+ChatController 281 行，chat() 与 confirm() 两个 SSE 分支各手写一份「会话根 span 创建 → ObservedSseEmitter 构造（超时/TTL 常量）→ 三回调只留日志 → 先推 meta 事件」的装配，同一套断链修复约定（2026-08-04）散落重复。
+
+### 方案
+
+```
+ChatController（219 行）—— 只留 HTTP 端点 + 双模分发（isSse）+ AgentContext 生命周期
+└── SseSessionFactory（stream 包，新）—— SSE 会话装配单一来源
+      open(conversationId, userId) → ChatSseSession(root, emitter)   ← 常量/根span/emitter 收敛
+      sendConversationId(emitter, cid)                                ← meta 推送收敛
+```
+
+- 三回调注册保留在 Controller（chat/confirm 日志文案不同）
+- 行为零变化：AgentContext 创建/清理点、断链修复语义均不动
+
+### 效果
+
+- ChatController 281 → 219 行；SSE 超时/TTL 常量、AgentTracer/TaskScheduler 依赖收敛出 Controller
+- 新增 SSE 端点零重复装配；生命周期约定单一来源
+
 ## 模块关系总图
 
 ```
