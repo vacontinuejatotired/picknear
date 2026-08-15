@@ -1,8 +1,8 @@
 package com.hmdp.agent.response;
 
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.task.TaskPlanner;
 import com.hmdp.agent.util.SseUtils;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +39,7 @@ public class AiResponseRouter {
      * 路由后处理决策（兼容旧调用方，默认 contentAlreadyStreamed=false）。
      */
     public void route(HookResult result, String input, String aiResponse,
-                      ChatContext ctx, SseEmitter emitter) {
+                      AgentContext ctx, SseEmitter emitter) {
         route(result, input, aiResponse, ctx, emitter, false);
     }
 
@@ -49,13 +49,13 @@ public class AiResponseRouter {
      * @param result              AfterAiHook 链的决策结果
      * @param input               原始用户输入
      * @param aiResponse          LLM 完整回复内容
-     * @param ctx                 对话上下文
+     * @param ctx                 请求级 AgentContext
      * @param emitter             SSE 发射器
      * @param contentStreamed     内容是否已通过流式逐 token 推送给客户端。
      *                            true 时 PASS 决策不再重复发送内容。
      */
     public void route(HookResult result, String input, String aiResponse,
-                      ChatContext ctx, SseEmitter emitter, boolean contentStreamed) {
+                      AgentContext ctx, SseEmitter emitter, boolean contentStreamed) {
         try {
             switch (result.getDecision()) {
                 case BLOCK -> {

@@ -1,8 +1,8 @@
 package com.hmdp.agent.service.impl;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.history.HistoryRecorder;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -124,9 +124,8 @@ public class AiServiceImpl implements AiService {
             emitter.complete();
             return;
         }
-        ChatContext ctx = outcome.ctx();
+        AgentContext ctx = outcome.ctx();
         String finalContent = outcome.finalContent();
-
         // 4. 流式调用 AI（真正的逐 token 推送，异步线程）
         //    观测：先 resume 根 span（跨线程传播，架构文档 §6.2），后续 span 自动挂树
         AgentSpan phase1Root = rootSpan;
