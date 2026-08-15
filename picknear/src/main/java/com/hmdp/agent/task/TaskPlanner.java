@@ -4,8 +4,6 @@ import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.guard.ConfirmRequiredException;
-import com.hmdp.agent.guard.GuardedToolCallback;
-import com.hmdp.agent.guard.ToolInvocationContext;
 import com.hmdp.agent.legacy.task.TaskExecutor;
 import com.hmdp.agent.legacy.task.TaskQueue;
 import com.hmdp.agent.observability.api.AgentSpan;
@@ -17,7 +15,6 @@ import com.hmdp.agent.plan.PlanRequest;
 import com.hmdp.agent.plan.PlanRouter;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.service.AgentHistoryService;
-import com.hmdp.agent.service.ApprovalService;
 import com.hmdp.agent.subagent.SubTaskAgent;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
@@ -30,16 +27,13 @@ import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -84,9 +78,6 @@ public class TaskPlanner {
 
     @Resource
     private AgentHistoryService historyService;
-
-    @Resource
-    private ApprovalService approvalService;
 
     @Resource
     private PromptService promptService;
@@ -283,7 +274,7 @@ public class TaskPlanner {
                     }
                 } catch (ConfirmRequiredException e) {
                     // CONFIRM 审批：保存快照 → 建审批记录 → 推确认事件 → 暂停本轮流
-                    return handleConfirmPause(e, input, currentResponse, history, round, ctx, emitter);
+                    return confirmFlowManager.pause(e, input, currentResponse, history, round, ctx, emitter);
                 }
             }
         }
@@ -312,44 +303,11 @@ public class TaskPlanner {
     }
 
     // ============================================================
-    // CONFIRM 审批：暂停 / 恢复
+    // CONFIRM 审批：暂停 / 恢复（中间态委托 ConfirmFlowManager）
     // ============================================================
 
-    /**
-     * CONFIRM 暂停处理：保存快照 → 建审批记录 → 推确认事件 → 终止本轮流。
-     * <p>
-     * 返回 currentResponse，由 completeTurn 识别暂停态（pendingSnapshot != null）
-     * 跳过尾文本推送与历史落库，保证确认事件是流中最后一个数据。
-     * </p>
-     */
-    private String handleConfirmPause(ConfirmRequiredException e, String input, String currentResponse,
-                                      TaskReport history, int round, AgentContext ctx, SseEmitter emitter) {
-        ToolInvocationContext ic = e.getContext();
-        TaskSnapshot snapshot = new TaskSnapshot();
-        snapshot.setOriginalInput(input);
-        snapshot.setPartialResponse(currentResponse);
-        snapshot.setCompletedTools(history.getCompleted().stream()
-                .map(SubTask::getToolName).toList());
-        snapshot.setRound(round);
-        snapshot.setPendingToolName(ic.getToolName());
-        snapshot.setPendingToolArguments(ic.getArguments());
-        // 上下文来源：AgentContext 优先，参数 ctx 兜底，最后取守卫异常携带的调用上下文
-        snapshot.setConversationId(AgentContextResolver.resolveConversationId(ctx, ic.getConversationId()));
-        snapshot.setUserId(AgentContextResolver.resolveUserId(ctx, ic.getUserId()));
-        snapshot.setRootSpan(AgentContextResolver.resolveRootSpan(ctx, null));
-        if (ctx != null) {
-            ctx.putAttribute(AgentContext.ATTR_PENDING_SNAPSHOT, snapshot);
-        }
-
-        String reason = e.getReason() != null ? e.getReason() : "该操作需要你的确认才能执行";
-        // best-effort 持久化：DB 失败返回 null，仍推确认事件（前端只提示、无法续流，可接受降级）
-        String confirmId = approvalService.createApproval(snapshot);
-        SseUtils.safeSend(emitter, SseUtils.confirmEvent(
-                confirmId != null ? confirmId : "",
-                ic.getToolName(), reason, ic.getArguments()));
-        log.info("CONFIRM 暂停规划 [tool={}, confirmId={}, round={}]", ic.getToolName(), confirmId, round);
-        return currentResponse;
-    }
+    @Resource
+    private ConfirmFlowManager confirmFlowManager;
 
     /**
      * 从快照恢复执行（用户确认通过后由 /agent/confirm SSE 续流调用）。
@@ -381,75 +339,16 @@ public class TaskPlanner {
 
     private String resumePlan(TaskSnapshot snapshot, AgentContext ctx, SseEmitter emitter) {
         // ① 先执行待审批工具
-        String toolResult = executeApprovedTool(snapshot, ctx, emitter);
+        String toolResult = confirmFlowManager.executeApprovedTool(snapshot, ctx, emitter);
         // ② 预置历史
         TaskReport history = new TaskReport();
-        seedCompletedHistory(history, snapshot, toolResult);
+        confirmFlowManager.seedCompletedHistory(history, snapshot, toolResult);
         // ③ 续接回复：暂停前的 partial + 工具结果
         String currentResponse = snapshot.getPartialResponse() != null ? snapshot.getPartialResponse() : "";
         if (toolResult != null && !toolResult.isBlank()) {
             currentResponse = currentResponse + "\n\n" + toolResult;
         }
         return planAndExecute(snapshot.getOriginalInput(), currentResponse, ctx, history, emitter);
-    }
-
-    /**
-     * 执行已确认的工具（绕过守卫直调底层）。显式携带 userId / conversationId：
-     * 恢复执行在异步线程、无 UserHolder，且数据权限切面从 ToolContext 取 userId。
-     */
-    private String executeApprovedTool(TaskSnapshot snapshot, AgentContext ctx, SseEmitter emitter) {
-        String toolName = snapshot.getPendingToolName();
-        if (toolName == null || toolName.isBlank()) {
-            log.warn("快照缺少待审批工具名，无法恢复");
-            return null;
-        }
-        ToolCallback cb = toolBeanCollector.getToolCallback(toolName);
-        if (!(cb instanceof GuardedToolCallback guarded)) {
-            log.error("待审批工具不存在或未包装: {}", toolName);
-            SseUtils.safeSend(emitter, SseUtils.errorEvent("待确认工具不可用，无法继续"));
-            return null;
-        }
-        // 上下文来源：AgentContext 优先，参数 ctx 兜底，最后取快照（跨请求持久化语义）
-        Long uid = AgentContextResolver.resolveUserId(ctx, snapshot.getUserId());
-        String cid = AgentContextResolver.resolveConversationId(ctx, snapshot.getConversationId());
-        Map<String, Object> toolCtxMap = new HashMap<>();
-        if (uid != null) toolCtxMap.put("userId", uid);
-        if (cid != null && !cid.isBlank()) toolCtxMap.put("conversationId", cid);
-
-        SseUtils.safeSend(emitter, SseUtils.stepEvent(toolName, SseEventConstants.TOOL_RUNNING));
-        String result = guarded.callBypass(snapshot.getPendingToolArguments(), new ToolContext(toolCtxMap));
-        SseUtils.safeSend(emitter, SseUtils.stepEvent(toolName, SseEventConstants.TOOL_COMPLETED));
-        log.info("审批工具已执行 [tool={}, userId={}]", toolName, uid);
-        if (snapshot.getPendingConfirmId() != null && uid != null) {
-            approvalService.markExecuted(snapshot.getPendingConfirmId(), uid);
-        }
-        return result;
-    }
-
-    /**
-     * 预置已完成工具到 history：completedTools ∪ 待审批工具（全部 COMPLETED）。
-     * 目的：resume 后 decompose 的 validatePlan 依据 isCompleted 过滤，防二次审批。
-     */
-    private void seedCompletedHistory(TaskReport history, TaskSnapshot snapshot, String approvedToolResult) {
-        if (snapshot.getCompletedTools() != null) {
-            for (String tool : snapshot.getCompletedTools()) {
-                if (tool == null || tool.isBlank()) continue;
-                history.record(List.of(SubTask.builder()
-                        .toolName(tool)
-                        .type(TaskType.TOOL_CALL)
-                        .status(SubTaskStatus.COMPLETED)
-                        .result("(已完成)")
-                        .build()));
-            }
-        }
-        if (snapshot.getPendingToolName() != null) {
-            history.record(List.of(SubTask.builder()
-                    .toolName(snapshot.getPendingToolName())
-                    .type(TaskType.TOOL_CALL)
-                    .status(SubTaskStatus.COMPLETED)
-                    .result(approvedToolResult != null ? approvedToolResult : "(已执行)")
-                    .build()));
-        }
     }
 
     // ============================================================
