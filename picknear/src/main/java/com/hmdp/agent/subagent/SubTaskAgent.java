@@ -1,35 +1,40 @@
 package com.hmdp.agent.subagent;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.config.SubTaskProperties;
-import com.hmdp.agent.guard.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.subagent.loop.SubAgentToolLoop;
-import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
-import com.hmdp.agent.subagent.prompt.SubAgentPromptTemplate;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * 子任务执行 Agent。
  * <p>
  * 职责：接收 SubTaskExecution → 按 tasks 筛选 ToolCallback →
  * {@link com.hmdp.agent.subagent.loop.SubAgentToolLoop} 策略执行工具循环（结果经 LLM 压缩后入上下文）→
- * 从回复中提取 JSON 数据快照 → 返回 SubTaskResult。
+ * 解析回复数据快照 → 返回 SubTaskResult。
  * 执行 Prompt 与系统提示词经 {@link PromptService} 外置（Langfuse → 内置兜底）。
+ * </p>
+ * <p>
+ * 拆分归属：重试编排 → {@link SubAgentRetryRunner}；回复解析 → {@link SubTaskResultParser}。
  * </p>
  */
 @Slf4j
@@ -49,7 +54,10 @@ public class SubTaskAgent {
     private PromptService promptService;
 
     @Resource
-    private ObjectMapper objectMapper;
+    private SubTaskResultParser resultParser;
+
+    @Resource
+    private SubAgentRetryRunner retryRunner;
 
     /**
      * 执行子任务计划，返回摘要。
@@ -109,7 +117,7 @@ public class SubTaskAgent {
         //    （subagent-compress）各自设置，Langfuse generation 名按功能区分（见 ChatModelObservationConventionConfig）。
         String content;
         try {
-            content = executeWithRetry(systemText, prompt, plan, filteredCallbacks, props,
+            content = retryRunner.executeWithRetry(systemText, prompt, plan, filteredCallbacks, props,
                     start, plan.getUserId(), plan.getConversationId());
         } finally {
             ChatModelObservationConventionConfig.clear();
@@ -129,7 +137,7 @@ public class SubTaskAgent {
         }
 
         // 5. 解析结果（从回复中提取 JSON 数据快照 + 数据截断 + 降级兜底）
-        SubTaskResult result = parseResult(content, start);
+        SubTaskResult result = resultParser.parse(content, start);
 
         // 6. 推送：数据汇总完成
         if (callback != null) callback.onMergeStart();
@@ -155,153 +163,5 @@ public class SubTaskAgent {
         return Arrays.stream(all)
                 .filter(cb -> allowed.contains(GuardedToolCallback.rawName(cb)))
                 .toArray(ToolCallback[]::new);
-    }
-
-    /**
-     * 带指数退避和总超时控制的重试调用。
-     * retryBackoff 为基础间隔，每次翻倍：1s → 2s → 4s
-     * totalTimeout 为整个 execute() 的总超时（含重试），超时直接终止。
-     * 每次尝试委托 {@link com.hmdp.agent.subagent.loop.SubAgentToolLoop} 执行工具循环。
-     */
-    private String executeWithRetry(String systemText, String prompt, SubTaskPlan plan,
-                                     ToolCallback[] callbacks,
-                                     SubTaskProperties props, long roundStartMs,
-                                     Long userId, String conversationId) {
-        int maxRetries = props.getMaxRetries();
-        Exception lastError = null;
-        String currentPrompt = prompt;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            // 总超时检查
-            if (System.currentTimeMillis() - roundStartMs > props.getTotalTimeout().toMillis()) {
-                log.warn("[SubAgent] 执行总超时 [attempt={}/{}, elapsed>{}ms]",
-                        attempt, maxRetries, props.getTotalTimeout().toMillis());
-                break;
-            }
-
-            try {
-                // 取证（设计文档 §8.1）：记录每轮请求的执行 prompt 字符数，
-                // 对照 Langfuse trace 可定位上下文膨胀
-                log.info("[SubAgent] 请求 attempt={}/{} 执行prompt字符数={}",
-                        attempt, maxRetries, currentPrompt != null ? currentPrompt.length() : 0);
-                // 将 userId / conversationId 以 ToolContext 传递，Guard 层才能获取到
-                Map<String, Object> toolCtx = new HashMap<>();
-                if (userId != null) {
-                    toolCtx.put("userId", userId);
-                }
-                if (conversationId != null && !conversationId.isBlank()) {
-                    toolCtx.put("conversationId", conversationId);
-                }
-                SubAgentToolLoopContext ctx = new SubAgentToolLoopContext(
-                        Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService,
-                        toolCtx, props);
-                String content = toolLoop.execute(ctx);
-                log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
-                return content;
-            } catch (ConfirmRequiredException e) {
-                // CONFIRM 审批信号：立即原样抛出（不重试、不把确认提示注入下次 prompt），
-                // 一路冒泡到 TaskPlanner 的专用 catch 生成审批记录并暂停规划
-                throw e;
-            } catch (Exception e) {
-                lastError = e;
-                log.warn("[SubAgent] 调用失败 [attempt={}/{}], err={}",
-                        attempt, maxRetries, e.getMessage());
-
-                if (attempt < maxRetries) {
-                    // 指数退避
-                    long backoffMs = props.getRetryBackoff().toMillis() * (long) Math.pow(2, attempt - 1);
-                    log.info("[SubAgent] {}ms 后重试...", backoffMs);
-                    try {
-                        Thread.sleep(backoffMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    // 标准化错误注入格式
-                    currentPrompt = prompt + "\n\n[系统提示] 上一次调用失败，原因：" + e.getMessage() + "。请重试。";
-                }
-            }
-        }
-        log.error("[SubAgent] 重试耗尽 [maxRetries={}]", maxRetries, lastError);
-        return null;
-    }
-
-    /**
-     * 从 LLM 回复中提取 JSON 数据快照。
-     * <p>
-     * 子 Agent 的 Prompt 强制要求回复末尾附加：
-     * ===DATA_SNAPSHOT===
-     * { "toolName1": {"status":"ok","data":...} }
-     * ===DATA_SNAPSHOT_END===
-     * </p>
-     *
-     * 降级策略：
-     * - LLM 未附加 JSON 快照 → rawResults={}，summary 取完整 content
-     * - JSON 解析失败 → rawResults={}，摘要不变，日志记录警告
-     * - data 字段超长（>RAW_DATA_MAX_LENGTH）→ 截断
-     */
-    private SubTaskResult parseResult(String content, long start) {
-        long elapsed = System.currentTimeMillis() - start;
-
-        String snapshotStr = extractSnapshot(content);
-        Map<String, Object> rawResults = new LinkedHashMap<>();
-        Map<String, String> errors = new LinkedHashMap<>();
-        boolean allSuccess = true;
-        List<String> executedTools = new ArrayList<>();
-
-        if (snapshotStr != null) {
-            try {
-                Map<String, Object> snapshot = objectMapper.readValue(snapshotStr,
-                        new TypeReference<Map<String, Object>>() {});
-                for (Map.Entry<String, Object> entry : snapshot.entrySet()) {
-                    executedTools.add(entry.getKey());
-                    if (entry.getValue() instanceof Map<?, ?> detail) {
-                        String status = Objects.toString(detail.get("status"), "");
-                        if ("error".equals(status)) {
-                            allSuccess = false;
-                            errors.put(entry.getKey(),
-                                    Objects.toString(detail.get("message"), "未知错误"));
-                        }
-                        // 对 data 字段做 RAW_DATA_MAX_LENGTH 字符截断，防 Token 爆炸
-                        Object data = detail.get("data");
-                        if (data instanceof String s && s.length() > SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH) {
-                            data = s.substring(0, SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH) + "...(截断)";
-                        }
-                        rawResults.put(entry.getKey(), data != null ? data : detail);
-                    } else {
-                        rawResults.put(entry.getKey(), entry.getValue());
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[SubAgent] JSON 快照解析失败, 将使用完整回复作为摘要 [err={}]", e.getMessage());
-            }
-        } else {
-            log.warn("[SubAgent] 未检测到 JSON 快照标记, rawResults 将为空");
-        }
-
-        // 摘要 = 去除 JSON 快照部分后的纯文本；无快照时全文作为摘要
-        String summary = snapshotStr != null
-                ? content.substring(0, content.indexOf(SubAgentPromptTemplate.SNAPSHOT_BEGIN)).trim()
-                : content;
-
-        return SubTaskResult.builder()
-                .summary(summary)
-                .rawResults(rawResults.isEmpty() ? null : rawResults)
-                .errors(errors.isEmpty() ? null : errors)
-                .allSuccess(allSuccess)
-                .executedTools(executedTools)
-                .executionTimeMs(elapsed)
-                .build();
-    }
-
-    /** 提取 ===DATA_SNAPSHOT=== ... ===DATA_SNAPSHOT_END=== 之间的 JSON */
-    private String extractSnapshot(String content) {
-        if (content == null) return null;
-        int startIdx = content.indexOf(SubAgentPromptTemplate.SNAPSHOT_BEGIN);
-        if (startIdx < 0) return null;
-        startIdx += SubAgentPromptTemplate.SNAPSHOT_BEGIN.length();
-        int endIdx = content.indexOf(SubAgentPromptTemplate.SNAPSHOT_END, startIdx);
-        if (endIdx < 0) return null;
-        return content.substring(startIdx, endIdx).trim();
     }
 }
