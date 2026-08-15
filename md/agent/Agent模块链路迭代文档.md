@@ -1076,9 +1076,9 @@ PromptSeeder（工具模板键清单，自动纳入新工具）
 
 ## Phase 18：AgentContext 请求级上下文（统一上下文载体，架构整理）
 
-**提交**: `27ab8af` "第 1 步（骨架落地）"、`e1dcd3f`/`d56508a`/`a987b07` "第 2 步（消费方迁移 3 处）"
+**提交**: `27ab8af` "第 1 步（骨架落地）"、`e1dcd3f`/`d56508a`/`a987b07` "第 2 步（消费方迁移 3 处）"、`89741a5`/`869a5aa`/`287d659`/`7ca2ab8` "第 3 步（ChatContext 并入）"
 
-**设计文档**: `md/agent/Agent上下文传递机制设计.md`（分 3 步实施，本阶段完成第 1/2 步）
+**设计文档**: `md/agent/Agent上下文传递机制设计.md`（三步实施全部完成）
 
 ### 背景
 
@@ -1117,12 +1117,16 @@ GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没�
    - `ChatContext.from(AgentContext)` 工厂：userId/conversationId/originalContent/history/rootSpan 统一取自 AgentContext；`PromptHookExecutor` 与 `confirm()` 均改走工厂（替代手拼）
    - `TaskPlanner` 新增 4 个 resolve helper（AgentContext → ChatContext → 调用方兜底），七处 `ctx != null ? ... : ...` 三元收敛（decompose / SubTaskPlan / TaskExecutor / handleConfirmPause / resumeFromSnapshot / executeApprovedTool / completeTurn）
    - 行为零变化：AgentContext 未设置时（直调/测试路径）逐级回退，语义与旧手递一致
+5. **ChatContext 并入（第 3 步，目标态达成）**：
+   - **删除 `ChatContext`**：Hook 链接口（`PromptHookChain`/`AfterAiHookChain`/`TaskTriggerHook`）签名全量改 `AgentContext`；`PromptHookExecutor`/`SseResponseProcessor`/`AiResponseRouter`/`TaskPlanner`/`ChatController` 同步迁移
+   - pendingSnapshot（原 ChatContext 特有字段）改存 `AgentContext.attributes`（key=`pendingSnapshot`，TaskPlanner 常量 `ATTR_PENDING_SNAPSHOT`）
+   - `SubTaskPlan` 手递 userId/conversationId **保留**（用户决策：持久化兜底，与请求级 AgentContext 互补）
 
 ### 验证
 
-- 新增单测（无 Mockito，本机可跑）：`AgentContextHolderTest`（require 缺失抛错、线程隔离）、`AgentContextPropagatorTest`（捕获/恢复/finally 清理/嵌套任务传播），8 个用例全绿
-- build-tmp 全量编译通过（第 1/2 步各提交前均验证）；VM 链路验证（SSE 对话 + CONFIRM 续流 + 工具调用）待部署后回归
-- 第 3 步（ChatContext 并入 Hook 链签名）待实施，`SubTaskPlan` 手递字段保留作持久化兜底
+- 新增单测（无 Mockito，本机可跑）：`AgentContextHolderTest`（require 缺失抛错、线程隔离）、`AgentContextPropagatorTest`（捕获/恢复/finally 清理/嵌套任务传播），8 个用例全绿；Hook 实现单测随签名迁移同步，全部通过
+- build-tmp 全量编译通过（main + test-compile，三步各提交前均验证）
+- **VM 链路回归待部署**：SSE 对话 + CONFIRM 续流 + 工具调用（Langfuse 检查 round/tool_call span 仍挂会话树）、JSON 模式、`feature.subagent.enabled=false` 回退路径、`feature.tool-routing.enabled=false` legacy 路径
 
 ## 模块关系总图
 

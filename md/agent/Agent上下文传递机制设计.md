@@ -1,8 +1,8 @@
 # Agent 上下文传递机制设计（AgentContext）
 
-> **版本**: v1.2
+> **版本**: v1.3
 > **日期**: 2026-08
-> **状态**: 第 1 步（骨架落地）✅、第 2 步（消费方迁移）✅ 已实施；第 3 步（ChatContext 并入）待实施
+> **状态**: 三步全部实施完成 ✅（骨架 → 消费方迁移 → ChatContext 并入）
 > **目标**: 设计一个专门给 AI 链路传递上下文的统一机制，替代当前散落的手递方案
 > **相关**: `md/agent/Agent模块架构设计.md`、`上下文传递优化设计.md`（token 压缩，不同主题）
 
@@ -140,12 +140,12 @@ public class AgentContextPropagator implements TaskDecorator {
 | 现有机制 | 处置 |
 |----------|------|
 | `UserHolder` | **保留**（全局认证上下文，拦截器/Controller 用）。agent 链路内部改用 AgentContext；异步段不再依赖 UserHolder |
-| `ChatContext` | **目标态：并入 AgentContext**（ChatContext 的字段 AgentContext 全有）。分两步：第一步 AgentContext 新建、`PromptHookExecutor` 从 AgentContext 构建 ChatContext；第二步删 ChatContext，Hook 链签名改 AgentContext |
-| Spring AI `ToolContext` | **保留**（Spring AI 工具参数机制）。`GuardedToolCallback` 的 userId/conversationId 优先从 ToolContext 读，兜底改从 `AgentContextHolder` 读（替代现在的构造值兜底） |
-| `ToolBeanCollector.conversationId` | **删除**（含 `AiServiceImpl` 两处 `setConversationId` 调用；GuardedToolCallback 的 conversationId 来源改 Holder，构造参数保留为兜底） |
-| `TaskSnapshot` | 精简：rootSpan 改从 AgentContext 读（快照不落库根 span，恢复时用新根）；userId/conversationId 字段保留（**跨线程持久化载体**，DB 落库语义，与请求级 AgentContext 互补） |
-| `AgentTracer.resume(rootSpan)` | **保留**（观测层机制不动）；rootSpan 由 AgentContext 携带，替代各处手递 |
-| `SubTaskExecution`/`SubTaskPlan` | **保留**（子任务执行数据）；`SubTaskPlan` 手递的 userId/conversationId 取消，改从 AgentContext 读（保留字段作持久化兜底） |
+| `ChatContext` | **✅ 已并入 AgentContext 并删除**（Hook 链接口签名已改 AgentContext；pendingSnapshot 改存 AgentContext.attributes） |
+| Spring AI `ToolContext` | **保留**（Spring AI 工具参数机制）。`GuardedToolCallback` 的 userId/conversationId 优先从 ToolContext 读，兜底从 `AgentContextHolder` 读 |
+| `ToolBeanCollector.conversationId` | **✅ 已删除**（无效单例状态；GuardedToolCallback 兜底顺序：ToolContext → AgentContextHolder → 构造冻结值） |
+| `TaskSnapshot` | 精简：rootSpan 从 AgentContext 读（快照不落库根 span，恢复时用新根）；userId/conversationId 字段保留（**跨线程持久化载体**，DB 落库语义，与请求级 AgentContext 互补） |
+| `AgentTracer.resume(rootSpan)` | **保留**（观测层机制不动）；rootSpan 由 AgentContext 携带 |
+| `SubTaskExecution`/`SubTaskPlan` | **保留**（子任务执行数据）；`SubTaskPlan` 手递 userId/conversationId 按用户决策**保留**（作持久化兜底），子 Agent 执行线程经 subtaskExecutor 的 Propagator 直接可读父级 AgentContext |
 
 **边界定义**（写入代码注释）：
 - `AgentContext` = **请求级**上下文（一个请求一条链路）
@@ -195,10 +195,13 @@ public class AgentContextPropagator implements TaskDecorator {
 > 注：`SubTaskPlan` 手递 userId/conversationId 保留（作持久化兜底），子 Agent 执行线程经
 > subtaskExecutor 的 Propagator 直接可读父级 AgentContext——字段取消列入第 3 步评估。
 
-### 第 3 步：ChatContext 并入（目标态）
-- `ChatContext` 删除，Hook 链接口（`PromptHookChain`/`AfterAiHookChain`/`TaskTriggerHook`）签名改 `AgentContext`
-- `TaskSnapshot` rootSpan 改从 AgentContext 读
-- 清理 `AgentContextHolder.require()` 的缺失路径（快照恢复无请求线程场景显式传参）
+### 第 3 步：ChatContext 并入（目标态）—— ✅ 已实施
+
+- [x] `ChatContext` 删除，Hook 链接口（`PromptHookChain`/`AfterAiHookChain`/`TaskTriggerHook`）签名改 `AgentContext`
+- [x] `TaskSnapshot` rootSpan 改从 AgentContext 读（快照不落库根 span，恢复时用新根）
+- [x] `AgentContextHolder.require()` 的缺失路径清理：兜底路径（直调/测试）就地构建 AgentContext 不放入 Holder
+- [x] pendingSnapshot（原 ChatContext 特有字段）改存 AgentContext.attributes（key=`pendingSnapshot`，TaskPlanner 侧常量 `ATTR_PENDING_SNAPSHOT`）
+- [x] `SubTaskPlan` 手递 userId/conversationId **保留**（用户决策：作持久化兜底，与请求级 AgentContext 互补）
 
 ---
 
@@ -214,17 +217,17 @@ public class AgentContextPropagator implements TaskDecorator {
 
 ---
 
-## 8. 验证方案
+## 8. 验证方案（实施记录）
 
-1. **单测**：`AgentContextPropagatorTest`（提交时捕获/执行恢复/finally 清理/嵌套任务）、`AgentContextHolderTest`（require 缺失抛错）
-2. **编译**：build-tmp 全量编译
-3. **链路验证（VM）**：SSE 对话 + CONFIRM 审批续流 + 工具调用（Langfuse 检查 round/tool_call span 仍挂会话树、guard span 的 conversationId 正确）
-4. **回归**：JSON 模式、`feature.subagent.enabled=false` 回退路径、`feature.tool-routing.enabled=false` legacy 路径
+1. **单测** ✅：`AgentContextPropagatorTest`（提交时捕获/执行恢复/finally 清理/嵌套任务）、`AgentContextHolderTest`（require 缺失抛错、线程隔离）——8 用例全绿；Hook 实现单测（InjectionDetect/SensitiveWord/TaskTrigger）随签名迁移同步
+2. **编译** ✅：build-tmp 全量编译（main + test-compile）每步通过
+3. **链路验证（VM）** ⏳ 待部署：SSE 对话 + CONFIRM 审批续流 + 工具调用（Langfuse 检查 round/tool_call span 仍挂会话树、guard span 的 conversationId 正确）
+4. **回归** ⏳ 待部署：JSON 模式、`feature.subagent.enabled=false` 回退路径、`feature.tool-routing.enabled=false` legacy 路径
 
 ---
 
-## 9. 待确认决策点
+## 9. 待确认决策点（实施结论）
 
-1. **ChatContext 是否最终并入 AgentContext**（第 3 步）——并入是目标态但改动面大（Hook 链接口签名）；也可保留 ChatContext 作为 Hook 专用视图，仅统一数据来源
-2. **`AgentContext.require()` 的失败策略**：抛异常（Fail-Fast）还是返回 null（Fail-Open）——建议 Fail-Fast（异步传播是机制承诺，缺失即 bug）
-3. **attributes 是否纳入观测**（Langfuse span 属性透传）——建议暂不纳入，保持上下文与观测分离
+1. **ChatContext 是否并入**——✅ 已定：并入并删除（第 3 步实施，Hook 链接口签名全量迁移）
+2. **`AgentContext.require()` 的失败策略**——✅ 已定：Fail-Fast（抛异常）。兜底路径（直调/测试）就地构建不放入 Holder，不触发 require
+3. **attributes 是否纳入观测**——✅ 已定：暂不纳入，保持上下文与观测分离（pendingSnapshot 存 attributes，不进 span）
