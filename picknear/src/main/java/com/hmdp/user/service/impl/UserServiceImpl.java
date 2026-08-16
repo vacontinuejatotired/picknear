@@ -6,6 +6,7 @@ import com.hmdp.auth.dto.LoginFormDTO;
 import com.hmdp.auth.dto.PasswordChangeDTO;
 import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.service.AuthService;
+import com.hmdp.auth.password.PasswordService;
 import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
 import com.hmdp.service.FileService;
@@ -47,6 +48,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private AuthService authService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private PasswordService passwordService;
     @Resource
     private IUserInfoService userInfoService;
     @Resource
@@ -240,25 +243,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result resetPassword(String phone, String code, String newPassword) {
-        // 校验验证码
-        if (!verifyCodeService.consumeVerifyCode(phone, code)) {
-            return Result.fail("验证码错误或已过期");
-        }
-        // 校验密码强度
-        if (RegexUtils.isPasswordInvalid(newPassword)) {
-            return Result.fail("密码需至少8位，包含大写、小写、数字");
-        }
-        // 查用户
-        User user = query().eq("phone", phone).one();
-        if (user == null) {
-            return Result.fail("该手机号未注册");
-        }
-        // 更新密码
-        user.setPassword(PasswordEncoder.encode(newPassword));
-        user.setUpdateTime(LocalDateTime.now());
-        updateById(user);
-        log.info("密码重置成功 phone={}, userId={}", phone, user.getId());
-        return Result.ok();
+        return passwordService.resetPassword(phone, code, newPassword);
     }
 
     @Override
@@ -268,45 +253,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public TokenPair changePassword(PasswordChangeDTO dto) {
-        UserDTO userDTO = UserHolder.getUserDTO();
-        if (userDTO == null) {
-            throw new IllegalArgumentException("未登录");
-        }
-        Long userId = userDTO.getId();
-
-        String oldPassword = dto.getOldPassword();
-        String newPassword = dto.getNewPassword();
-
-        if (oldPassword == null || newPassword == null) {
-            throw new IllegalArgumentException("旧密码和新密码不能为空");
-        }
-
-        // 新密码强度校验
-        if (RegexUtils.isPasswordInvalid(newPassword)) {
-            throw new IllegalArgumentException("密码需至少8位，包含大写、小写、数字");
-        }
-
-        // 查用户
-        User user = getById(userId);
-        if (user == null || user.getPassword() == null) {
-            throw new IllegalArgumentException("未设置密码，请使用验证码登录");
-        }
-
-        // 校验旧密码
-        if (!PasswordEncoder.matches(oldPassword, user.getPassword())) {
-            log.warn("修改密码失败：旧密码错误 userId={}", userId);
-            throw new IllegalArgumentException("旧密码错误");
-        }
-
-        // 更新密码
-        user.setPassword(PasswordEncoder.encode(newPassword));
-        user.setUpdateTime(LocalDateTime.now());
-        updateById(user);
-
-        // 生成全新双 Token（bump version → 旧 Token 自动失效）
-        TokenPair tokenPair = authService.generateTokenPair(userId);
-        log.info("【密码修改成功】userId={}, 已bump version", userId);
-        return tokenPair;
+        return passwordService.changePassword(dto);
     }
 }
 
