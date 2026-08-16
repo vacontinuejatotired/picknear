@@ -1,7 +1,5 @@
 package com.hmdp.voucher.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.injector.methods.DeleteById;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.enums.SeckillOrderCode;
@@ -10,6 +8,7 @@ import com.hmdp.utils.redis.RedisIdWorker;
 import com.hmdp.voucher.entity.VoucherOrder;
 import com.hmdp.voucher.mapper.VoucherOrderMapper;
 import com.hmdp.voucher.mq.VoucherOrderProducer;
+import com.hmdp.voucher.order.VoucherOrderService;
 import com.hmdp.voucher.service.ISeckillVoucherService;
 import com.hmdp.voucher.service.IVoucherOrderService;
 import com.hmdp.voucher.stock.SeckillStockService;
@@ -19,8 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
-import java.time.LocalDateTime;
-import java.util.*;
 
 
 /**
@@ -40,6 +37,8 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
     private SeckillStockService seckillStockService;
     @Resource
     private VoucherOrderProducer voucherOrderProducer;
+    @Resource
+    private VoucherOrderService voucherOrderService;
 
     @Override
     public Result querySeckillVoucher(Long voucherId) {
@@ -56,24 +55,16 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
     }
 
     /**
-     * 查询现有订单表是否存在用户已下的秒杀单（门面委托查重，D6）
-     * <p>
-     * 落单委托 {@link VoucherOrderService}；<strong>不再在事务内直发 MQ</strong>
-     * （H-5 修复：外部副作用一律事务提交后发送）。
-     * </p>
+     * 门面委托（D6）：查重 + 落单，事务内不再发 MQ（H-5 修复）
      */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void createVoucherOrder(VoucherOrder voucherOrder) {
-        int count = Math.toIntExact(query()
-                .eq("user_id", voucherOrder.getUserId())
-                .eq("voucher_id", voucherOrder.getVoucherId())
-                .count());
-        if (count > 0) {
+        if (voucherOrderService.existsOrder(voucherOrder.getUserId(), voucherOrder.getVoucherId())) {
             log.error("该用户已经购买过");
             return;
         }
-        save(voucherOrder);
+        voucherOrderService.saveOrder(voucherOrder);
     }
 
     @Override
@@ -81,7 +72,6 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
         long startTime = System.currentTimeMillis();
         Long userId = UserHolder.getUserId();
         // 1. 生成订单ID
-        long orderIdGenStart = System.currentTimeMillis();
         Long orderId = redisIdWorker.getIdFromQueue();
         // 2. 执行Lua脚本扣减库存
         Long luaResult = seckillStockService.deductStock(voucherId, userId, orderId);
@@ -90,11 +80,9 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
             return Result.fail(SeckillOrderCode.getDefaultMessage(luaResult));
         }
 
-        // 3. 构建订单对象
-        long buildOrderStart = System.currentTimeMillis();
-        VoucherOrder voucherOrder = buildVoucherOrder(userId, voucherId, orderId);
-        // 4. 保存订单到数据库（耗时操作）
-        boolean saved = saveOrderToDatabase(voucherOrder);
+        // 3. 构建订单对象 + 4. 保存订单到数据库
+        VoucherOrder voucherOrder = voucherOrderService.buildOrder(userId, voucherId, orderId);
+        boolean saved = voucherOrderService.saveOrder(voucherOrder);
         if (!saved) {
             log.info("【数据库操作】耗时: {} ms", System.currentTimeMillis() - startTime);
             return Result.fail("订单创建失败，请稍后重试");
@@ -114,57 +102,14 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
     }
 
     /**
-     *恢复MySQl库存至指定值
-     * 并且删除MYSQL中相关订单信息
-     * @param voucherId
-     * @param stock
+     * 恢复 MySQL 库存至指定值，并删除相关订单信息（测试/运维用）
      */
     @Override
     public void deleteVoucherOrders(Long voucherId, Long stock) {
         seckillStockService.restoreDbStock(voucherId, stock);
-        LambdaQueryWrapper<VoucherOrder> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(VoucherOrder::getVoucherId, voucherId);
-        boolean removed = this.remove(wrapper);
+        boolean removed = voucherOrderService.removeByVoucherId(voucherId);
         log.info("删除{}", removed);
     }
-
-    /**
-     * 构建订单对象
-     */
-    private VoucherOrder buildVoucherOrder(Long userId, Long voucherId, Long orderId) {
-        VoucherOrder voucherOrder = new VoucherOrder();
-        voucherOrder.setId(orderId);
-        voucherOrder.setUserId(userId);
-        voucherOrder.setVoucherId(voucherId);
-        voucherOrder.setCreateTime(LocalDateTime.now());
-        voucherOrder.setStatus(1);
-        return voucherOrder;
-    }
-
-    /**
-     * 保存订单到数据库（耗时操作）
-     */
-    private boolean saveOrderToDatabase(VoucherOrder voucherOrder) {
-        long startTime = System.currentTimeMillis();
-
-        try {
-            boolean saved = save(voucherOrder);
-            long costTime = System.currentTimeMillis() - startTime;
-            // 数据库操作耗时告警
-            if (costTime > 200) {
-                log.warn("【性能告警】数据库保存过慢: {} ms, 订单ID: {}",
-                        costTime, voucherOrder.getId());
-            }
-
-            return saved;
-        } catch (Exception e) {
-            long costTime = System.currentTimeMillis() - startTime;
-            log.error("【saveOrderToDatabase】异常, 耗时: {} ms, 订单ID: {}",
-                    costTime, voucherOrder.getId(), e);
-            throw new RuntimeException("订单保存失败", e);
-        }
-    }
-
 
     /**
      * 发送MQ消息（供 /test/** 测试端点调用，无事务语义直发）
