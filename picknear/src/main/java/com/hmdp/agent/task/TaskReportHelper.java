@@ -1,6 +1,5 @@
 package com.hmdp.agent.task;
 
-import com.hmdp.agent.legacy.task.TaskQueue;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
 import lombok.extern.slf4j.Slf4j;
@@ -78,9 +77,11 @@ public class TaskReportHelper {
     /**
      * 聚合结果（仅回退路径使用）。
      * 取 LLM_REASON 的执行结论作为最终输出。
+     *
+     * @param tasks 回退队列全部任务（TaskQueue.getAllTasks() 的结果）
      */
-    public String merge(String currentResponse, TaskQueue queue) {
-        String llmConclusion = queue.getAllTasks().stream()
+    public String merge(String currentResponse, List<SubTask> tasks) {
+        String llmConclusion = tasks.stream()
                 .filter(t -> t.getType() == TaskType.LLM_REASON
                         && t.getStatus() == SubTaskStatus.COMPLETED
                         && t.getResult() != null)

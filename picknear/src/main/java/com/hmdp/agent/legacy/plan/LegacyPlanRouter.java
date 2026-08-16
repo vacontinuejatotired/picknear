@@ -1,6 +1,6 @@
 package com.hmdp.agent.legacy.plan;
 
-import com.hmdp.agent.legacy.routing.ToolRouter;
+import com.hmdp.agent.legacy.plan.ToolRouter;
 import com.hmdp.agent.plan.PlanOutcome;
 import com.hmdp.agent.plan.PlanRequest;
 import com.hmdp.agent.plan.PlanRouter;

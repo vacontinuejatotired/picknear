@@ -10,16 +10,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 子任务队列（已废弃，保留供回退路径使用）。
+ * 回退路径子任务队列（非死代码）。
  * <p>
- * 新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
+ * 在 {@code feature.subagent.enabled=false} 时由 {@link com.hmdp.agent.task.FallbackRoundExecutor}
+ * 使用。新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
  * </p>
  * <p>
  * 管理所有 SubTask 的状态流转。依赖判断使用"终结状态"（COMPLETED 或 FAILED），
  * 避免 LLM_REASON 因依赖的 TOOL_CALL 失败而永远卡在 PENDING。
  * </p>
  */
-@Deprecated
 public class TaskQueue {
 
     private final Map<String, SubTask> taskMap = new ConcurrentHashMap<>();

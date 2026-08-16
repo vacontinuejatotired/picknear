@@ -1,4 +1,4 @@
-package com.hmdp.agent.legacy.routing;
+package com.hmdp.agent.routing;
 
 import com.hmdp.agent.task.TaskReport;
 import org.springframework.ai.tool.ToolCallback;
@@ -6,7 +6,7 @@ import org.springframework.ai.tool.ToolCallback;
 /**
  * 规划目录构建策略接口。
  * <p>
- * CompactCatalogBuilder（legacy 扁平紧凑目录）与 TreeCatalogBuilder（意图树剪枝目录）都实现此接口，
+ * CompactCatalogBuilder（扁平紧凑目录）与 TreeCatalogBuilder（意图树剪枝目录）都实现此接口，
  * 由对应 PlanRouter 策略选用。
  * </p>
  */

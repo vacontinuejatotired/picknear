@@ -23,9 +23,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 子任务执行器（已废弃，保留供回退路径使用）。
+ * 回退路径串行任务执行器（非死代码）。
  * <p>
- * 新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
+ * 在 {@code feature.subagent.enabled=false} 时由 {@link com.hmdp.agent.task.FallbackRoundExecutor}
+ * 实例化，串行执行回退队列。新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
  * </p>
  * <p>
  * 按类型分发：
@@ -35,7 +36,6 @@ import java.util.stream.Collectors;
  * </ul>
  * </p>
  */
-@Deprecated
 @Slf4j
 public class TaskExecutor {
 

@@ -1,4 +1,4 @@
-package com.hmdp.agent.legacy.routing;
+package com.hmdp.agent.legacy.plan;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
@@ -9,7 +9,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
 /**
- * 规划工具路由门面。
+ * 回退规划链内部工具路由门面（仅 {@link LegacyPlanRouter} 使用）。
  * <p>
  * {@link #buildCatalog(boolean, ToolCallback[], TaskReport)}：
  * compact=true 走紧凑目录（CompactCatalogBuilder），否则全量目录（名字+完整注解描述，原 askAiForPlan 逻辑）；
