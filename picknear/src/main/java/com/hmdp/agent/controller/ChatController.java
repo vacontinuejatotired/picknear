@@ -13,7 +13,7 @@ import com.hmdp.agent.service.ApprovalService.ApprovalDecisionResult;
 import com.hmdp.agent.stream.SseSessionFactory;
 import com.hmdp.agent.stream.SseSessionFactory.ChatSseSession;
 import com.hmdp.agent.task.TaskPlanner;
-import com.hmdp.agent.task.TaskSnapshot;
+import com.hmdp.agent.task.model.TaskSnapshot;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.utils.UserHolder;
 

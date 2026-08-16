@@ -2,6 +2,8 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
+import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.task.model.TaskReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

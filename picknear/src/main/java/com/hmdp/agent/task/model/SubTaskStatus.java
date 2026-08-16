@@ -1,4 +1,4 @@
-package com.hmdp.agent.task;
+package com.hmdp.agent.task.model;
 
 /**
  * 子任务状态机。

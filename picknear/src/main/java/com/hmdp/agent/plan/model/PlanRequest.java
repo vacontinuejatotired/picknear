@@ -1,6 +1,6 @@
-package com.hmdp.agent.plan;
+package com.hmdp.agent.plan.model;
 
-import com.hmdp.agent.task.TaskReport;
+import com.hmdp.agent.task.model.TaskReport;
 import org.springframework.ai.tool.ToolCallback;
 
 /**

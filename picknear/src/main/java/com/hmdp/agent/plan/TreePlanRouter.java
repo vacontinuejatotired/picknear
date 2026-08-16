@@ -1,10 +1,13 @@
 package com.hmdp.agent.plan;
 
 import com.hmdp.agent.config.FeatureProperties;
+import com.hmdp.agent.plan.model.PlanOutcome;
+import com.hmdp.agent.plan.model.PlanRequest;
+import com.hmdp.agent.plan.model.ValidationOptions;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.routing.ToolIntentTree;
 import com.hmdp.agent.routing.TreeCatalogBuilder;
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

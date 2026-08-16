@@ -1,4 +1,4 @@
-package com.hmdp.agent.task;
+package com.hmdp.agent.task.model;
 
 import lombok.Builder;
 import lombok.Data;

@@ -7,7 +7,7 @@ import com.hmdp.agent.config.PromptGuardProperties;
 import com.hmdp.agent.entity.AgentApproval;
 import com.hmdp.agent.mapper.AgentApprovalMapper;
 import com.hmdp.agent.service.ApprovalService;
-import com.hmdp.agent.task.TaskSnapshot;
+import com.hmdp.agent.task.model.TaskSnapshot;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.TaskScheduler;

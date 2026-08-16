@@ -1,6 +1,6 @@
-package com.hmdp.agent.plan;
+package com.hmdp.agent.plan.model;
 
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 
 import java.util.List;
 

@@ -1,4 +1,4 @@
-package com.hmdp.agent.plan;
+package com.hmdp.agent.plan.model;
 
 import java.util.List;
 import java.util.Map;

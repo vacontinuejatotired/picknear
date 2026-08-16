@@ -1,5 +1,8 @@
 package com.hmdp.agent.plan;
 
+import com.hmdp.agent.plan.model.PlanOutcome;
+import com.hmdp.agent.plan.model.PlanRequest;
+
 /**
  * 规划策略接口。
  * <p>

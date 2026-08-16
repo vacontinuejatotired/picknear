@@ -5,6 +5,8 @@ import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.guard.model.ToolInvocationContext;
 import com.hmdp.agent.service.ApprovalService;
+import com.hmdp.agent.task.model.TaskReport;
+import com.hmdp.agent.task.model.TaskSnapshot;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;

@@ -1,6 +1,6 @@
 package com.hmdp.agent.tool;
 
-import com.hmdp.agent.plan.UserIdPlaceholderResolver;
+import com.hmdp.agent.plan.support.UserIdPlaceholderResolver;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;

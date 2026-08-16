@@ -1,4 +1,4 @@
-package com.hmdp.agent.task;
+package com.hmdp.agent.task.model;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

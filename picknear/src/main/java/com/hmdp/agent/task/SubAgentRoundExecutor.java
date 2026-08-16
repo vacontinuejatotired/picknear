@@ -10,6 +10,8 @@ import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
 import com.hmdp.agent.subagent.model.SubTaskExecution;
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.subagent.model.SubTaskResult;
+import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.task.model.TaskReport;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

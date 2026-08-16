@@ -1,9 +1,13 @@
 package com.hmdp.agent.plan;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.plan.model.PlanRequest;
+import com.hmdp.agent.plan.model.ValidationOptions;
+import com.hmdp.agent.plan.support.PlanParser;
+import com.hmdp.agent.plan.support.PlanValidator;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
