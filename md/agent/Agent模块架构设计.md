@@ -929,11 +929,11 @@ hmdp:
 | `agent/task/SubTask.java` | 子任务数据模型 |
 | `agent/task/TaskType.java` | 枚举 |
 | `agent/task/SubTaskStatus.java` | 枚举 |
-| `agent/legacy/task/TaskExecutor.java` | 【废弃归档】串行任务执行器（回退路径） |
-| `agent/legacy/task/TaskQueue.java` | 【废弃归档】任务队列 |
-| `agent/legacy/plan/LegacyPlanRouter.java` | 【废弃归档】legacy 规划策略 |
-| `agent/legacy/routing/ToolRouter.java` | 【废弃归档】规划工具路由门面 |
-| `agent/legacy/routing/CatalogBuilder.java` | 【废弃归档】目录构建死抽象 |
+| `agent/legacy/task/TaskExecutor.java` | 【回退路径，P5 决策中】串行任务执行器（`feature.subagent.enabled=false` 时由 FallbackRoundExecutor 使用，非死代码） |
+| `agent/legacy/task/TaskQueue.java` | 【回退路径，P5 决策中】任务队列（TaskReportHelper 亦引用） |
+| `agent/legacy/plan/LegacyPlanRouter.java` | 【回退路径，P5 决策中】legacy 规划策略（`feature.tool-routing.enabled=false` 条件装配） |
+| `agent/legacy/routing/ToolRouter.java` | 【回退路径，P5 决策中】规划工具路由门面（仅被 LegacyPlanRouter 使用） |
+| `agent/legacy/routing/CatalogBuilder.java` | 【活接口，位置待迁】目录构建抽象——TreeCatalogBuilder/CompactCatalogBuilder 均实现它，非死抽象；P5 决策时迁出 legacy 包 |
 | `agent/task/TaskSnapshot.java` | 任务快照 |
 
 ### 权限校验模块
