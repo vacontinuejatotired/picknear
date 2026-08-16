@@ -1,10 +1,10 @@
-package com.hmdp.service.impl;
+package com.hmdp.shop.service.impl;
 
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.ShopType;
-import com.hmdp.mapper.ShopTypeMapper;
-import com.hmdp.service.IShopTypeService;
+import com.hmdp.shop.entity.ShopType;
+import com.hmdp.shop.mapper.ShopTypeMapper;
+import com.hmdp.shop.service.IShopTypeService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.redis.RedisConstants;
 import io.netty.util.internal.StringUtil;

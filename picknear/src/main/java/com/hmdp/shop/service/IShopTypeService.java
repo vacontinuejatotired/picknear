@@ -1,7 +1,7 @@
-package com.hmdp.service;
+package com.hmdp.shop.service;
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.ShopType;
+import com.hmdp.shop.entity.ShopType;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**

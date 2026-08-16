@@ -1,11 +1,11 @@
-package com.hmdp.controller;
+package com.hmdp.shop.controller;
 
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
-import com.hmdp.service.IShopService;
+import com.hmdp.shop.entity.Shop;
+import com.hmdp.shop.service.IShopService;
 import com.hmdp.utils.constants.SystemConstants;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;

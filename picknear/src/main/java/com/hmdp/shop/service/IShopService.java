@@ -1,7 +1,7 @@
-package com.hmdp.service;
+package com.hmdp.shop.service;
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
+import com.hmdp.shop.entity.Shop;
 
 import java.util.List;
 

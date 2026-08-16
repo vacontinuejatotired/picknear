@@ -6,10 +6,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
-import com.hmdp.entity.ShopType;
-import com.hmdp.service.IShopService;
-import com.hmdp.service.IShopTypeService;
+import com.hmdp.shop.entity.Shop;
+import com.hmdp.shop.entity.ShopType;
+import com.hmdp.shop.service.IShopService;
+import com.hmdp.shop.service.IShopTypeService;
 import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;

@@ -1,9 +1,9 @@
-package com.hmdp.controller;
+package com.hmdp.shop.controller;
 
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.ShopType;
-import com.hmdp.service.IShopTypeService;
+import com.hmdp.shop.entity.ShopType;
+import com.hmdp.shop.service.IShopTypeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;

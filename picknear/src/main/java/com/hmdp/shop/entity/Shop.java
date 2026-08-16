@@ -1,4 +1,4 @@
-package com.hmdp.entity;
+package com.hmdp.shop.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;

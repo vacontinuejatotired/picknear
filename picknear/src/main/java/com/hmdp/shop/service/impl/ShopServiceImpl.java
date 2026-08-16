@@ -1,11 +1,11 @@
-package com.hmdp.service.impl;
+package com.hmdp.shop.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
-import com.hmdp.mapper.ShopMapper;
-import com.hmdp.service.IShopService;
+import com.hmdp.shop.entity.Shop;
+import com.hmdp.shop.mapper.ShopMapper;
+import com.hmdp.shop.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.cache.CacheClient;
 import com.hmdp.utils.redis.RedisConstants;
