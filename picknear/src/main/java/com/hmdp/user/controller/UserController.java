@@ -7,7 +7,6 @@ import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.profile.ProfileService;
 import com.hmdp.user.query.UserQueryService;
 import com.hmdp.user.service.ISignService;
-import com.hmdp.user.service.IUserInfoService;
 import com.hmdp.utils.UserHolder;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -40,8 +39,6 @@ import java.io.IOException;
 public class UserController {
 
     @Resource
-    private IUserInfoService userInfoService;
-    @Resource
     private ISignService signService;
     @Resource
     private UserQueryService userQueryService;
@@ -66,20 +63,18 @@ public class UserController {
     @Operation(summary = "查询用户详情", description = "查询用户详细信息（仅自己可查）")
     public Result info(
             @Parameter(description = "用户ID") @PathVariable("id") Long userId) {
-        // 权限校验：只能查自己的详细信息
+        // 权限校验：只能查自己的详细信息（HTTP 层语义）
         Long currentUserId = UserHolder.getUserId();
         if (!currentUserId.equals(userId)) {
             log.warn("越权访问详情: currentUserId={}, targetUserId={}", currentUserId, userId);
             return Result.fail(ErrorCode.FORBIDDEN, "无权访问该用户详细信息");
         }
-        // 查询详情
-        UserInfo info = userInfoService.getById(userId);
+        // 查询下沉 UserQueryService（H-1）
+        UserInfo info = userQueryService.queryInfoDetail(userId);
         if (info == null) {
             // 没有详情，应该是第一次查看详情
             return Result.ok();
         }
-        info.setCreateTime(null);
-        info.setUpdateTime(null);
         // 返回
         return Result.ok(info);
     }

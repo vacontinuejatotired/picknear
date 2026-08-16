@@ -146,4 +146,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 .page(new Page<>(page, size))
                 .getRecords();
     }
+
+    @Override
+    public Result queryShopByName(String name, Integer current) {
+        Page<Shop> page = query()
+                .like(StrUtil.isNotBlank(name), "name", name)
+                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        return Result.ok(page.getRecords());
+    }
 }

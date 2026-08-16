@@ -49,4 +49,14 @@ public class UserQueryService {
         }
         return Result.ok(userDTO);
     }
+
+    /** 用户详情（仅自己可查；时间戳置空） */
+    public UserInfo queryInfoDetail(Long userId) {
+        UserInfo info = userInfoService.getById(userId);
+        if (info != null) {
+            info.setCreateTime(null);
+            info.setUpdateTime(null);
+        }
+        return info;
+    }
 }

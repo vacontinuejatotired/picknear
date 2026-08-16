@@ -106,12 +106,8 @@ public class ShopController {
     public Result queryShopByName(
             @Parameter(description = "商铺名称关键字") @RequestParam(value = "name", required = false) String name,
             @Parameter(description = "页码") @RequestParam(value = "current", defaultValue = "1") Integer current) {
-        // 根据类型分页查询
-        Page<Shop> page = shopService.query()
-                .like(StrUtil.isNotBlank(name), "name", name)
-                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
-        // 返回数据
-        return Result.ok(page.getRecords());
+        // 查询下沉 Service（H-1）
+        return shopService.queryShopByName(name, current);
     }
     //查询5km内的附近店铺
     @GetMapping("/near/{typeId}")

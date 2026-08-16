@@ -30,4 +30,7 @@ public interface IShopService extends IService<Shop> {
 
     /** 按类型分页查店（评分降序，agent 工具用，M-4 对齐） */
     List<Shop> listByTypeOrderByScore(Long typeId, int page, int size);
+
+    /** 按名称关键字分页搜索（H-1 下沉，Controller 不再拼 query） */
+    Result queryShopByName(String name, Integer current);
 }
