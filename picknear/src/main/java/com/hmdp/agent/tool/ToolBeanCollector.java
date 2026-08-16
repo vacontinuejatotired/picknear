@@ -21,7 +21,6 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 自动收集所有标注了 {@link TargetTool @TargetTool} 的 Spring Bean，
@@ -57,9 +56,6 @@ public class ToolBeanCollector implements ApplicationContextAware {
     private final String modelName;
     /** 参数脱敏器（guard span 名参数摘要写入前统一出口） */
     private final AttributeSanitizer sanitizer;
-
-    /** 每轮对话分配一个 conversationId，AiServiceImpl 可在调用前更新 */
-    private volatile String conversationId = UUID.randomUUID().toString().replace("-", "");
 
     public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer,
                              PromptGuardProperties promptGuardProperties,
@@ -111,8 +107,10 @@ public class ToolBeanCollector implements ApplicationContextAware {
                 List<ToolCallback> rawCallbacks = List.of(ToolCallbacks.from(bean));
                 for (ToolCallback raw : rawCallbacks) {
                     // 用守卫包装（approvalEnabled 由配置决定，工具描述由 toolDefinitionProvider 外置覆盖）
+                    // conversationId 不再由单例字段冻结传入（无效设计，见 AgentContext 设计文档），
+                    // 运行时由 ToolContext 注入 / AgentContextHolder 兜底读取
                     GuardedToolCallback guarded = new GuardedToolCallback(
-                            raw, guardManager, conversationId, null,
+                            raw, guardManager, null, null,
                             /* returnDirect 由 @Tool 上的 returnDirect 决定
                                此处无法直接获取，Spring AI 内部处理，默认 false */
                             false, agentTracer,
@@ -157,20 +155,6 @@ public class ToolBeanCollector implements ApplicationContextAware {
             }
         }
         return null;
-    }
-
-    /**
-     * 获取当前会话 ID
-     */
-    public String getConversationId() {
-        return conversationId;
-    }
-
-    /**
-     * 更新会话 ID（新对话开始时由 AiServiceImpl 调用）
-     */
-    public void setConversationId(String conversationId) {
-        this.conversationId = conversationId;
     }
 
     /**

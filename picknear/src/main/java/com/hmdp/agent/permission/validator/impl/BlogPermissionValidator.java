@@ -2,8 +2,8 @@ package com.hmdp.agent.permission.validator.impl;
 
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.permission.validator.DataPermissionValidator;
-import com.hmdp.entity.Blog;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.mapper.BlogMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,13 +19,14 @@ import org.springframework.stereotype.Component;
  *   <li>非本人创建 → 无权限（false）</li>
  *   <li>本人创建 → 有权限（true）</li>
  * </ul>
+ * <p>P3-S4：IBlogService 拆分后改 BlogMapper 直查（权限校验需原始实体归属判断）。</p>
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class BlogPermissionValidator implements DataPermissionValidator {
 
-    private final IBlogService blogService;
+    private final BlogMapper blogMapper;
 
     @Override
     public String getResourceType() {
@@ -53,7 +54,7 @@ public class BlogPermissionValidator implements DataPermissionValidator {
             return false;
         }
 
-        Blog blog = blogService.getById(blogId);
+        Blog blog = blogMapper.selectById(blogId);
         if (blog == null) {
             log.warn("博客权限校验失败：博客不存在 [userId={}, blogId={}]", userId, blogId);
             return false;

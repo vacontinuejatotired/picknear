@@ -6,10 +6,11 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.hmdp.agent.annotation.TargetTool;
-import com.hmdp.entity.Follow;
-import com.hmdp.entity.UserInfo;
-import com.hmdp.service.IFollowService;
-import com.hmdp.service.IUserInfoService;
+import com.hmdp.agent.annotation.ToolMeta;
+import com.hmdp.content.entity.Follow;
+import com.hmdp.content.service.IFollowService;
+import com.hmdp.user.entity.UserInfo;
+import com.hmdp.user.service.IUserInfoService;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,7 @@ public class UserQueryTool {
             查询用户的公开资料（昵称/城市/简介/粉丝数/关注数/积分），和「这个作者是谁」「用户资料」「个人信息」一起使用。
             返回的昵称可与博客作者、评论用户对上。不返回手机号等隐私字段。
             """)
+    @ToolMeta(keywords = {"资料", "作者是谁", "用户信息", "个人信息", "是谁"}, intents = {"user"})
     public UserProfileBrief queryUserProfile(
             @ToolParam(description = "用户ID") Long userId) {
         UserInfo info = userInfoService.getById(userId);
@@ -58,10 +60,11 @@ public class UserQueryTool {
             查询当前用户自己关注的用户列表，和「我的关注」「我关注了谁」「关注列表」一起使用。
             返回被关注用户ID和昵称。只看当前登录用户自己的关注关系。
             """)
+    @ToolMeta(keywords = {"我的关注", "我关注了谁", "关注列表"}, intents = {"user"})
     public List<FollowBrief> queryMyFollows(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("queryMyFollows userId: {}", userId);
-        List<Follow> follows = followService.query().eq("user_id", userId).list();
+        List<Follow> follows = followService.listFollowsByUserId(userId);
         if (follows.isEmpty()) return List.of();
 
         List<Long> ids = follows.stream().map(Follow::getFollowUserId)

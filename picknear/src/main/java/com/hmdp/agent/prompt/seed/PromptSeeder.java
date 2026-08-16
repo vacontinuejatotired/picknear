@@ -3,6 +3,7 @@ package com.hmdp.agent.prompt.seed;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.repo.BuiltinPromptRepository;
 import com.hmdp.agent.prompt.repo.LangfusePromptRepository;
+import com.hmdp.agent.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +13,8 @@ import java.util.List;
 /**
  * 一次性种子：把内置模板推送到 Langfuse（创建/新版本，打 production label）。
  * <p>
- * 显式枚举全部模板键（6 文本 + 7 工具）。seed 后 Langfuse 成为事实源，
+ * 工具模板键由 {@link ToolRegistry} 提供（工具定义即事实源，新增工具自动纳入，
+ * 无需在此登记）；文本模板键显式枚举。seed 后 Langfuse 成为事实源，
  * UI 直接编辑即可，无需再次 seed（重建会覆盖线上改动，避免用 CommandLineRunner 自动触发）。
  * </p>
  */
@@ -20,21 +22,15 @@ import java.util.List;
 @Component
 public class PromptSeeder {
 
-    /** 全部工具名（对应内置模板 agent.tool.{name}.txt） */
-    public static final List<String> TOOL_NAMES = List.of(
-            "queryPublishedBlogs", "publishTestBlog", "queryBlogsByTitle",
-            "queryWeather", "queryTotalBlogs", "queryTotalUsers", "queryTotalShops",
-            "queryShopTypes", "queryShopsByType", "queryShopById",
-            "queryVouchersByShop", "queryMyVoucherOrders",
-            "queryBlogById", "queryBlogComments", "queryUserBlogs",
-            "queryUserProfile", "queryMyFollows");
-
     private final BuiltinPromptRepository builtin;
     private final LangfusePromptRepository remote;
+    private final ToolRegistry toolRegistry;
 
-    public PromptSeeder(BuiltinPromptRepository builtin, LangfusePromptRepository remote) {
+    public PromptSeeder(BuiltinPromptRepository builtin, LangfusePromptRepository remote,
+                        ToolRegistry toolRegistry) {
         this.builtin = builtin;
         this.remote = remote;
+        this.toolRegistry = toolRegistry;
     }
 
     /** 全部模板键（文本 + 工具） */
@@ -46,7 +42,7 @@ public class PromptSeeder {
         keys.add(PromptKeys.PLANNER_USER);
         keys.add(PromptKeys.SUBAGENT_EXECUTION);
         keys.add(PromptKeys.TASK_MERGE);
-        for (String tool : TOOL_NAMES) {
+        for (String tool : toolRegistry.allToolNames()) {
             keys.add(PromptKeys.tool(tool));
         }
         return keys;

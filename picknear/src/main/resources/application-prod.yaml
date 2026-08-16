@@ -52,14 +52,13 @@ spring:
       mode: never
 
 mybatis-plus:
-  type-aliases-package: com.hmdp.entity
+  type-aliases-package: com.hmdp.entity,com.hmdp.shop.entity,com.hmdp.voucher.entity,com.hmdp.user.entity,com.hmdp.content.entity
 
 # logging:
 #   level:
 #     com.hmdp: WARN
-#     com.hmdp.agent: DEBUG                     # AI Agent 链路（含工具调用）
+#     com.hmdp.agent: DEBUG                     # AI Agent 链路（含工具调用/守卫/规划/Hook 子域）
 #     com.hmdp.agent.tool: DEBUG                # 工具注册细节
-#     com.hmdp.promptguard: DEBUG               # 守卫策略评估日志
   
 
 debug: false

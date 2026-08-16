@@ -8,11 +8,15 @@ import org.springframework.ai.tool.annotation.ToolParam;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.permission.annotation.RequiredDataPermission;
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.util.TextUtils;
-import com.hmdp.entity.Blog;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.blog.BlogPublishService;
+import com.hmdp.content.blog.BlogQueryService;
+import com.hmdp.content.dto.BlogFormDTO;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.dto.Result;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +26,10 @@ import lombok.extern.slf4j.Slf4j;
 public class BlogTool {
 
     @Resource
-    private IBlogService blogService;
+    private BlogQueryService blogQueryService;
+
+    @Resource
+    private BlogPublishService blogPublishService;
 
     /**
      * 博客紧凑投影——只给 LLM 够用的最小字段集（标题 + 内容摘要 + 点赞数 + 总数），
@@ -41,14 +48,15 @@ public class BlogTool {
             按点赞数降序返回前5条（标题+内容摘要+点赞数），并附博客总数。
             注意：只看当前用户自己发布的博客，不能看别人的。
             """)
+    @ToolMeta(keywords = {"我的博客", "我发的", "看看博客", "浏览博客", "查看博客", "能看什么", "看博客"}, intents = {"blog"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
     public List<BlogBrief> queryPublishedBlogs(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
 
         log.info("queryPublishedBlogs userId: {}", userId);
-        long total = blogService.query().eq("user_id", userId).count();
-        Page<Blog> page = blogService.query().eq("user_id", userId).orderByDesc("liked").page(new Page<>(1, 5));
-        return page.getRecords().stream()
+        long total = blogQueryService.countByUserId(userId);
+        List<Blog> records = blogQueryService.queryPublishedByUserId(userId, 5);
+        return records.stream()
                 .map(b -> new BlogBrief(b.getTitle(),
                         TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
                 .toList();
@@ -65,19 +73,23 @@ public class BlogTool {
             用户说"发博客"、"写博客"、"发布"、"发一篇"时使用。
             注意：只能发固定内容的测试数据，不支持自定义标题和正文。
             """)
+    @ToolMeta(keywords = {"发博客", "写博客", "发布", "发一篇", "测试博客"}, intents = {"publish"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.CREATE)
     public Blog publishTestBlog(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("publishTestBlog userId: {}", userId);
-        Blog blog = new Blog();
-        blog.setUserId(userId);
-        blog.setTitle("测试博客");
-        blog.setContent("这是一篇测试博客");
-        boolean save = blogService.save(blog);
-        if (!save) {
-            log.error("publishTestBlog failed, blog: {}", blog);
+        BlogFormDTO dto = new BlogFormDTO();
+        dto.setTitle("测试博客");
+        dto.setContent("这是一篇测试博客");
+        Result result = blogPublishService.saveBlog(dto);
+        if (result == null || !Boolean.TRUE.equals(result.getSuccess())) {
+            log.error("publishTestBlog failed, dto: {}", dto);
             return null;
         }
+        Blog blog = new Blog();
+        blog.setUserId(userId);
+        blog.setTitle(dto.getTitle());
+        blog.setContent(dto.getContent());
         return blog;
     }
 
@@ -90,11 +102,12 @@ public class BlogTool {
             按标题模糊搜索博客，和「找一篇关于…的博客」「搜索/查询博客」一起使用。
             返回标题包含关键词的前10条（标题+内容摘要+点赞数，并附总数），适合批量查同主题文章。
             """)
+    @ToolMeta(keywords = {"找博客", "搜博客", "搜索博客", "找一篇", "查一下关于", "有没有博客"}, intents = {"blog"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
     public List<BlogBrief> queryBlogsByTitle(@ToolParam(description = "搜索关键词，例如：旅游——会搜到标题含「旅游」的博客") String title) {
-        long total = blogService.query().like("title", title).count();
-        Page<Blog> page = blogService.query().like("title", title).page(new Page<>(1, 10));
-        return page.getRecords().stream()
+        long total = blogQueryService.countByTitle(title);
+        List<Blog> records = blogQueryService.queryByTitle(title, 10);
+        return records.stream()
                 .map(b -> new BlogBrief(b.getTitle(),
                         TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
                 .toList();

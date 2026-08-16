@@ -1,13 +1,12 @@
 package com.hmdp.agent.guard;
 
-import com.hmdp.agent.observability.api.AgentSpan;
+import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.context.AgentContextHolder;
+import com.hmdp.agent.guard.model.ToolInvocationContext;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.observability.model.AgentField;
-import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
-import com.hmdp.agent.plan.UserIdPlaceholderResolver;
+import com.hmdp.agent.tool.ToolCallExecutor;
 import com.hmdp.agent.tool.ToolDefinitionProvider;
-import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -17,22 +16,25 @@ import org.springframework.ai.tool.metadata.ToolMetadata;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * 守卫包装工具回调（薄壳门面）。
+ * <p>
+ * 职责拆分（3.6 建议）：本类只保留回调协议（ToolCallback 接口 + 元数据代理 + 上下文装配），
+ * 决策小步委托 {@link ToolGuardGate}（策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流），
+ * 执行小步委托 {@link ToolCallExecutor}（占位符解析 + 调用 + 限长 + 参数转换错误兜底）。
+ * </p>
+ */
 @Slf4j
 public class GuardedToolCallback implements ToolCallback {
 
     private final ToolCallback delegate;
-    private final ToolGuardManager guardManager;
     private final String conversationId;
     private final Long userId;
-    private final boolean returnDirect;
-    private final AgentTracer agentTracer;
-    private final boolean approvalEnabled;
     private final ToolDefinitionProvider toolDefinitionProvider;
-    private final int maxResultChars;
-    /** 实际运行的模型名（如 qwen-plus-2025-07-28），编码进 guard span 名；null 时省略该段 */
-    private final String modelName;
-    /** 参数脱敏器（参数摘要写入 span 名前统一出口：手机号/邮箱/身份证 + 限长） */
-    private final AttributeSanitizer sanitizer;
+    /** 决策小步：guard 评估 + 观测 + 分流 */
+    private final ToolGuardGate guardGate;
+    /** 执行小步：ALLOW 放行后的工具调用 + 限长 */
+    private final ToolCallExecutor toolCallExecutor;
 
     private static final AtomicInteger invokeCounter = new AtomicInteger(0);
 
@@ -58,16 +60,12 @@ public class GuardedToolCallback implements ToolCallback {
                                ToolDefinitionProvider toolDefinitionProvider, int maxResultChars,
                                String modelName, AttributeSanitizer sanitizer) {
         this.delegate = delegate;
-        this.guardManager = guardManager;
         this.conversationId = conversationId;
         this.userId = userId;
-        this.returnDirect = returnDirect;
-        this.agentTracer = agentTracer;
-        this.approvalEnabled = approvalEnabled;
         this.toolDefinitionProvider = toolDefinitionProvider;
-        this.maxResultChars = maxResultChars;
-        this.modelName = modelName;
-        this.sanitizer = sanitizer;
+        this.guardGate = new ToolGuardGate(guardManager, agentTracer, approvalEnabled, returnDirect,
+                modelName, sanitizer);
+        this.toolCallExecutor = new ToolCallExecutor(delegate, maxResultChars, returnDirect);
     }
 
     public String getToolName() {
@@ -163,67 +161,11 @@ public class GuardedToolCallback implements ToolCallback {
                 .invocationCount(invokeCounter.incrementAndGet())
                 .build();
 
-        GuardResult result = guardManager.evaluate(context);
-
-        // 观测：agent.guard.{decision}.{toolName}[.{model}][.{参数摘要}]（M1.5 规则：决策进 span 名；
-        // Langfuse 不展示自定义属性，模型名与参数摘要编码进 span 名，控制台免点击直读执行内容）
-        try (AgentSpan guardSpan = agentTracer.start(AgentSpanSpec.GUARD,
-                buildGuardSemantic(result.getDecision().name(), toolName, functionPayload))) {
-            // Fail-Open：tracer 不可用（mock/null）时 guard 块仍正常执行
-            if (guardSpan != null) {
-                guardSpan.set(AgentField.TOOL_NAME, toolName);
-                if (modelName != null && !modelName.isBlank()) {
-                    guardSpan.set(AgentField.MODEL_NAME, modelName);
-                }
-                if (functionPayload != null && !functionPayload.isBlank()) {
-                    guardSpan.set(AgentField.TOOL_ARGUMENTS, functionPayload);
-                }
-                guardSpan.set(AgentField.GUARD_POLICY, result.getPolicyName() != null
-                        ? result.getPolicyName() : "none");
-            }
-
-            switch (result.getDecision()) {
-                case BLOCK -> {
-                    String msg = result.getReason() != null
-                            ? result.getReason()
-                            : "操作已被安全策略拦截";
-                    log.warn("工具调用被拦截 [tool={}, policy={}]", toolName, result.getPolicyName());
-                    return returnDirect ? msg : "{\"error\":\"" + msg + "\"}";
-                }
-                case CONFIRM -> {
-                    String msg = result.getReason() != null
-                            ? result.getReason()
-                            : "该操作需要你的确认才能执行";
-                    log.info("工具调用需确认 [tool={}, policy={}]", toolName, result.getPolicyName());
-                    // 审批开启 → 抛异常触发真暂停（TaskPlanner 捕获后建审批记录）；
-                    // 关闭 → 退回旧行为：把确认提示当工具结果返回给 LLM 自行处理
-                    if (approvalEnabled) {
-                        throw new ConfirmRequiredException(context, msg, result.getPolicyName());
-                    }
-                    return returnDirect ? msg : "{\"confirm\":\"" + msg + "\"}";
-                }
-                case ALLOW -> {
-                    log.debug("工具调用放行 [tool={}]", toolName);
-                    try {
-                        // self 占位符最后一层解析（覆盖子 Agent 内部再编造；快照恢复走 callBypass）
-                        String resolvedPayload = UserIdPlaceholderResolver.resolvePayload(
-                                functionPayload, toolName, effectiveUserId);
-                        return limitToolResult(delegate.call(resolvedPayload, toolContext));
-                    } catch (RuntimeException e) {
-                        // 参数类型转换失败（LLM 给数字参数传了非数字，如 userId="s"）：
-                        // Spring AI 对 Long/Integer 参数经 new BigDecimal(string) 转换，抛 NumberFormatException。
-                        // 转成友好错误返回给 LLM 自纠，而不是让晦涩异常进上下文/日志。
-                        if (isParamConversionError(e)) {
-                            String msg = "参数格式错误：" + toolName + " 的数字型参数必须是数字，请检查参数后重试";
-                            log.warn("工具参数转换失败 [tool={}, err={}]", toolName, e.getMessage());
-                            return returnDirect ? msg : "{\"error\":\"" + msg + "\"}";
-                        }
-                        throw e;
-                    }
-                }
-            }
-        }
-        return delegate.call(functionPayload, toolContext);
+        // lambda 捕获需要 effectively final 副本（toolContext/effectiveUserId 上文可能被重赋值）
+        final ToolContext ctxForExec = toolContext;
+        final Long uidForExec = effectiveUserId;
+        return guardGate.run(context, toolName, functionPayload,
+                () -> toolCallExecutor.execute(functionPayload, ctxForExec, uidForExec));
     }
 
     /**
@@ -237,40 +179,12 @@ public class GuardedToolCallback implements ToolCallback {
         if (toolContext == null) {
             toolContext = new ToolContext(Map.of());
         }
-        // 快照恢复路径参数未过 validatePlan，同样做 self 占位符解析（userId 由 TaskPlanner 注入 ToolContext）
-        String resolvedPayload = UserIdPlaceholderResolver.resolvePayload(
-                functionPayload, getRawToolName(), userIdFromContext(toolContext));
-        return limitToolResult(delegate.call(resolvedPayload, toolContext));
-    }
-
-    /** 从 ToolContext 提取 userId（无则 null） */
-    private static Long userIdFromContext(ToolContext toolContext) {
-        if (toolContext != null && toolContext.getContext() != null) {
-            Object uid = toolContext.getContext().get("userId");
-            if (uid instanceof Long l) {
-                return l;
-            }
-        }
-        return null;
+        return toolCallExecutor.executeBypass(functionPayload, toolContext);
     }
 
     /**
-     * 工具结果在回灌进 LLM 消息历史前截断至 {@link #maxResultChars}（codepoint-safe），
-     * 防上下文膨胀。guard 自身生成的 BLOCK/CONFIRM 消息不经过此方法。
-     */
-    private String limitToolResult(String result) {
-        // 取证（设计文档 §8.1）：记录工具原始返回长度，用于对照 trace 定位输入膨胀来源
-        if (log.isDebugEnabled()) {
-            log.debug("[Guard] 工具结果原始长度={} (maxResultChars={}, tool={})",
-                    result != null ? result.length() : 0, maxResultChars,
-                    getRawToolName());
-        }
-        return TextUtils.truncate(result, maxResultChars);
-    }
-
-    /**
-     * 优先从 ToolContext 读取会话 ID（运行时由 executor 注入真实会话），
-     * 否则回退构造时冻结的默认值（启动 UUID，仅兜底）。
+     * 会话 ID 解析顺序：ToolContext（executor 运行时注入）→ AgentContextHolder
+     * （请求级上下文，异步边界由 Propagator 传播）→ 构造时冻结值（仅最后防线）。
      */
     private String effectiveConversationId(ToolContext toolContext) {
         if (toolContext != null && toolContext.getContext() != null) {
@@ -279,56 +193,10 @@ public class GuardedToolCallback implements ToolCallback {
                 return s;
             }
         }
+        AgentContext ctx = AgentContextHolder.get();
+        if (ctx != null && ctx.conversationId() != null && !ctx.conversationId().isBlank()) {
+            return ctx.conversationId();
+        }
         return conversationId;
-    }
-
-    /** 参数摘要入 span 名的最大字符数（防 span 名膨胀；也是控制台免点击直读的关键载荷） */
-    private static final int ARGS_MAX_CHARS = 40;
-
-    /**
-     * 组装 guard span 语义：{decision}.{toolName}[.{model}][.{参数摘要}]。
-     * 模型名与参数摘要均为可选项（构造未注入/参数为空时省略），核心前缀 agent.guard. 不变，
-     * 观测白名单（agent.）与统计（agent.guard）不受影响。
-     */
-    private String buildGuardSemantic(String decision, String toolName, String payload) {
-        StringBuilder sb = new StringBuilder(decision).append('.').append(toolName);
-        if (modelName != null && !modelName.isBlank()) {
-            sb.append('.').append(modelName);
-        }
-        String args = compactArgs(payload);
-        if (!args.isBlank()) {
-            sb.append('.').append(args);
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 工具参数 → 紧凑摘要：去 JSON 引号/空白 → 脱敏（手机号/邮箱/身份证）→ 限长。
-     * 用于 span 名编码（Langfuse 不展示自定义属性）；空/null 参数或 {@code {}} 返回 ""。
-     */
-    private String compactArgs(String payload) {
-        if (payload == null || payload.isBlank()) {
-            return "";
-        }
-        String cleaned = payload.replaceAll("[\\p{Cntrl}\\s\"]", "");
-        if (cleaned.isBlank() || "{}".equals(cleaned)) {
-            return "";
-        }
-        String masked = sanitizer != null ? sanitizer.sanitizeSummary(cleaned) : cleaned;
-        return TextUtils.truncate(masked, ARGS_MAX_CHARS);
-    }
-
-    /**
-     * 判断异常链是否为参数类型转换失败：LLM 给数字参数传了非数字值（如 userId="s"），
-     * Spring AI 对 Long/Integer 参数经 {@code new BigDecimal(string)} 转换抛 {@link NumberFormatException}，
-     * 并被包成 {@code ToolExecutionException}。沿 cause 链找 NumberFormatException 即可命中。
-     */
-    private static boolean isParamConversionError(Throwable e) {
-        for (Throwable t = e; t != null; t = t.getCause()) {
-            if (t instanceof NumberFormatException) {
-                return true;
-            }
-        }
-        return false;
     }
 }

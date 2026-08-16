@@ -781,13 +781,16 @@ if (featureProperties.getSubagent().isEnabled()) {
 
 #### 4.5.4 TaskExecutor / TaskQueue 保留
 
-`TaskExecutor.java` 和 `TaskQueue.java` **不删除**，标注 `@Deprecated` 作为回退路径。
+> ⚠️ **后续演进（P5 重整，`93c59a0`）**：原方案标注 `@Deprecated` 归档；2026-08 用户拍板
+> "保留回退=重整"——**已移除 @Deprecated**（feature 开关下是活路径，非死代码），javadoc 改为
+> 回退路径定位，包结构收拢为 `legacy.task`（与 `legacy.plan` 并列）。
+
+`TaskExecutor.java` 和 `TaskQueue.java` **不删除**，作为 `feature.subagent.enabled=false` 的回退路径保留。
 
 ```java
-@Deprecated
+// 回退路径活组件（P5 重整后无 @Deprecated）
 public class TaskExecutor { ... }
 
-@Deprecated
 public class TaskQueue { ... }
 ```
 
@@ -1116,12 +1119,12 @@ log.warn("[SubAgent] JSON 快照解析失败, 将使用完整回复作为摘要"
 
 | 文件 | 原因 |
 |------|------|
-| `agent/task/TaskExecutor.java` | 标注 `@Deprecated`，作为回退路径保留 |
-| `agent/task/TaskQueue.java` | 同上 |
-| `agent/task/SubTask.java` | 仍作为 decompose() 输出 |
-| `agent/task/SubTaskStatus.java` | 保留供日志/监控 |
-| `agent/task/TaskReport.java` | 仍用于多轮历史跟踪 |
-| `agent/task/TaskSnapshot.java` | CONFIRM 续跑仍需要 |
+| `agent/legacy/task/TaskExecutor.java` | 回退路径组件（P5 重整 `93c59a0` 已移除 @Deprecated，非死代码），`feature.subagent.enabled=false` 时使用 |
+| `agent/legacy/task/TaskQueue.java` | 同上 |
+| `agent/task/model/SubTask.java` | 仍作为 decompose() 输出（已入 task/model 子包） |
+| `agent/task/model/SubTaskStatus.java` | 保留供日志/监控（五态两用：READY/RUNNING 为回退链专用） |
+| `agent/task/model/TaskReport.java` | 仍用于多轮历史跟踪 |
+| `agent/task/model/TaskSnapshot.java` | CONFIRM 续跑仍需要（恢复装配在 ConfirmResumeService） |
 | 所有 tool/ 下文件 | 工具实现不变 |
 | 所有 guard/ 下文件 | 安全守卫不变 |
 | AiServiceImpl.java | Phase 1 不变 |

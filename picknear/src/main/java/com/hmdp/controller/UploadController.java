@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.service.FileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,35 +45,35 @@ public class UploadController {
             // === ① 文件名非空校验 ===
             String originalFilename = image.getOriginalFilename();
             if (originalFilename == null || originalFilename.isBlank()) {
-                return Result.fail("文件名不能为空");
+                return Result.fail(ErrorCode.BAD_REQUEST, "文件名不能为空");
             }
 
             // === ② 文件扩展名校验 ===
             String ext = StrUtil.subAfter(originalFilename, ".", true).toLowerCase();
             if (StrUtil.isBlank(ext)) {
-                return Result.fail("文件无扩展名，无法识别类型");
+                return Result.fail(ErrorCode.BAD_REQUEST, "文件无扩展名，无法识别类型");
             }
             if (!ALLOWED_TYPES.contains(ext)) {
-                return Result.fail("不支持的文件类型，仅允许: " + ALLOWED_TYPES);
+                return Result.fail(ErrorCode.BAD_REQUEST, "不支持的文件类型，仅允许: " + ALLOWED_TYPES);
             }
 
             // === ③ 文件大小校验 ===
             if (image.getSize() > MAX_FILE_SIZE) {
-                return Result.fail("文件过大，最大允许 5MB");
+                return Result.fail(ErrorCode.BAD_REQUEST, "文件过大，最大允许 5MB");
             }
 
             // === ④ MIME/魔数校验 — 通过 ImageIO 读取文件头 ===
             InputStream inputStream = image.getInputStream();
             BufferedImage bufferedImage = ImageIO.read(inputStream);
             if (bufferedImage == null) {
-                return Result.fail("文件内容无法识别为有效图片");
+                return Result.fail(ErrorCode.BAD_REQUEST, "文件内容无法识别为有效图片");
             }
 
             // === ⑤ 像素尺寸限制 ===
             int width = bufferedImage.getWidth();
             int height = bufferedImage.getHeight();
             if (width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT) {
-                return Result.fail("图片尺寸过大，最大允许 " + MAX_IMAGE_WIDTH + "×" + MAX_IMAGE_HEIGHT + " 像素");
+                return Result.fail(ErrorCode.BAD_REQUEST, "图片尺寸过大，最大允许 " + MAX_IMAGE_WIDTH + "×" + MAX_IMAGE_HEIGHT + " 像素");
             }
 
             // === ⑥ 委托 FileService 上传 ===
@@ -82,7 +83,7 @@ public class UploadController {
             return Result.ok(url);
         } catch (IOException e) {
             log.error("文件上传 IO 异常", e);
-            return Result.fail("文件上传失败: " + e.getMessage());
+            return Result.fail(ErrorCode.SERVER_ERROR, "文件上传失败: " + e.getMessage());
         }
     }
 
@@ -93,7 +94,7 @@ public class UploadController {
         boolean deleted = fileService.delete(fileUrl);
         if (!deleted) {
             log.warn("文件删除失败或不存在: {}", fileUrl);
-            return Result.fail("文件删除失败");
+            return Result.fail(ErrorCode.SERVER_ERROR, "文件删除失败");
         }
         return Result.ok();
     }

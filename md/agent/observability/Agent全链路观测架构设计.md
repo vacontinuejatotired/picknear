@@ -42,7 +42,7 @@
 
 **LLM 调用层观测用成熟方案（Spring AI 内置），业务语义层观测自研（AgentTracer 埋点），展示用 Langfuse 现成 UI。**
 
-> ⚠️ **默认路径提醒**：生产默认走 **SubTaskAgent** 路径（`feature.subagent.enabled=true`），`TaskExecutor` 仅回退路径使用（已 `@Deprecated`）。业务观测必须覆盖两条路径，缺一不可（见 5.1）。
+> ⚠️ **默认路径提醒**：生产默认走 **SubTaskAgent** 路径（`feature.subagent.enabled=true`），`TaskExecutor` 仅回退路径使用（P5 重整后为回退路径组件，已去 `@Deprecated`，见《Agent模块架构设计》legacy 一节）。业务观测必须覆盖两条路径，缺一不可（见 5.1）。
 
 ---
 
@@ -207,7 +207,7 @@ sequenceDiagram
 #### 5.2.1 LLM generation 名按功能区分 + content 补发（2026-08-09 增强）
 
 - **背景**：Spring AI 1.1.2 的 `DefaultChatModelObservationConvention` 只发 usage/参数/finish_reason，**不发 `gen_ai.request.content` / `gen_ai.response.content`** → Langfuse generation 的 input/output 恒为 null；且所有 LLM 调用默认同名 `chat <model>`，无法一眼区分各功能。
-- **content 补发**：自定义 convention（`ChatModelObservationConventionConfig`）在 `getHighCardinalityKeyValues` 补发两个标准属性；请求侧序列化消息数组（含 tool 结果 / 工具调用，经 `AttributeSanitizer` 脱敏 + 截断），Langfuse 据此渲染 input/output。开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true）。
+- **content 补发**：自定义 convention（`ChatModelObservationConventionConfig`）在 `getHighCardinalityKeyValues` 补发两个标准属性；请求侧序列化消息数组（含 tool 结果 / 工具调用，经 `AttributeSanitizer` 脱敏 + 截断），Langfuse 据此渲染 input/output。开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true）。序列化/脱敏逻辑抽为 `ChatContentSerializer`（observability/support，纯静态可独立单测，2026-08 拆分）。
 - **功能命名**：各 LLM 调用点用 `mark("<功能>")` 打标（try/finally 清理），generation 名 = `{功能}-chat <model>`：`phase1-chat`（JSON+SSE Phase1）、`planner-chat`（子任务规划）、`subagent-exec-chat`（子代理工具循环）、`subagent-compress-chat`（工具结果压缩）、`llm-reason-chat`（回退路径聚合）。
 - ⚠️ **已知限制**：SSE 流式 Phase1 的模型层观察在 Reactor 线程创建/命名，ThreadLocal 标记跨不过去，暂仍为 `chat`（同步调用均正常）。
 
@@ -435,7 +435,7 @@ micrometer-registry-prometheus   <!-- 缺它 /actuator/prometheus 404 -->
 | `agent/task/TaskPlanner.java` | decompose 校验后 | `agent.plan` | validate_result、plan.tools |
 | `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count（M4 待补逐工具回填） |
 | `agent/task/TaskExecutor.java` | TOOL_CALL / LLM_REASON（回退路径） | `agent.tool_call` / `agent.llm_reason` | status、tool.result_summary / based_on |
-| `agent/promptguard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]） | tool.name、model.name、tool.arguments、guard.policy |
+| `agent/guard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]，决策小步在 ToolGuardGate） | tool.name、model.name、tool.arguments、guard.policy |
 | `agent/prompt/impl/DefaultPromptService.java` | 模板获取/渲染 | `agent.prompt`（semantic=模板键） | prompt.source、prompt.rendered_len |
 
 ---

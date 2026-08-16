@@ -2,13 +2,13 @@ package com.hmdp.agent.tool.impl;
 
 import java.util.List;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Voucher;
-import com.hmdp.entity.VoucherOrder;
-import com.hmdp.service.IVoucherOrderService;
-import com.hmdp.service.IVoucherService;
+import com.hmdp.voucher.entity.Voucher;
+import com.hmdp.voucher.entity.VoucherOrder;
+import com.hmdp.voucher.order.VoucherOrderService;
+import com.hmdp.voucher.service.IVoucherService;
 import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;
@@ -29,7 +29,7 @@ public class VoucherQueryTool {
     private IVoucherService voucherService;
 
     @Resource
-    private IVoucherOrderService voucherOrderService;
+    private VoucherOrderService voucherOrderService;
 
     public record VoucherBrief(Long id, String title, String subTitle, Long payValue, Long actualValue,
                                Integer type, Integer stock) {}
@@ -43,6 +43,7 @@ public class VoucherQueryTool {
             查询某家店铺的可用优惠券列表（含秒杀券库存），和「这家店有什么券」「优惠券」「领券/抢券」一起使用。
             返回券ID/标题/面值/实付/类型/库存。店铺ID来自 queryShopById 或 queryShopsByType。
             """)
+    @ToolMeta(keywords = {"优惠券", "有什么券", "领券", "抢券", "券"}, intents = {"shop", "voucher"})
     public List<VoucherBrief> queryVouchersByShop(
             @ToolParam(description = "店铺ID") Long shopId) {
         Result result = voucherService.queryVoucherOfShop(shopId);
@@ -63,12 +64,12 @@ public class VoucherQueryTool {
             查询当前用户自己的优惠券订单列表，和「我的订单」「我买的券」「下单记录」一起使用。
             返回订单ID/券ID/订单状态/下单时间。只看当前登录用户自己的订单。
             """)
+    @ToolMeta(keywords = {"我的订单", "我买的券", "下单记录", "订单"}, intents = {"voucher"})
     public List<VoucherOrderBrief> queryMyVoucherOrders(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("queryMyVoucherOrders userId: {}", userId);
-        Page<VoucherOrder> p = voucherOrderService.query().eq("user_id", userId)
-                .orderByDesc("create_time").page(new Page<>(1, SystemConstants.MAX_PAGE_SIZE));
-        return p.getRecords().stream()
+        List<VoucherOrder> orders = voucherOrderService.listByUserId(userId, SystemConstants.MAX_PAGE_SIZE);
+        return orders.stream()
                 .map(o -> new VoucherOrderBrief(o.getId(), o.getVoucherId(),
                         statusLabel(o.getStatus()), String.valueOf(o.getCreateTime())))
                 .toList();

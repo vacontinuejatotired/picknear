@@ -1,5 +1,7 @@
 package com.hmdp.agent.config;
 
+import com.hmdp.agent.context.AgentContextPropagator;
+
 import ch.qos.logback.classic.Logger;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -51,13 +53,15 @@ public class AgentConfig {
      * </p>
      */
     @Bean("aiTaskExecutor")
-    public Executor aiTaskExecutor() {
+    public Executor aiTaskExecutor(AgentContextPropagator agentContextPropagator) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("ai-worker-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        // AgentContext 异步传播：提交线程捕获 → 执行线程恢复 → finally 清理
+        executor.setTaskDecorator(agentContextPropagator);
         executor.initialize();
         return executor;
     }
@@ -69,13 +73,15 @@ public class AgentConfig {
      * </p>
      */
     @Bean("subtaskExecutor")
-    public Executor subtaskExecutor() {
+    public Executor subtaskExecutor(AgentContextPropagator agentContextPropagator) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(10);
         executor.setMaxPoolSize(50);
         executor.setQueueCapacity(200);
         executor.setThreadNamePrefix("subtask-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        // AgentContext 异步传播：子 Agent 执行线程也能读到父级请求上下文
+        executor.setTaskDecorator(agentContextPropagator);
         executor.initialize();
         return executor;
     }

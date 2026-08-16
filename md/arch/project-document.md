@@ -1,4 +1,4 @@
-﻿# picknear 项目架构文档
+# picknear 项目架构文档
 
 > 基于探点 (picknear) 的二次开发与高并发优化项目
 > 最后更新：2026-07-09
@@ -80,10 +80,10 @@ picknear/
 
 | 接口 | 实现 | 职责 |
 |------|------|------|
-| `AuthService` | `AuthServiceImpl` | 双Token生成/校验/刷新/吊销、验证码原子消费、Token版本号管理 |
-| `IUserService` | `UserServiceImpl` | 登录/注册/登出、密码修改、签到(BitMap)、个人资料编辑 |
+| `AuthService` | `AuthServiceImpl` | 双Token生成/校验/刷新/吊销、验证码原子消费、Token版本号管理（✅ P2 已拆分为 `auth` 域：TokenService/SessionContextService/VerifyCodeService/PasswordService + LoginStrategy 策略族 + UserAccountService，AuthServiceImpl 已删除） |
+| `IUserService` | `UserServiceImpl` | 登录/注册/登出、密码修改、签到(BitMap)、个人资料编辑（✅ 登录域已下沉 `auth` 域，`user` 域保留用户行为） |
 | `IUserInfoService` | `UserInfoServiceImpl` | 用户详细信息 |
-| `IVoucherOrderService` | `MqVoucherOrderServiceImpl` (@Primary) | 秒杀下单：Redis+Lua预扣库存 + RabbitMQ异步落库 |
+| `IVoucherOrderService` | `MqVoucherOrderServiceImpl` (@Primary) | 秒杀下单：Redis+Lua预扣库存 + RabbitMQ异步落库（✅ P1 已拆为 `voucher` 域：SeckillOrderService 编排 + stock/order/mq 三组件 + AbstractMqConsumer 模板） |
 | `ISeckillVoucherService` | `SeckillVoucherServiceImpl` | 秒杀券库存管理（基础CRUD） |
 | `IVoucherService` | `VoucherServiceImpl` | 优惠券管理 |
 | `IShopService` | `ShopServiceImpl` | 店铺多级缓存、防缓存穿透/击穿、按GEO距离查询 |
@@ -353,7 +353,7 @@ MySQL (tb_user / tb_user_info)
 ```
 UserController -> UserServiceImpl -> AuthService (generateTokenPair/validate/refresh)
                    ↑                     ↑
-              IUserService           AuthServiceImpl
+              IUserService           AuthServiceImpl（P2 已拆：TokenService/VerifyCodeService/PasswordService）
                    ↑                     ↑
               UserMapper           JwtUtil + RedisIdWorker + Lua Scripts
 

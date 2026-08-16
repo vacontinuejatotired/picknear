@@ -1,8 +1,8 @@
 package com.hmdp.agent.service.impl;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.history.HistoryRecorder;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -11,7 +11,6 @@ import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.service.AiService;
 import com.hmdp.agent.stream.SseResponseProcessor;
 import com.hmdp.agent.stream.StreamingChatInvoker;
-import com.hmdp.agent.tool.ToolBeanCollector;
 import com.hmdp.agent.util.SseEventConstants;
 import com.hmdp.agent.util.SseUtils;
 import com.hmdp.agent.util.TextUtils;
@@ -41,9 +40,6 @@ public class AiServiceImpl implements AiService {
     @Resource
     private PromptHookExecutor promptHookExecutor;
 
-    @Resource
-    private ToolBeanCollector toolBeanCollector;
-
     @Resource(name = "aiTaskExecutor")
     private Executor aiTaskExecutor;
 
@@ -70,9 +66,6 @@ public class AiServiceImpl implements AiService {
     @Override
     public String chatReturnStringResult(String content, String conversationId) {
         log.info("AI 调用：{}", content);
-
-        // 0. 将会话 ID 同步到工具收集器（供 GuardedToolCallback / RateLimitPolicy 使用）
-        toolBeanCollector.setConversationId(conversationId);
 
         Long userId = UserHolder.getUserId();
 
@@ -124,9 +117,6 @@ public class AiServiceImpl implements AiService {
     private void doChatWithToolcall(String content, String conversationId, SseEmitter emitter, AgentSpan rootSpan) {
         Long userId = UserHolder.getUserId();
         try {
-        // 0. 将会话 ID 同步到工具收集器
-        toolBeanCollector.setConversationId(conversationId);
-
         // 1-3. Hook 链执行 + 决策（双模共用 PromptHookExecutor；rootSpan 供跨线程挂载）
         PromptHookExecutor.HookOutcome outcome = promptHookExecutor.execute(content, conversationId, userId, rootSpan);
         if (outcome.blocked()) {
@@ -134,9 +124,8 @@ public class AiServiceImpl implements AiService {
             emitter.complete();
             return;
         }
-        ChatContext ctx = outcome.ctx();
+        AgentContext ctx = outcome.ctx();
         String finalContent = outcome.finalContent();
-
         // 4. 流式调用 AI（真正的逐 token 推送，异步线程）
         //    观测：先 resume 根 span（跨线程传播，架构文档 §6.2），后续 span 自动挂树
         AgentSpan phase1Root = rootSpan;

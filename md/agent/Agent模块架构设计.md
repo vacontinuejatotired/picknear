@@ -2,7 +2,7 @@
 
 > **版本**: v2.0  
 > **最后更新**: 2026-07-24  
-> **对应代码路径**: `picknear/src/main/java/com/hmdp/` 下的 `agent/`, `permission/`, `aspect/`, `promptguard/`, `prompthook/`, `exception/`  
+> **对应代码路径**: `picknear/src/main/java/com/hmdp/` 下的 `agent/`（含 `guard/`、`guard/model/`、`guard/policy/`、`plan/`、`plan/model/`、`plan/support/`、`task/`、`task/model/`、`routing/`、`tool/`、`hook/`、`stream/`、`prompt/`、`subagent/`、`legacy/` 等子包）、`permission/`、`aspect/`、`exception/`
 > **相关文档**: [Agent任务队列方案](./Agent任务队列方案.md), [Agent模块简历亮点](./Agent模块简历亮点.md), [SSE后端实现规范](./SSE后端实现规范.md)
 
 ---
@@ -131,13 +131,15 @@ Phase 2: TaskPlanner 规划执行
                            ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                  Guard 层（工具调用守卫）                                 │
-│  GuardedToolCallback (ToolCallback 代理)                                │
-│  └─ ToolGuardManager.evaluate() → List<ToolGuardPolicy>                 │
-│       ├─ HighRiskListPolicy     — 高危工具精确匹配                      │
-│       ├─ ConfirmToolPolicy      — 需确认工具列表                        │
-│       ├─ PatternMatchPolicy     — 正则匹配拦截                          │
-│       ├─ RateLimitPolicy        — Redis 频率限制                        │
-│       └─ ... 纯无状态策略，零业务 Service 依赖                          │
+│  GuardedToolCallback (ToolCallback 代理薄壳)                              │
+│  ├─ ToolGuardGate — 决策小步：投票 + guard span 观测 + 分流               │
+│  │    └─ ToolGuardManager.evaluate() → List<ToolGuardPolicy>              │
+│  │         ├─ HighRiskListPolicy     — 高危工具精确匹配                  │
+│  │         ├─ ConfirmToolPolicy      — 需确认工具列表                    │
+│  │         ├─ PatternMatchPolicy     — 正则匹配拦截                      │
+│  │         ├─ RateLimitPolicy        — Redis 频率限制                    │
+│  │         └─ ... 纯无状态策略，零业务 Service 依赖                      │
+│  └─ ToolCallExecutor — 执行小步：占位符解析 + 调用 + 限长                 │
 └──────────────────────────┬──────────────────────────────────────────────┘
                            │ AOP
                            ▼
@@ -764,6 +766,12 @@ if-else 硬编码违背 OCP。策略模式 + AOP 新增资源只需加实现类�
 
 ToolCallbacks.from() 返回的 ToolCallback 是 Spring AI 内部生成的匿名类，无法继承。代理模式零侵入。
 
+**职责拆分（3.6 建议落地，提交 08d9ae4）**：回调本体保持代理薄壳（340→~200 行），
+决策小步抽 `ToolGuardGate`（策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流），
+执行小步抽 `ToolCallExecutor`（self 占位符解析 + 委托调用 + 结果限长 + 参数转换
+错误友好兜底）；callBypass（审批恢复路径）随执行器迁入。公共 API（构造器/
+call/callBypass/静态工具方法）零变化。
+
 ### 5.8 为什么 RateLimitPolicy 使用 Redis？
 
 重启保持、多实例共享、自动过期。本地计数器在重启时丢失、多实例无效。
@@ -778,8 +786,7 @@ logging:
     com.hmdp: WARN
     com.hmdp.agent: DEBUG
     com.hmdp.agent.tool: DEBUG
-    com.hmdp.promptguard: DEBUG
-    com.hmdp.prompthook: DEBUG
+    # 守卫/规划/Hook 等子域均在 com.hmdp.agent 包内，由 agent 级别统一控制
 ```
 
 ### 5.10 为什么提示词用 Langfuse Prompt Management + 内置兜底，而非本地 DB 表？
@@ -907,9 +914,11 @@ hmdp:
 | 文件路径 | 角色 |
 |---------|------|
 | `annotation/TargetTool.java` | 工具标记注解 |
+| `annotation/ToolMeta.java` | 工具业务元数据注解（keywords 触发词 + intents 意图归属，工具注册表单一体） |
 | `agent/config/AgentConfig.java` | ChatClient（无默认工具）+ 线程池 |
 | `agent/config/DashScopeHttpConfig.java` | DashScope HTTP 连接池 |
 | `agent/controller/ChatController.java` | SSE/JSON 双模入口 |
+| `agent/tool/ToolRegistry.java` | 工具注册表（工具名 + @ToolMeta 元数据聚合，单一事实源） |
 | `agent/service/AiService.java` | AI 服务接口 |
 | `agent/service/impl/AiServiceImpl.java` | 编排层（拆分后：Hook 段 → 流式调用 → 后处理，纯协调） |
 | `agent/hook/PromptHookExecutor.java` | Hook 链执行 + 决策（双模共用） |
@@ -922,17 +931,24 @@ hmdp:
 | `agent/tool/impl/BlogTool.java` | 博客工具 |
 | `agent/tool/impl/WeatherQueryTool.java` | 天气查询 |
 | `agent/tool/impl/StatsQueryTool.java` | 统计查询（测试） |
-| `agent/task/TaskPlanner.java` | 规划器（主循环） |
-| `agent/task/TaskReport.java` | 执行报告 |
-| `agent/task/SubTask.java` | 子任务数据模型 |
-| `agent/task/TaskType.java` | 枚举 |
-| `agent/task/SubTaskStatus.java` | 枚举 |
-| `agent/legacy/task/TaskExecutor.java` | 【废弃归档】串行任务执行器（回退路径） |
-| `agent/legacy/task/TaskQueue.java` | 【废弃归档】任务队列 |
-| `agent/legacy/plan/LegacyPlanRouter.java` | 【废弃归档】legacy 规划策略 |
-| `agent/legacy/routing/ToolRouter.java` | 【废弃归档】规划工具路由门面 |
-| `agent/legacy/routing/CatalogBuilder.java` | 【废弃归档】目录构建死抽象 |
-| `agent/task/TaskSnapshot.java` | 任务快照 |
+| `agent/task/TaskPlanner.java` | 规划器（编排门面） |
+| `agent/task/PlanLoopExecutor.java` | 主循环（子 Agent/回退分支分发） |
+| `agent/task/SubAgentRoundExecutor.java` | 子 Agent 执行分支 |
+| `agent/task/FallbackRoundExecutor.java` | 回退执行分支 |
+| `agent/task/ConfirmFlowManager.java` | CONFIRM 审批流（暂停中间态 + 已批工具直调） |
+| `agent/task/ConfirmResumeService.java` | CONFIRM 续流装配（审批通过 → 会话/快照/上下文重建 → resume） |
+| `agent/task/TaskReportHelper.java` | 历史/聚合助手 |
+| `agent/task/AgentContextResolver.java` | 异步上下文解析工具 |
+| `agent/task/model/SubTask.java` | 子任务数据模型 |
+| `agent/task/model/SubTaskStatus.java` | 状态机枚举（五态两用：READY/RUNNING 为回退链专用） |
+| `agent/task/model/TaskType.java` | 类型枚举 |
+| `agent/task/model/TaskReport.java` | 执行报告 |
+| `agent/task/model/TaskSnapshot.java` | 任务快照（CONFIRM 续跑） |
+| `agent/legacy/task/TaskExecutor.java` | 【回退路径，已重整】串行任务执行器（`feature.subagent.enabled=false` 时由 FallbackRoundExecutor 使用，非死代码） |
+| `agent/legacy/task/TaskQueue.java` | 【回退路径，已重整】回退队列（仅 FallbackRoundExecutor 使用；TaskReportHelper 已解耦） |
+| `agent/legacy/plan/LegacyPlanRouter.java` | 【回退路径，已重整】legacy 规划策略（`feature.tool-routing.enabled=false` 条件装配） |
+| `agent/legacy/plan/ToolRouter.java` | 【回退路径，已重整】回退规划链内部路由门面（仅被 LegacyPlanRouter 使用） |
+| `agent/routing/CatalogBuilder.java` | 【活接口，已迁出】目录构建抽象——TreeCatalogBuilder/CompactCatalogBuilder 均实现它；P5 重整时从 legacy 包迁至 routing 包 |
 
 ### 权限校验模块
 
@@ -948,27 +964,36 @@ hmdp:
 
 ### PromptGuard 守卫模块
 
+> 包名 `guard`（旧文档 `promptguard` 为历史包名，已修正）。按职责分层（提交 0475a85）：
+> guard 根 = 门面三件套，`guard/model` = 决策模型与上下文，`guard/policy` = 策略接口与实现，
+> 执行小步 `ToolCallExecutor` 归工具域（tool 包）。
+
 | 文件路径 | 角色 |
 |---------|------|
-| `promptguard/GuardedToolCallback.java` | ToolCallback 代理 |
-| `promptguard/ToolGuardManager.java` | 策略收集与决策聚合 |
-| `promptguard/ToolGuardPolicy.java` | 策略接口 |
-| `promptguard/ToolInvocationContext.java` | 评估上下文 |
-| `promptguard/GuardResult.java` | 决策结果 |
-| `promptguard/Vote.java` | 投票枚举 |
-| `promptguard/policy/*.java` | 各策略实现 |
+| `guard/GuardedToolCallback.java` | ToolCallback 代理（薄壳：回调协议 + 元数据代理 + 上下文装配） |
+| `guard/ToolGuardGate.java` | 守卫门（决策小步：策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流） |
+| `guard/ToolGuardManager.java` | 策略收集与决策聚合 |
+| `guard/model/GuardResult.java` | 决策结果 |
+| `guard/model/Vote.java` | 投票枚举 |
+| `guard/model/ToolInvocationContext.java` | 评估上下文 |
+| `guard/model/ConfirmRequiredException.java` | CONFIRM 暂停信号（审批流异常，TaskPlanner/工具循环捕获） |
+| `guard/policy/ToolGuardPolicy.java` | 策略接口 |
+| `guard/policy/*.java` | 各策略实现（HighRiskList/ConfirmTool/PatternMatch/RateLimit） |
+| `tool/ToolCallExecutor.java` | 执行小步（self 占位符解析 + 委托调用 + 结果限长 + 参数转换错误兜底） |
 
 ### PromptHook 输入拦截模块
 
+> 包名 `hook`（旧文档 `prompthook` 为历史包名，已修正）。ChatContext 已删除（M-3 并入 AgentContext）。
+
 | 文件路径 | 角色 |
 |---------|------|
-| `prompthook/PromptHook.java` | 前置 Hook 接口 |
-| `prompthook/PromptHookChain.java` | 链式执行器 |
-| `prompthook/HookResult.java` | 决策结果 |
-| `prompthook/ChatContext.java` | 上下文对象 |
-| `prompthook/AfterAiHook.java` | 后处理 Hook 接口 |
-| `prompthook/AfterAiHookChain.java` | 后处理链式执行器 |
-| `prompthook/impl/TaskTriggerHook.java` | 触发词检测 |
+| `hook/PromptHook.java` | 前置 Hook 接口 |
+| `hook/PromptHookChain.java` | 链式执行器 |
+| `hook/HookResult.java` | 决策结果 |
+| `hook/AfterAiHook.java` | 后处理 Hook 接口 |
+| `hook/AfterAiHookChain.java` | 后处理链式执行器 |
+| `hook/impl/TaskTriggerHook.java` | 触发词检测 |
+| `hook/PromptHookExecutor.java` | Hook 链执行 + 决策（双模共用） |
 
 ### 基础设施
 

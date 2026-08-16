@@ -1,26 +1,23 @@
 package com.hmdp.interceptor;
 
-import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.hmdp.dto.TokenPair;
-import com.hmdp.dto.ValidationResult;
-import com.hmdp.entity.UserinfoCache;
-import com.hmdp.entity.UserInfo;
-import com.hmdp.service.AuthService;
-import com.hmdp.service.IUserInfoService;
+import com.hmdp.auth.dto.TokenPair;
+import com.hmdp.auth.dto.ValidationResult;
+import com.hmdp.auth.session.SessionContextService;
+import com.hmdp.auth.token.TokenService;
+import com.hmdp.auth.token.TokenService.TokenRefreshResult;
 import com.hmdp.utils.UserHolder;
-import com.hmdp.utils.cache.CaffeineConstants;
-import com.hmdp.utils.redis.RedisConstants;
+import com.hmdp.utils.security.CookieWriter;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * Token 自动续期间拦截器 — 校验 + 刷新全权委托 AuthService，仅处理 HTTP 细节
+ * Token 自动续期间拦截器 — 校验/刷新委托 TokenService，用户上下文委托 SessionContextService，
+ * 本类仅处理 HTTP 细节（P2-S6 后 AuthService 门面删除）。
  * 优先级高于 LoginInterceptor，拦截所有请求（除公开接口）
  */
 @Slf4j
@@ -28,13 +25,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class RefreshTokenInterceptor implements HandlerInterceptor {
 
     @Resource
-    private AuthService authService;
+    private TokenService tokenService;
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
-    @Resource(name = "userinfoCache")
-    private LoadingCache<String, UserinfoCache> userinfoCaffeine;
-    @Resource
-    private IUserInfoService userInfoService;
+    private SessionContextService sessionContextService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -49,7 +42,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 log.warn("【Token拦截】缺少authorization请求头, URI={} {}", method, requestURI);
                 return false;
             }
-// 统一全小写 authorization，getHeader 大小写不敏感无需 fallback
+            // 统一全小写 authorization，getHeader 大小写不敏感无需 fallback
             String token = request.getHeader("authorization");
             if (token != null && token.startsWith("Bearer ")) {
                 token = token.substring(7);
@@ -57,42 +50,28 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
 
             // Refresh Token 双通道读取：前端显式携带的请求头优先，httpOnly Cookie 兜底
             // （跨 host / 浏览器清 cookie 时请求头仍能送达，规避"refreshToken is null"掉登录）
-            String refreshToken = request.getHeader("Refresh-Token");
-            if (refreshToken == null || refreshToken.isEmpty()) {
-                jakarta.servlet.http.Cookie[] cookies = request.getCookies();
-                if (cookies != null) {
-                    for (jakarta.servlet.http.Cookie cookie : cookies) {
-                        if ("refresh_token".equals(cookie.getName())) {
-                            refreshToken = cookie.getValue();
-                            break;
-                        }
-                    }
-                }
-            }
+            String refreshToken = readRefreshToken(request);
 
-            // ① AuthService 做完整校验：JWT 解析 + Caffeine + Redis 版本
-            ValidationResult result = authService.validateAccessToken(token);
+            // ① TokenService 做完整校验：JWT 解析 + Caffeine + Redis 版本
+            ValidationResult result = tokenService.validateAccessToken(token);
 
             if (!result.isValid() && !result.isNeedsRefresh()) {
                 // JWT 无效（签名错误、格式错误等）或会话被更新登录顶替（版本校验不过）。
                 // 后者是"被顶替"最常见路径：AT 未过期、但 validVersion 已被新登录顶高。
-                boolean superseded = isSuperseded(result.getUserId(), result.getVersion());
-                response.setHeader("X-Auth-Reason", superseded ? "superseded" : "no-session");
+                boolean superseded = tokenService.isSessionSuperseded(result.getUserId(), result.getVersion());
+                writeUnauthorized(response, superseded);
                 log.warn("【Token拦截】JWT校验失败或会话被顶替, URI={}, superseded={}", requestURI, superseded);
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
 
-            // ② 保存用户信息到 ThreadLocal
+            // ② 保存用户信息到 ThreadLocal（Caffeine 缓存 → DB 兜底回填）
             Long userId = result.getUserId();
-
             if (userId == null) {
                 log.warn("【Token拦截】无法获取 userId, URI={}", requestURI);
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
-            
-            if (!resolveAndSaveUser(userId)) {
+            if (!sessionContextService.saveUserToContext(userId)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
@@ -103,61 +82,43 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 return true;
             }
 
-            // ④ 需要刷新 — 分布式锁 + 委托 AuthService
+            // ④ 需要刷新 — 带锁刷新委托 TokenService（锁的获取/释放内聚服务层）
             log.info("【Token拦截】Token 需要刷新 userId={}", userId);
-            boolean isExpired = !result.isValid();
+            TokenRefreshResult refreshResult = tokenService.refreshTokenPairWithLock(
+                    token, refreshToken, userId, result.getVersion(), !result.isValid());
 
-            // 分布式锁保护：同一用户同时只有一个刷新请求执行
-            String lockKey = "lock:refresh:" + userId;
-            boolean locked = Boolean.TRUE.equals(stringRedisTemplate.opsForValue()
-                    .setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS));
-            if (!locked) {
-                log.info("【Token拦截】刷新锁被占用，跳过刷新 userId={}", userId);
-                response.setHeader("X-Token-Refresh", "skipped");
-                // 不写回 authorization 头，避免旧值覆盖前端已更新的新 token
-                return true;
-            }
-            try {
-                if(result.getVersion() == null) {
-                    log.warn("【Token拦截】无法获取 version, result={}", result);
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return false;
+            switch (refreshResult.status()) {
+                case OK -> {
+                    // 刷新成功：写回响应头 + 设置 Refresh Token Cookie
+                    TokenPair newPair = refreshResult.tokenPair();
+                    response.setHeader("X-Token-Refresh", "ok");
+                    response.setHeader("authorization", "Bearer " + newPair.getAccessToken());
+                    // 双通道：响应头让前端刷新 localStorage 中的 RT，与 Set-Cookie 保持同步
+                    response.setHeader("Refresh-Token", newPair.getRefreshToken());
+                    if (newPair.getRefreshToken() != null) {
+                        response.addHeader("Set-Cookie",
+                                CookieWriter.refreshTokenCookie(newPair.getRefreshToken(), request.isSecure()));
+                    }
+                    log.info("【Token拦截】刷新成功 userId={}", userId);
+                    return true;
                 }
-                TokenPair newPair = authService.refreshTokenPair(
-                        token, refreshToken, userId, result.getVersion(), isExpired);
-
-                if (newPair == null) {
+                case SKIPPED -> {
+                    // 刷新锁被占用，跳过刷新；不写回 authorization 头，避免旧值覆盖前端已更新的新 token
+                    response.setHeader("X-Token-Refresh", "skipped");
+                    return true;
+                }
+                case FAILED -> {
                     log.warn("【Token拦截】刷新失败 userId={}", userId);
                     response.setHeader("X-Token-Refresh", "failed");
                     // 区分失败原因：被新登录顶替 vs 无有效会话，供前端决策提示文案
-                    boolean superseded = isSuperseded(userId, result.getVersion());
-                    response.setHeader("X-Auth-Reason", superseded ? "superseded" : "no-session");
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    boolean superseded = tokenService.isSessionSuperseded(userId, result.getVersion());
+                    writeUnauthorized(response, superseded);
                     return false;
                 }
-
-                // 刷新成功：写回响应头 + 设置 Refresh Token Cookie
-                response.setHeader("X-Token-Refresh", "ok");
-                response.setHeader("authorization", "Bearer " + newPair.getAccessToken());
-                // 双通道：响应头让前端刷新 localStorage 中的 RT，与 Set-Cookie 保持同步
-                response.setHeader("Refresh-Token", newPair.getRefreshToken());
-                if (newPair.getRefreshToken() != null) {
-                    boolean isSecure = request.isSecure();
-                    String sameSite = isSecure ? "None" : "Lax";
-                    response.addHeader("Set-Cookie", String.format(
-                            "refresh_token=%s; HttpOnly; %sSameSite=%s; Path=/; MaxAge=%d",
-                            newPair.getRefreshToken(),
-                            isSecure ? "Secure; " : "",
-                            sameSite,
-                            7 * 24 * 60 * 60
-                    ));
+                default -> {
+                    return false;
                 }
-                log.info("【Token拦截】刷新成功 userId={}", userId);
-                return true;
-            } finally {
-                stringRedisTemplate.delete(lockKey);
             }
-
         } finally {
             long totalTime = System.currentTimeMillis() - methodStartTime;
             if (totalTime > 100) {
@@ -176,52 +137,29 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         return true;
     }
 
-    /**
-     * 判定会话是否已被更新登录顶替：Redis validVersion > token 携带的 version。
-     * 供 401 响应透传 X-Auth-Reason，前端据此区分"账号已在其他设备登录"与"登录已过期"。
-     * version 为 null（签名错误等场景无版本可比）或 validVersion 缺失/非数字时一律视为未顶替。
-     */
-    private boolean isSuperseded(Long userId, Long version) {
-        if (version == null) {
-            return false;
+    /** 读取 Refresh Token：请求头优先，httpOnly Cookie 兜底 */
+    private String readRefreshToken(HttpServletRequest request) {
+        String refreshToken = request.getHeader("Refresh-Token");
+        if (refreshToken == null || refreshToken.isEmpty()) {
+            Cookie[] cookies = request.getCookies();
+            if (cookies != null) {
+                for (Cookie cookie : cookies) {
+                    if (CookieWriter.REFRESH_TOKEN_COOKIE_NAME.equals(cookie.getName())) {
+                        refreshToken = cookie.getValue();
+                        break;
+                    }
+                }
+            }
         }
-        String validVersion = stringRedisTemplate.opsForValue()
-                .get(RedisConstants.LOGIN_VALID_VERSION_KEY + userId);
-        if (validVersion == null) {
-            return false;
-        }
-        try {
-            return Long.parseLong(validVersion) > version;
-        } catch (NumberFormatException e) {
-            log.warn("validVersion 非数字 userId={}, validVersion={}", userId, validVersion);
-            return false;
-        }
+        return refreshToken;
     }
 
     /**
-     * 从 Caffeine 用户缓存中加载用户信息并存入 ThreadLocal
+     * 401 + X-Auth-Reason 透传：superseded=账号已在其他设备登录；no-session=登录已过期/无会话。
      */
-    private boolean resolveAndSaveUser(Long userId) {
-        try {
-            UserHolder.saveUserId(userId);
-            String userInfoKey = CaffeineConstants.USERINFO_CACHE_KEY + userId;
-            UserinfoCache cache = userinfoCaffeine.get(userInfoKey);
-            // Caffeine load 返回空值时不阻塞等待异步加载
-            // 兜底：nickName 或 icon 为空时从 DB 同步回填
-            if (cache.getNickName() == null || cache.getNickName().isEmpty()
-                    || cache.getIcon() == null || cache.getIcon().isEmpty()) {
-                UserInfo userInfo = userInfoService.getById(userId);
-                if (userInfo != null) {
-                    cache = new UserinfoCache(userId, userInfo.getNickName(), userInfo.getIcon());
-                    userinfoCaffeine.put(userInfoKey, cache);
-                }
-            }
-            UserHolder.saveUserDTO(cache);
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to save to ThreadLocal for userId: {}", userId, e);
-            return false;
-        }
+    private void writeUnauthorized(HttpServletResponse response, boolean superseded) {
+        response.setHeader("X-Auth-Reason", superseded ? "superseded" : "no-session");
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
     }
 
     @Override

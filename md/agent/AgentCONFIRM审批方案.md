@@ -146,5 +146,5 @@ hmdp:
 
 ## 13. 已知取舍
 
-- 回退路径（`TaskExecutor`，@Deprecated）resume 会重复执行已跑工具——接受降级
+- 回退路径（`TaskExecutor`，P5 重整后已移除 @Deprecated，为 feature 开关控制的回退路径组件）resume 会重复执行已跑工具——接受降级
 - 断线/导航中途取消审批 → 审批记录停留在 approved 未执行（`executed_at IS NULL`，可恢复）

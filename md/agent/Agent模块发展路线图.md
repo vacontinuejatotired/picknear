@@ -139,11 +139,11 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 类 | 包 | 用途 | 状态 |
 |----|----|------|------|
-| `ToolInvocationContext` | `promptguard` | 守卫评估上下文（工具名、参数、会话ID、用户ID） | ✅ 正常 |
-| `GuardResult` | `promptguard` | 守卫决策结果（ALLOW/BLOCK/CONFIRM + 原因） | ✅ 正常 |
-| `Vote` | `promptguard` | 策略投票枚举 (ALLOW/BLOCK/CONFIRM/ABSTAIN) | ✅ 正常 |
-| `ChatContext` | `prompthook` | Hook 评估上下文（userId, conversationId, history） | ✅ 正常 |
-| `HookResult` | `prompthook` | Hook 决策结果（PASS/BLOCK/REPLACE + 替换文本） | ✅ 正常 |
+| `ToolInvocationContext` | `guard/model` | 守卫评估上下文（工具名、参数、会话ID、用户ID） | ✅ 正常 |
+| `GuardResult` | `guard/model` | 守卫决策结果（ALLOW/BLOCK/CONFIRM + 原因） | ✅ 正常 |
+| `Vote` | `guard/model` | 策略投票枚举 (ALLOW/BLOCK/CONFIRM/ABSTAIN) | ✅ 正常 |
+| `HookResult` | `hook` | Hook 决策结果（PASS/BLOCK/REPLACE + 替换文本） | ✅ 正常 |
+| `ChatContext` | ~~prompthook~~ | 已删除（M-3 并入 AgentContext，成为链路唯一请求级载体） | ❌ 已删 |
 | `PromptGuardProperties` | `config` | YAML 配置绑定（黑名单/确认名单/正则/限流） | ✅ 正常 |
 | `AgentResult` | 不存在 | Agent 执行结果 | ❌ Phase 2 需新建 |
 | 审批确认记录 | 不存在 | 待审批的工具调用 | ❌ Phase 1 需新建 |
@@ -1522,7 +1522,7 @@ public class LongTermMemory {
 
 | 产出 | 类型 | 说明 |
 |------|------|------|
-| `promptguard/*Test.java` | 测试 | Guard 全部单元测试 |
+| `guard/*Test.java` | 测试 | Guard 全部单元测试 |
 | `GuardedToolCallbackTest.java` | 测试 | 代理模式单元测试 |
 | `PromptHookChainTest.java` | 测试 | 链式执行器单元测试 |
 | CONFIRM 实现 | 代码 | 确认机制落地 |

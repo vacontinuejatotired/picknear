@@ -1,9 +1,10 @@
 package com.hmdp.agent.tool.impl;
 
 import com.hmdp.agent.annotation.TargetTool;
-import com.hmdp.service.IBlogService;
-import com.hmdp.service.IShopService;
-import com.hmdp.service.IUserService;
+import com.hmdp.agent.annotation.ToolMeta;
+import com.hmdp.content.blog.BlogQueryService;
+import com.hmdp.shop.service.IShopService;
+import com.hmdp.user.service.IUserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -21,7 +22,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 public class StatsQueryTool {
 
     @Resource
-    private IBlogService blogService;
+    private BlogQueryService blogQueryService;
 
     @Resource
     private IUserService userService;
@@ -39,8 +40,9 @@ public class StatsQueryTool {
             「统计博客」「共有多少博客」「博客有多少篇」「查一下博客数量」时使用。
             返回的是全部博客的总数，不区分用户。
             """)
+    @ToolMeta(keywords = {"统计博客", "博客总数", "博客数量", "多少篇博客", "多少博客", "查一下博客数量"}, intents = {"stats"})
     public String queryTotalBlogs() {
-        long count = blogService.count();
+        long count = blogQueryService.countAll();
         log.info("StatsQueryTool.queryTotalBlogs = {}", count);
         return "📝 当前共有 " + count + " 篇博客。";
     }
@@ -53,6 +55,7 @@ public class StatsQueryTool {
             统计/查看当前系统中的注册用户总数，
             「统计用户」「共有多少用户」「查一下用户数」「多少人注册」时使用。
             """)
+    @ToolMeta(keywords = {"统计用户", "用户总数", "用户数量", "多少用户", "多少人注册", "查一下用户数"}, intents = {"stats"})
     public String queryTotalUsers() {
         long count = userService.count();
         log.info("StatsQueryTool.queryTotalUsers = {}", count);
@@ -67,6 +70,7 @@ public class StatsQueryTool {
             统计/查看当前系统中的店铺总数，
             「统计店铺」「共有多少店铺」「查一下店铺数量」「商铺有多少」时使用。
             """)
+    @ToolMeta(keywords = {"统计店铺", "店铺总数", "店铺数量", "多少店铺", "商铺", "查一下店铺"}, intents = {"stats"})
     public String queryTotalShops() {
         long count = shopService.count();
         log.info("StatsQueryTool.queryTotalShops = {}", count);

@@ -4,11 +4,12 @@ import java.util.List;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Shop;
-import com.hmdp.entity.ShopType;
-import com.hmdp.service.IShopService;
-import com.hmdp.service.IShopTypeService;
+import com.hmdp.shop.entity.Shop;
+import com.hmdp.shop.entity.ShopType;
+import com.hmdp.shop.service.IShopService;
+import com.hmdp.shop.service.IShopTypeService;
 import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;
@@ -44,6 +45,7 @@ public class ShopQueryTool {
             查询平台所有店铺类型（美食/酒店/影院等分类），和「有哪些店铺类型」「店铺分类」一起使用。
             返回类型ID和名称，可作为按类型查店铺的参数。
             """)
+    @ToolMeta(keywords = {"店铺类型", "分类", "有哪些类型", "类型列表", "美食", "酒店", "影院"}, intents = {"shop"})
     public List<ShopTypeBrief> queryShopTypes() {
         Result result = shopTypeService.queryList();
         if (result == null || !Boolean.TRUE.equals(result.getSuccess())) return List.of();
@@ -62,13 +64,12 @@ public class ShopQueryTool {
             按店铺类型查询店铺列表，和「查某类型的店铺」「有哪些美食店/酒店」「按分类找店」一起使用。
             返回该类型下前10家店（名称/商圈/人均/评分/销量）。类型ID来自 queryShopTypes。
             """)
+    @ToolMeta(keywords = {"类型的店铺", "美食店", "酒店有哪些", "按类型", "找店", "店铺列表", "有哪些店"}, intents = {"shop"})
     public List<ShopBrief> queryShopsByType(
             @ToolParam(description = "店铺类型ID（来自 queryShopTypes 的 id）") Long typeId,
             @ToolParam(description = "页码，从1开始，可选，默认1") Integer current) {
         int page = current != null && current > 0 ? current : 1;
-        Page<Shop> p = shopService.query().eq("type_id", typeId)
-                .orderByDesc("score").page(new Page<>(page, SystemConstants.MAX_PAGE_SIZE));
-        return p.getRecords().stream()
+        return shopService.listByTypeOrderByScore(typeId, page, SystemConstants.MAX_PAGE_SIZE).stream()
                 .map(s -> new ShopBrief(s.getId(), s.getName(), s.getArea(), s.getAvgPrice(),
                         s.getScore(), s.getSold()))
                 .toList();
@@ -81,6 +82,7 @@ public class ShopQueryTool {
             查询单个店铺的详细信息（名称/商圈/地址/人均/评分/销量/营业时间），和「这家店怎么样」「店铺详情」一起使用。
             返回店铺ID来自 queryShopsByType 或 queryShopsByName。
             """)
+    @ToolMeta(keywords = {"店铺详情", "这家店", "店铺怎么样", "店怎么样", "店铺信息"}, intents = {"shop"})
     public ShopDetailBrief queryShopById(
             @ToolParam(description = "店铺ID") Long shopId) {
         Result result = shopService.queryById(shopId);

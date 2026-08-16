@@ -7,7 +7,7 @@ import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.subagent.ToolResultCompressor;
 import com.hmdp.agent.subagent.model.SubTaskPlan;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

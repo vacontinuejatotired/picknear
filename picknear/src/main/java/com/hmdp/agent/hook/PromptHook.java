@@ -1,6 +1,8 @@
 package com.hmdp.agent.hook
 ;
 
+import com.hmdp.agent.context.AgentContext;
+
 /**
  * Prompt 钩子接口
  * <p>
@@ -13,7 +15,7 @@ package com.hmdp.agent.hook
  * <ul>
  *   <li><b>originalInput</b> — 用户原始输入，<strong>不可变</strong>。安全检测类 Hook 应始终基于此值做判断，避免被前置 Hook 的 REPLACE 干扰</li>
  *   <li><b>currentInput</b> — 当前有效输入，已被前置 Hook 修改。增强/追加类 Hook 在此之上操作</li>
- *   <li><b>context</b> — 强类型上下文，包含 userId、conversationId、全量对话历史</li>
+ *   <li><b>context</b> — 强类型上下文（AgentContext），包含 userId、conversationId、全量对话历史</li>
  * </ul>
  *
  * <h3>返回语义</h3>
@@ -25,7 +27,7 @@ package com.hmdp.agent.hook
  *
  * @see PromptHookChain
  * @see HookResult
- * @see ChatContext
+ * @see AgentContext
  */
 @FunctionalInterface
 public interface PromptHook {
@@ -38,8 +40,8 @@ public interface PromptHook {
      *
      * @param originalInput 用户原始输入（不可变，安全检测用此值）
      * @param currentInput  当前有效输入（已被前置 Hook 修改）
-     * @param context       ChatContext（userId、conversationId、history）
+     * @param context       AgentContext（userId、conversationId、history）
      * @return HookResult（PASS / BLOCK / REPLACE）
      */
-    HookResult beforePrompt(String originalInput, String currentInput, ChatContext context);
+    HookResult beforePrompt(String originalInput, String currentInput, AgentContext context);
 }

@@ -2,7 +2,7 @@ package com.hmdp.agent.legacy.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
-import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -10,9 +10,9 @@ import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
-import com.hmdp.agent.task.SubTask;
-import com.hmdp.agent.task.SubTaskStatus;
-import com.hmdp.agent.task.TaskType;
+import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.task.model.SubTaskStatus;
+import com.hmdp.agent.task.model.TaskType;
 import com.hmdp.agent.util.SseUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -23,9 +23,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 子任务执行器（已废弃，保留供回退路径使用）。
+ * 回退路径串行任务执行器（非死代码）。
  * <p>
- * 新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
+ * 在 {@code feature.subagent.enabled=false} 时由 {@link com.hmdp.agent.task.FallbackRoundExecutor}
+ * 实例化，串行执行回退队列。新代码使用 {@link com.hmdp.agent.subagent.SubTaskAgent} 替代。
  * </p>
  * <p>
  * 按类型分发：
@@ -35,7 +36,6 @@ import java.util.stream.Collectors;
  * </ul>
  * </p>
  */
-@Deprecated
 @Slf4j
 public class TaskExecutor {
 

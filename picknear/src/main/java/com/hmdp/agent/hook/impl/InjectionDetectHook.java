@@ -1,6 +1,6 @@
 package com.hmdp.agent.hook.impl;
 
-import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.hook.HookResult;
 import com.hmdp.agent.hook.PromptHook;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +29,7 @@ public class InjectionDetectHook implements PromptHook {
     );
 
     @Override
-    public HookResult beforePrompt(String originalInput, String currentInput, ChatContext context) {
+    public HookResult beforePrompt(String originalInput, String currentInput, AgentContext context) {
         String lower = originalInput.toLowerCase();
 
         for (String pattern : INJECTION_PATTERNS) {

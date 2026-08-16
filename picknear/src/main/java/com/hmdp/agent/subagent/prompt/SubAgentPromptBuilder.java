@@ -1,7 +1,7 @@
 package com.hmdp.agent.subagent.prompt;
 
 import com.hmdp.agent.subagent.model.SubTaskPlan;
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
 

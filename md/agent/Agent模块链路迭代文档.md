@@ -24,6 +24,10 @@ Phase 14 ───→ Phase 15
      ▼ 架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）
 Phase 16
 AiService拆编排层   legacy包归档   ObjectMapper统一
+     │
+     ▼ 架构整理（Phase 17：工具注册表单一来源）
+Phase 17
+@ToolMeta注解   ToolRegistry聚合   4处注册表收敛
 ```
 
 ---
@@ -247,7 +251,7 @@ ToolGuardManager.evaluate()
 
 ### 输入处理
 - 守卫层注入：`ToolBeanCollector` 收集 `ToolCallback[]` 后自动包裹 `GuardedToolCallback`
-- 配置驱动：`application.yaml` 中 `promptguard.policies` 配置规则
+- 配置驱动：`application.yaml` 中 `hmdp.prompt-guard.*` 配置规则（原 `promptguard.policies` 旧前缀）
 - `RateLimitPolicy` 基于 Redis + Lua 滑动窗口限流
 
 ### 调用执行
@@ -1014,13 +1018,17 @@ AiServiceImpl（编排层，~200 行）
 | `stream/SseResponseProcessor` | AfterAiHook + decision 观测 + AiResponseRouter + 历史落库 | AiServiceImpl 后处理段 |
 | `history/HistoryRecorder` | 最佳努力历史落库（失败静默），双模共用 | recordTurnBestEffort |
 
-### 废弃归档（`com.hmdp.agent.legacy`，package-info 声明"新代码禁止依赖"）
+### 回退链（`com.hmdp.agent.legacy`，P5 重整后为 feature 开关控制的活回退路径，非死代码）
 
-| 归档位置 | 组件 | 现状 |
+> 2026-08 用户拍板"保留回退=重整"（`93c59a0`）：活接口迁出、活代码解耦、包结构自洽，
+> 与活链（Tree 链）并存。依赖方向单向：legacy 可用活链组件，活链禁止反向依赖
+> （FallbackRoundExecutor 为唯一合法入口）。
+
+| 位置 | 组件 | 现状 |
 |----------|------|------|
-| `legacy.task` | TaskExecutor、TaskQueue | `feature.subagent.enabled=false` 回退路径使用（保留研究） |
-| `legacy.plan` | LegacyPlanRouter | `feature.tool-routing.enabled=false` 激活 |
-| `legacy.routing` | ToolRouter、CatalogBuilder（死抽象） | 旧链配套 |
+| `legacy.task` | TaskExecutor、TaskQueue | `feature.subagent.enabled=false` 回退路径使用（已移除 @Deprecated，回退路径活组件） |
+| `legacy.plan` | LegacyPlanRouter、ToolRouter | `feature.tool-routing.enabled=false` 激活（ToolRouter 从旧 legacy.routing 收拢） |
+| `routing/`（活包） | CatalogBuilder | 活接口，已从 legacy 迁出至 `agent/routing`（Tree/Compact 两实现同包） |
 
 > `SubTask`/`SubTaskStatus`/`TaskType`/`TaskReport` 留在原包——新链（TreePlanRouter/PlanValidator/ToolLoop）仍在用，不是废弃组件。
 
@@ -1035,6 +1043,197 @@ AiServiceImpl（编排层，~200 行）
 2. 双模重复逻辑（Hook 段、历史落库）收敛为单一组件
 3. legacy 链组件显式归档，import legacy 即"此处依赖废弃组件"标记
 4. 全局 ObjectMapper 配置统一，消除手动实例无 JavaTimeModule/未知字段严格模式的隐患
+
+## Phase 17：工具注册表单一来源（@ToolMeta + ToolRegistry，架构整理）
+
+**提交**: `8212159` "工具注册表单一来源第 1 步"、`5f80e1e` "意图树归属改由 ToolRegistry 聚合"
+
+### 背景
+
+新增/维护工具的元数据散落在 4 处硬编码注册表，漏改一处即线上 bug：
+`CompactCatalogBuilder.TRIGGER_KEYWORDS`（触发词）、`PromptSeeder.TOOL_NAMES`（提示词种子清单）、`ToolIntentTree.NODES`（意图树工具归属）、`@Tool` 注解（工具定义）——**同一份"工具名+元数据"四处维护、各自漂移**。
+
+### 方案：注解即事实源
+
+```
+@ToolMeta(keywords={"触发词"}, intents={"节点id"})   ← 唯一登记点（标在 @Tool 方法上）
+        ↓ 启动扫描
+ToolRegistry（懒构建）── 提供 allToolNames() / keywordsOf() / intentsOf()
+        ↓ 消费方注入查询
+CompactCatalogBuilder（关键词过滤） / ToolIntentTree（节点归属，运行时聚合）
+PromptSeeder（工具模板键清单，自动纳入新工具）
+```
+
+### 核心新增
+
+| 组件 | 职责 |
+|------|------|
+| `annotation/ToolMeta.java` | 方法级注解：keywords（紧凑目录过滤触发词）+ intents（意图树节点归属） |
+| `tool/ToolRegistry.java` | 注册表单一体：工具名取自 ToolBeanCollector（工具定义即事实源），元数据扫描 @ToolMeta；懒构建防初始化顺序问题 |
+
+### 关键变化
+
+1. 4 处注册表收敛为 1 处注解；**新增工具 = 建工具类 + @Tool 方法 + @ToolMeta**，过滤/路由/种子自动感知
+2. `CompactCatalogBuilder` 删静态 TRIGGER_KEYWORDS 表（-17 行）；`PromptSeeder` 删静态 TOOL_NAMES 表
+3. `ToolIntentTree` 从静态类改实例组件：NODE_DEFS 仅留节点定义，tools 运行时由 `ToolRegistry.intentsOf` 反向聚合；四个消费方（TreeCatalogBuilder/TreePlanRouter/PlanValidator/WriteGuardConsistencyCheck）注入适配
+4. 行为零变化：17 个工具的触发词/归属原样迁移到注解
+
+## Phase 18：AgentContext 请求级上下文（统一上下文载体，架构整理）
+
+**提交**: `27ab8af` "第 1 步（骨架落地）"、`e1dcd3f`/`d56508a`/`a987b07` "第 2 步（消费方迁移 3 处）"、`89741a5`/`869a5aa`/`287d659`/`7ca2ab8` "第 3 步（ChatContext 并入）"
+
+**设计文档**: `md/agent/Agent上下文传递机制设计.md`（三步实施全部完成）
+
+### 背景
+
+AI 链路中"当前请求是谁、哪个会话、原始输入是什么、观测根在哪"散落在 **5+ 个载体**手递：
+`UserHolder`（异步线程丢失）、`ChatContext`（仅 Hook 链）、Spring AI `ToolContext`（依赖手动塞）、
+`TaskSnapshot`（跨请求重建）、`ToolBeanCollector.conversationId`（单例 volatile，**实际无效**：
+GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没人读"，高并发互相覆盖）。
+
+### 方案：ThreadLocal 同步段 + TaskDecorator 异步边界
+
+```
+请求入口（ChatController.chat / confirm）
+    AgentContext ctx = AgentContext.builder()...build();
+    AgentContextHolder.set(ctx);        ← 同步段读取
+    ... 业务调用 ...
+    finally { AgentContextHolder.clear(); }
+
+异步边界（CompletableFuture.runAsync(..., aiTaskExecutor / subtaskExecutor)）
+    AgentContextPropagator（TaskDecorator）自动：捕获 → 执行前 set → finally remove
+```
+
+### 核心新增
+
+| 组件 | 职责 |
+|------|------|
+| `context/AgentContext.java` | 请求级值对象：userId / conversationId / originalInput / history / rootSpan + attributes 扩展点（主字段不可变，attributes 线程安全） |
+| `context/AgentContextHolder.java` | ThreadLocal 载体：set / get / require（缺失抛错，Fail-Fast）/ clear |
+| `context/AgentContextPropagator.java` | TaskDecorator：提交线程捕获 → 执行线程恢复 → finally 清理（硬约束，防池化线程污染） |
+
+### 关键变化
+
+1. `AgentConfig` 两个线程池（aiTaskExecutor / subtaskExecutor）装配 TaskDecorator —— 子 Agent 执行线程自动可读父级请求上下文（两层模型：父级 AgentContext 自动传播 + 子级 SubTaskPlan 显式传任务数据）
+2. `ChatController.chat()`（SSE/JSON 双模）与 `confirm()`（SSE 续流，从 AgentApproval 重建）入口创建 AgentContext，finally 与根 span 清理同点；chat() 创建时携带 history（chatMemory 拉取收敛到入口）
+3. **删除 `ToolBeanCollector.conversationId` 单例状态**（无效设计）：字段 + getter/setter + `AiServiceImpl` 两处 `setConversationId` 调用全部移除；`GuardedToolCallback` 会话 ID 兜底顺序改为 ToolContext → AgentContextHolder → 构造冻结值（仅最后防线）
+4. **消费方迁移（第 2 步）**：
+   - `ChatContext.from(AgentContext)` 工厂：userId/conversationId/originalContent/history/rootSpan 统一取自 AgentContext；`PromptHookExecutor` 与 `confirm()` 均改走工厂（替代手拼）
+   - `TaskPlanner` 新增 4 个 resolve helper（AgentContext → ChatContext → 调用方兜底），七处 `ctx != null ? ... : ...` 三元收敛（decompose / SubTaskPlan / TaskExecutor / handleConfirmPause / resumeFromSnapshot / executeApprovedTool / completeTurn）
+   - 行为零变化：AgentContext 未设置时（直调/测试路径）逐级回退，语义与旧手递一致
+5. **ChatContext 并入（第 3 步，目标态达成）**：
+   - **删除 `ChatContext`**：Hook 链接口（`PromptHookChain`/`AfterAiHookChain`/`TaskTriggerHook`）签名全量改 `AgentContext`；`PromptHookExecutor`/`SseResponseProcessor`/`AiResponseRouter`/`TaskPlanner`/`ChatController` 同步迁移
+   - pendingSnapshot（原 ChatContext 特有字段）改存 `AgentContext.attributes`（key=`pendingSnapshot`，TaskPlanner 常量 `ATTR_PENDING_SNAPSHOT`）
+   - `SubTaskPlan` 手递 userId/conversationId **保留**（用户决策：持久化兜底，与请求级 AgentContext 互补）
+
+### 验证
+
+- 新增单测（无 Mockito，本机可跑）：`AgentContextHolderTest`（require 缺失抛错、线程隔离）、`AgentContextPropagatorTest`（捕获/恢复/finally 清理/嵌套任务传播），8 个用例全绿；Hook 实现单测随签名迁移同步，全部通过
+- build-tmp 全量编译通过（main + test-compile，三步各提交前均验证）
+- **VM 链路回归待部署**：SSE 对话 + CONFIRM 续流 + 工具调用（Langfuse 检查 round/tool_call span 仍挂会话树）、JSON 模式、`feature.subagent.enabled=false` 回退路径、`feature.tool-routing.enabled=false` legacy 路径
+
+## Phase 19：TaskPlanner 编排门面化（594 → 158 行，架构整理）
+
+**提交**: `fa51eb5` "第 1 步（历史聚合/上下文解析下沉）"、`5677723` "第 2 步（CONFIRM 中间态组件）"、`b027d4e` "第 3 步（主循环独立，门面化）"
+
+### 背景
+
+TaskPlanner 594 行、14 个 @Resource，混杂 6 类职责：异步入口 + 主循环编排、CONFIRM 暂停、CONFIRM 恢复、回退路径、历史聚合、上下文解析——编排层的"上帝类"。
+
+### 拆分设计（3 步，组件依赖单向无循环）
+
+```
+TaskPlanner（门面 158 行）—— 异步入口 ×2 / resumeFromSnapshot / completeTurn / resumePlan 编排
+├── PlanLoopExecutor（~190）—— 主循环：decompose → 子Agent/回退执行 → 聚合（catch 委托 pause）
+├── ConfirmFlowManager（~140）—— CONFIRM 中间态：pause（快照+审批+事件）/ 恢复执行 / 防二次审批
+├── TaskReportHelper（~60）—— 历史摘要 / recordHistory / 回退聚合（纯逻辑）
+└── AgentContextResolver（~60）—— 4 个 resolve helper（静态工具）
+```
+
+关键决策：
+1. **中间态单组件**：暂停/恢复围绕 TaskSnapshot 同一份中间态，合并为 `ConfirmFlowManager`（用户决策），不拆成暂停/恢复两个
+2. **无循环依赖**：恢复后的续跑（resumePlan 调主循环）留在门面，ConfirmFlowManager 不依赖编排层；主循环 catch 单向委托 pause
+3. `ATTR_PENDING_SNAPSHOT` 常量上移 `AgentContext`（两组件共用）；resolve helper 收进 `AgentContextResolver`
+
+### 效果
+
+| 指标 | 前 | 后 |
+|------|----|----|
+| TaskPlanner | 594 行 / 14 @Resource | **158 行 / 6 @Resource**（纯编排门面） |
+| 新组件 | — | 4 个，各 ≤190 行、职责单一 |
+| 行为 | — | 零变化（纯搬迁 + 委托，循环/观测/SSE 顺序不变） |
+
+## Phase 20：ChatController SSE 装配下沉 SseSessionFactory（架构整理）
+
+**提交**: `e7bb5d5`
+
+### 背景
+
+ChatController 281 行，chat() 与 confirm() 两个 SSE 分支各手写一份「会话根 span 创建 → ObservedSseEmitter 构造（超时/TTL 常量）→ 三回调只留日志 → 先推 meta 事件」的装配，同一套断链修复约定（2026-08-04）散落重复。
+
+### 方案
+
+```
+ChatController（219 行）—— 只留 HTTP 端点 + 双模分发（isSse）+ AgentContext 生命周期
+└── SseSessionFactory（stream 包，新）—— SSE 会话装配单一来源
+      open(conversationId, userId) → ChatSseSession(root, emitter)   ← 常量/根span/emitter 收敛
+      sendConversationId(emitter, cid)                                ← meta 推送收敛
+```
+
+- 三回调注册保留在 Controller（chat/confirm 日志文案不同）
+- 行为零变化：AgentContext 创建/清理点、断链修复语义均不动
+
+### 效果
+
+- ChatController 281 → 219 行；SSE 超时/TTL 常量、AgentTracer/TaskScheduler 依赖收敛出 Controller
+- 新增 SSE 端点零重复装配；生命周期约定单一来源
+
+## Phase 21：SubTaskAgent 拆分——重试与解析独立（架构整理）
+
+**提交**: `25e5bda`
+
+### 背景
+
+SubTaskAgent 307 行，execute() 编排里混杂 65 行重试编排（指数退避/总超时/CONFIRM 透传）与 65 行回复解析（JSON 快照/截断/降级）——子 Agent 执行器的"编排 + 纯逻辑"混杂。
+
+### 方案
+
+```
+SubTaskAgent（167 行）—— 只留 execute() 编排 + filterCallbacks
+├── SubAgentRetryRunner（新，~75 行）—— executeWithRetry：退避/超时/CONFIRM 原样透传/错误注入
+└── SubTaskResultParser（新，~80 行）—— parse：快照提取/JSON 解析/data 截断/摘要裁剪
+```
+
+- 行为零变化：CONFIRM 透传语义、降级兜底、截断阈值（RAW_DATA_MAX_LENGTH）均原样搬迁
+- 拆后重试与解析可独立单测
+
+## Phase 22：主循环双路径独立（SubAgentRoundExecutor / FallbackRoundExecutor，架构整理）
+
+**提交**: `6e0f3de`
+
+### 背景
+
+PlanLoopExecutor（237 行）主循环体里内联两个 60-70 行的执行分支：子 Agent 路径（plan 构建/执行/记录，含 subagent span 观测）与回退路径（LLM_REASON 追加/TaskExecutor 串行直调/推送/聚合）——循环骨架里混着两套执行细节。
+
+### 方案
+
+```
+PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开关选路径
+├── SubAgentRoundExecutor（新，~60 行）—— 一轮子 Agent 执行（观测 agent.subagent 整段）
+└── FallbackRoundExecutor（新，~75 行）—— 一轮回退执行（TASK_TIMEOUT 常量随迁）
+```
+
+- 主循环 if/else 收敛为两行委托，feature 开关选择更直观
+- 行为零变化：观测结构（round span → subagent/工具级 span）、推送顺序、CONFIRM 冒泡均不变
+- TaskPlannerTest 同步：子 Agent 路径断言改 mock SubAgentRoundExecutor，清理不再注入的死 mock
+
+## Phase 23：ApprovalService 决策收敛（markApproved/markRejected 去重，卫生）
+
+**提交**: `f80b6c2`
+
+- markApproved/markRejected 70% 重复（同一套「查记录 → 状态/过期预检 → 原子 CAS」语义）
+- 收敛为私有 `markDecided`：差异仅目标状态 / 成功结果 / 日志文案 / approved 的 CAS 额外 expiredAt 双保险条件
+- 决策语义单一来源，后续新增状态流转只改一处；行为零变化（CAS 条件、返回值、日志逐一对齐）
 
 ## 模块关系总图
 
@@ -1146,6 +1345,14 @@ AiServiceImpl（编排层，~200 行）
 | **回复处理** | SseResponseProcessor（AfterAiHook→路由→落库）+ HistoryRecorder 双模共用 |
 | **工具注册** | legacy 链（TaskExecutor/TaskQueue/LegacyPlanRouter/ToolRouter）归档独立包 |
 | **安全性** | 统一业务状态码（Result.code + ErrorCode + BizException） |
+
+| 维度 | Phase 17 |
+|------|----------|
+| **输入处理** | @ToolMeta 注解声明触发词/意图归属（方法级） |
+| **调用执行** | ToolRegistry 启动聚合（懒构建）：allToolNames/keywordsOf/intentsOf |
+| **回复处理** | —（纯结构整理，行为零变化） |
+| **工具注册** | 4 处硬编码注册表（TRIGGER_KEYWORDS/TOOL_NAMES/NODES.tools）收敛为注解单一来源；ToolIntentTree 实例化聚合 |
+| **安全性** | —（WriteGuardConsistencyCheck 校验逻辑不变，仅注入适配） |
 
 ### 关键设计原则
 

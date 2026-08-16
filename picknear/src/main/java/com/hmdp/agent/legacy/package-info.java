@@ -1,19 +1,23 @@
 /**
- * 废弃/回退代码归档区。
+ * 回退链组件区（由 feature 开关控制的第二套"规划→执行"链，非死代码）。
  * <p>
- * 此包（及子包 {@code legacy.task} / {@code legacy.plan} / {@code legacy.routing}）
- * 存放被新实现替代、但暂保留的 legacy 组件：
+ * 本包存放被新实现替代、但作为回退路径保留的 legacy 组件，与活链（Tree 链）
+ * 并存：开关关闭时回退链仍是被选中的可用路径。
  * <ul>
- *   <li>{@code legacy.task} — 旧串行任务执行器（TaskExecutor/TaskQueue，由
- *       {@code feature.subagent.enabled=false} 回退路径使用，待研究后移除）；</li>
- *   <li>{@code legacy.plan} — 旧规划策略（LegacyPlanRouter，由
- *       {@code feature.tool-routing.enabled=false} 激活）；</li>
- *   <li>{@code legacy.routing} — 旧目录构建门面（ToolRouter）与死抽象（CatalogBuilder）。</li>
+ *   <li>{@code legacy.plan} — 回退规划链：{@code LegacyPlanRouter}（
+ *       {@code feature.tool-routing.enabled=false} 条件装配）+ 内部路由门面
+ *       {@code ToolRouter}（紧凑目录 + __UNCERTAIN__ 全量重跑）；</li>
+ *   <li>{@code legacy.task} — 回退执行链：{@code TaskExecutor}/{@code TaskQueue}
+ *       （{@code feature.subagent.enabled=false} 时由 FallbackRoundExecutor 实例化使用）。</li>
  * </ul>
  * </p>
  * <p>
- * <strong>约定：新代码禁止依赖本包</strong>；在用代码（如 TaskPlanner 回退路径）对
- * 本包的 import 即为"此处依赖 legacy"的显式标记。
+ * 依赖方向：legacy 可以依赖活链组件（如 {@code CompactCatalogBuilder}），
+ * 活链禁止反向依赖本包。
+ * <strong>约定：新代码禁止 import 本包</strong>；回退适配器
+ * （{@code FallbackRoundExecutor}）是唯一合法入口。活代码对本包的 import
+ * 即为"此处依赖 legacy"的显式标记，需先解耦（如 TaskReportHelper.merge 已改为
+ * 接收 List&lt;SubTask&gt;）。
  * </p>
  */
 package com.hmdp.agent.legacy;

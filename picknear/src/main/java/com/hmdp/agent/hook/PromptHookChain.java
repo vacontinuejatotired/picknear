@@ -1,6 +1,7 @@
 package com.hmdp.agent.hook
 ;
 
+import com.hmdp.agent.context.AgentContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -38,10 +39,10 @@ public class PromptHookChain {
      * 串行执行所有 Hook。
      *
      * @param originalInput 用户原始输入（不可变）
-     * @param context       ChatContext
+     * @param context       AgentContext
      * @return 最终决策结果
      */
-    public HookResult execute(String originalInput, ChatContext context) {
+    public HookResult execute(String originalInput, AgentContext context) {
         if (hooks.isEmpty()) {
             return HookResult.pass();
         }

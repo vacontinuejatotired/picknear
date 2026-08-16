@@ -1,5 +1,7 @@
 package com.hmdp.agent.hook;
 
+import com.hmdp.agent.context.AgentContext;
+
 /**
  * AI 回复后的后处理 Hook。
  * <p>
@@ -25,8 +27,8 @@ public interface AfterAiHook {
      *
      * @param originalInput 原始用户输入
      * @param aiResponse    LLM 回复内容
-     * @param context       对话上下文
+     * @param context       对话上下文（AgentContext）
      * @return PASS: 无事发生 | PLANNING: 需要进入任务规划 | REPLACE: 替换回复 | BLOCK: 阻断
      */
-    HookResult afterAi(String originalInput, String aiResponse, ChatContext context);
+    HookResult afterAi(String originalInput, String aiResponse, AgentContext context);
 }

@@ -1,6 +1,6 @@
 package com.hmdp.agent.hook.impl;
 
-import com.hmdp.agent.hook.ChatContext;
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.hook.HookResult;
 import com.hmdp.agent.hook.PromptHook;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ public class SensitiveWordHook implements PromptHook {
     );
 
     @Override
-    public HookResult beforePrompt(String originalInput, String currentInput, ChatContext context) {
+    public HookResult beforePrompt(String originalInput, String currentInput, AgentContext context) {
         String replaced = originalInput;
         boolean hit = false;
 

@@ -1,10 +1,13 @@
 package com.hmdp.agent.plan;
 
 import com.hmdp.agent.config.FeatureProperties;
+import com.hmdp.agent.plan.model.PlanOutcome;
+import com.hmdp.agent.plan.model.PlanRequest;
+import com.hmdp.agent.plan.model.ValidationOptions;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.routing.ToolIntentTree;
 import com.hmdp.agent.routing.TreeCatalogBuilder;
-import com.hmdp.agent.task.SubTask;
+import com.hmdp.agent.task.model.SubTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -28,17 +31,19 @@ public class TreePlanRouter implements PlanRouter {
     private final PlanSupport support;
     private final TreeCatalogBuilder treeCatalogBuilder;
     private final FeatureProperties featureProperties;
+    private final ToolIntentTree intentTree;
 
     public TreePlanRouter(PlanSupport support, TreeCatalogBuilder treeCatalogBuilder,
-                          FeatureProperties featureProperties) {
+                          FeatureProperties featureProperties, ToolIntentTree intentTree) {
         this.support = support;
         this.treeCatalogBuilder = treeCatalogBuilder;
         this.featureProperties = featureProperties;
+        this.intentTree = intentTree;
     }
 
     @Override
     public PlanOutcome plan(PlanRequest req) {
-        Set<String> matched = ToolIntentTree.matchNodes(req.userInput());
+        Set<String> matched = intentTree.matchNodes(req.userInput());
         // Phase1 直解（同样套树校验，堵住主回复解析绕过组路由的洞）
         List<SubTask> fromResponse = support.parseAndValidate(req, req.aiResponse(),
                 ValidationOptions.tree(matched, req.userId()));

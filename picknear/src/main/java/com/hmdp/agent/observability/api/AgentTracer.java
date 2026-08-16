@@ -105,7 +105,7 @@ public class AgentTracer {
     }
 
     /**
-     * 便捷重载：根 span 直接 resume（ChatContext 携带 AgentSpan 时用）。
+     * 便捷重载：根 span 直接 resume（AgentContext 携带 AgentSpan 时用）。
      */
     public Observation.Scope resume(AgentSpan rootSpan) {
         return rootSpan.openScope();

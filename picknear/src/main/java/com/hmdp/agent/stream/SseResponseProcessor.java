@@ -1,8 +1,8 @@
 package com.hmdp.agent.stream;
 
+import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.history.HistoryRecorder;
 import com.hmdp.agent.hook.AfterAiHookChain;
-import com.hmdp.agent.hook.ChatContext;
 import com.hmdp.agent.hook.HookResult;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -34,13 +34,13 @@ public class SseResponseProcessor {
     /**
      * 对一次完整流式回复执行后处理（观测：agent.decision）。
      *
-     * @param ctx              Hook 链上下文（含 userId/conversationId）
+     * @param ctx              请求级 AgentContext（含 userId/conversationId）
      * @param originalContent  原始用户输入（历史落库用）
      * @param finalContent     决策后的 LLM 输入
      * @param fullResponse     完整回复文本（已逐 token 推送）
      * @param emitter          SSE 输出（路由通知跳过重复发送）
      */
-    public void process(ChatContext ctx, String originalContent, String finalContent,
+    public void process(AgentContext ctx, String originalContent, String finalContent,
                         String fullResponse, SseEmitter emitter) {
         try (AgentSpan decision = agentTracer.start(AgentSpanSpec.DECISION, null)) {
             HookResult afterResult = afterAiHookChain.execute(finalContent, fullResponse, ctx);
@@ -54,10 +54,10 @@ public class SseResponseProcessor {
             // 历史会话：PASS/REPLACE 在此落库。
             // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
             if (afterResult.isPass()) {
-                historyRecorder.recordBestEffort(ctx.getUserId(), ctx.getConversationId(),
+                historyRecorder.recordBestEffort(ctx.userId(), ctx.conversationId(),
                         originalContent, fullResponse);
             } else if (afterResult.isReplace()) {
-                historyRecorder.recordBestEffort(ctx.getUserId(), ctx.getConversationId(),
+                historyRecorder.recordBestEffort(ctx.userId(), ctx.conversationId(),
                         originalContent, afterResult.getReplacedText());
             }
         }

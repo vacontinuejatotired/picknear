@@ -6,6 +6,8 @@ package com.hmdp.utils.redis;
 public class RedisConstants {
     public static final String LOGIN_CODE_KEY = "login:code:";
     public static final Long LOGIN_CODE_TTL = 2L;
+    /** 验证码发送频率限制（60 秒/次） */
+    public static final String LOGIN_CODE_FREQ_KEY = "login:code:freq:";
     public static final String LOGIN_USER_KEY = "login:token:access:";
     public static final String LOGIN_USERINFO_MAP = "login:userinfo:";
     public static final String LOGIN_REFRESH_USER_KEY = "login:token:refresh:";

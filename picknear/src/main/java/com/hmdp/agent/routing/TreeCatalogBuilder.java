@@ -1,8 +1,8 @@
 package com.hmdp.agent.routing;
 
 import com.hmdp.agent.guard.GuardedToolCallback;
-import com.hmdp.agent.legacy.routing.CatalogBuilder;
-import com.hmdp.agent.task.TaskReport;
+import com.hmdp.agent.routing.CatalogBuilder;
+import com.hmdp.agent.task.model.TaskReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
@@ -24,21 +24,23 @@ import java.util.Set;
 public class TreeCatalogBuilder implements CatalogBuilder {
 
     private final CompactCatalogBuilder compactCatalogBuilder;
+    private final ToolIntentTree intentTree;
 
-    public TreeCatalogBuilder(CompactCatalogBuilder compactCatalogBuilder) {
+    public TreeCatalogBuilder(CompactCatalogBuilder compactCatalogBuilder, ToolIntentTree intentTree) {
         this.compactCatalogBuilder = compactCatalogBuilder;
+        this.intentTree = intentTree;
     }
 
     @Override
     public String build(ToolCallback[] callbacks, TaskReport history, int maxTagLength, String userInput) {
-        Set<String> matched = ToolIntentTree.matchNodes(userInput);
+        Set<String> matched = intentTree.matchNodes(userInput);
         if (matched.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
         for (String top : List.of(ToolIntentTree.READ, ToolIntentTree.WRITE)) {
             boolean topStarted = false;
-            for (ToolIntentTree.GroupNode node : ToolIntentTree.nodesFor(top)) {
+            for (ToolIntentTree.GroupNode node : intentTree.nodesFor(top)) {
                 if (!matched.contains(node.id())) {
                     continue;
                 }

@@ -1,10 +1,10 @@
 package com.hmdp.service.impl;
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.VoucherOrder;
-import com.hmdp.service.ISeckillVoucherService;
+import com.hmdp.voucher.entity.VoucherOrder;
+import com.hmdp.voucher.service.ISeckillVoucherService;
 import com.hmdp.service.ITestService;
-import com.hmdp.service.IVoucherOrderService;
+import com.hmdp.voucher.service.IVoucherOrderService;
 import com.hmdp.utils.TokenTestUtil;
 import com.hmdp.utils.redis.RedisConstants;
 import com.hmdp.utils.redis.RedisIdWorker;

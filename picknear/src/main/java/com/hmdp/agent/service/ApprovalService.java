@@ -1,7 +1,7 @@
 package com.hmdp.agent.service;
 
 import com.hmdp.agent.entity.AgentApproval;
-import com.hmdp.agent.task.TaskSnapshot;
+import com.hmdp.agent.task.model.TaskSnapshot;
 
 /**
  * 工具调用审批服务 — CONFIRM 真暂停的持久化与状态流转。

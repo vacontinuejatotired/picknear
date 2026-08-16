@@ -1,6 +1,7 @@
 package com.hmdp.agent.hook
 ;
 
+import com.hmdp.agent.context.AgentContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -39,7 +40,7 @@ public class AfterAiHookChain {
      * @param context   对话上下文
      * @return 聚合后的决策结果
      */
-    public HookResult execute(String input, String response, ChatContext context) {
+    public HookResult execute(String input, String response, AgentContext context) {
         boolean anyPlanning = false;
 
         for (AfterAiHook hook : hooks) {
