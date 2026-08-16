@@ -14,6 +14,7 @@ import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.util.TextUtils;
 import com.hmdp.content.blog.BlogPublishService;
 import com.hmdp.content.blog.BlogQueryService;
+import com.hmdp.content.dto.BlogFormDTO;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.dto.Result;
 
@@ -77,15 +78,18 @@ public class BlogTool {
     public Blog publishTestBlog(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("publishTestBlog userId: {}", userId);
-        Blog blog = new Blog();
-        blog.setUserId(userId);
-        blog.setTitle("测试博客");
-        blog.setContent("这是一篇测试博客");
-        Result result = blogPublishService.saveBlog(blog);
+        BlogFormDTO dto = new BlogFormDTO();
+        dto.setTitle("测试博客");
+        dto.setContent("这是一篇测试博客");
+        Result result = blogPublishService.saveBlog(dto);
         if (result == null || !Boolean.TRUE.equals(result.getSuccess())) {
-            log.error("publishTestBlog failed, blog: {}", blog);
+            log.error("publishTestBlog failed, dto: {}", dto);
             return null;
         }
+        Blog blog = new Blog();
+        blog.setUserId(userId);
+        blog.setTitle(dto.getTitle());
+        blog.setContent(dto.getContent());
         return blog;
     }
 

@@ -5,7 +5,7 @@ import com.hmdp.dto.Result;
 import com.hmdp.content.blog.BlogLikeService;
 import com.hmdp.content.blog.BlogPublishService;
 import com.hmdp.content.blog.BlogQueryService;
-import com.hmdp.content.entity.Blog;
+import com.hmdp.content.dto.BlogFormDTO;
 import com.hmdp.content.feed.FeedQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -40,8 +40,8 @@ public class BlogController {
     @PostMapping
     @Operation(summary = "发布博客", description = "创建新的探店博客")
     public Result saveBlog(
-            @Parameter(description = "博客内容") @RequestBody Blog blog) {
-        return blogPublishService.saveBlog(blog);
+            @Parameter(description = "博客内容") @RequestBody BlogFormDTO blogForm) {
+        return blogPublishService.saveBlog(blogForm);
     }
 
     /**

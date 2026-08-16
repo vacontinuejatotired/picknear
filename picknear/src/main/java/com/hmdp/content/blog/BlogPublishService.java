@@ -1,6 +1,7 @@
 package com.hmdp.content.blog;
 
 import cn.hutool.json.JSONUtil;
+import com.hmdp.content.dto.BlogFormDTO;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.BlogMapper;
@@ -11,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import jakarta.annotation.Resource;
 import java.util.List;
@@ -19,12 +22,11 @@ import java.util.concurrent.TimeUnit;
 /**
  * 博客发布服务 — 发布/更新图片（content 域收敛，P3-S4）
  * <p>
- * 自 BlogServiceImpl 迁出（行为等价）：
+ * 职责（自 BlogServiceImpl 迁出）：
  * <ul>
- *   <li>saveBlog：创建草稿（初始无图）+ 写缓存，不推 Feed（等图片上传）</li>
- *   <li>updateBlogImages：作者校验 + 事务内更新图片 + 推 Feed 给粉丝</li>
+ *   <li>saveBlog：创建草稿（初始无图）+ 写缓存，不推 Feed（等图片上传）；请求体为 {@link BlogFormDTO}（H-1 修复）</li>
+ *   <li>updateBlogImages：作者校验 + 事务内更新图片；Feed 推送移出事务（afterCommit，H-5 修复）</li>
  * </ul>
- * 事务内推 Feed（Redis 外部副作用）为既有行为，P4 统一评审 afterCommit 修正（10.3-3）。
  * </p>
  */
 @Slf4j
@@ -39,9 +41,12 @@ public class BlogPublishService {
     private FeedPushService feedPushService;
 
     /** 发布博客（创建草稿，图片为空，暂不推 Feed） */
-    public Result saveBlog(Blog blog) {
-        Long user = UserHolder.getUserId();
-        blog.setUserId(user);
+    public Result saveBlog(BlogFormDTO dto) {
+        Blog blog = new Blog();
+        blog.setUserId(UserHolder.getUserId());
+        blog.setTitle(dto.getTitle());
+        blog.setContent(dto.getContent());
+        blog.setShopId(dto.getShopId());
         blog.setImages("");          // 初始无图片，创建草稿
         int inserted = blogMapper.insert(blog);
         if (inserted <= 0) {
@@ -80,8 +85,18 @@ public class BlogPublishService {
         long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
         log.info("博客缓存已更新, blogId={}", id);
-        // 5. 首次设置图片时推送 Feed 给粉丝（粉丝查询下沉 FeedPushService）
-        feedPushService.pushToFans(userId, id);
+        // 5. 推 Feed 给粉丝 — 移出事务（H-5：不在事务内发外部副作用），
+        //    事务提交后执行；无事务环境直接推送
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    feedPushService.pushToFans(userId, id);
+                }
+            });
+        } else {
+            feedPushService.pushToFans(userId, id);
+        }
         log.info("博客图片更新成功, blogId={}, images={}", id, imagesStr);
         return Result.ok();
     }
