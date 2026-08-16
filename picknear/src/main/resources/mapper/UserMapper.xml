@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.hmdp.mapper.UserMapper">
-<!--    <resultMap id="userResultMap" type="com.hmdp.entity.User">-->
+<mapper namespace="com.hmdp.user.mapper.UserMapper">
+<!--    <resultMap id="userResultMap" type="com.hmdp.user.entity.User">-->
 <!--        <id property="id" column="id"/>-->
 <!--        <result property="phone" column="phone"/>-->
 <!--        <result property="password" column="password"/>-->
@@ -10,7 +10,7 @@
 <!--        <result property="createTime" column="create_time"/>-->
 <!--        <result property="updateTime" column="update_time"/>-->
 <!--    </resultMap>-->
-    <select id="getUser" resultType="com.hmdp.entity.User" parameterType="user">
+    <select id="getUser" resultType="com.hmdp.user.entity.User" parameterType="user">
         select * from heima.tb_user <where>
         <if test="id!=null">
             and id=#{id},

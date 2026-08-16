@@ -1,7 +1,7 @@
-package com.hmdp.service;
+package com.hmdp.user.service;
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.UserInfo;
+import com.hmdp.user.entity.UserInfo;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import jakarta.servlet.http.HttpSession;

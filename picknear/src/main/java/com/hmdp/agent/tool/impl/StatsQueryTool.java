@@ -4,7 +4,7 @@ import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.service.IBlogService;
 import com.hmdp.shop.service.IShopService;
-import com.hmdp.service.IUserService;
+import com.hmdp.user.service.IUserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;

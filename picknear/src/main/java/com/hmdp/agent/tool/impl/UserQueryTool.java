@@ -8,9 +8,9 @@ import java.util.Objects;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.entity.Follow;
-import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IFollowService;
-import com.hmdp.service.IUserInfoService;
+import com.hmdp.user.entity.UserInfo;
+import com.hmdp.user.service.IUserInfoService;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

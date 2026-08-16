@@ -3,7 +3,7 @@ package com.hmdp.utils.cache;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import com.hmdp.entity.UserinfoCache;
+import com.hmdp.user.entity.UserinfoCache;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;

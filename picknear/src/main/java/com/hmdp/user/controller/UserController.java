@@ -1,20 +1,20 @@
-package com.hmdp.controller;
+package com.hmdp.user.controller;
 
 
 import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.auth.dto.LoginFormDTO;
 import com.hmdp.auth.dto.PasswordChangeDTO;
-import com.hmdp.dto.ProfileUpdateDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.auth.dto.TokenPair;
-import com.hmdp.dto.UserDTO;
-import com.hmdp.entity.User;
-import com.hmdp.entity.UserInfo;
 import com.hmdp.enums.ErrorCode;
 import com.hmdp.service.FileService;
-import com.hmdp.service.ISignService;
-import com.hmdp.service.IUserInfoService;
-import com.hmdp.service.IUserService;
+import com.hmdp.user.dto.ProfileUpdateDTO;
+import com.hmdp.user.dto.UserDTO;
+import com.hmdp.user.entity.User;
+import com.hmdp.user.entity.UserInfo;
+import com.hmdp.user.service.ISignService;
+import com.hmdp.user.service.IUserInfoService;
+import com.hmdp.user.service.IUserService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.CacheClient;
 import com.hmdp.utils.redis.RedisConstants;

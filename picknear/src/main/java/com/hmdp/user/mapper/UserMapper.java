@@ -1,6 +1,6 @@
-package com.hmdp.mapper;
+package com.hmdp.user.mapper;
 
-import com.hmdp.entity.User;
+import com.hmdp.user.entity.User;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

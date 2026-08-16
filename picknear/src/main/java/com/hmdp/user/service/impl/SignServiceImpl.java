@@ -1,7 +1,7 @@
-package com.hmdp.service.impl;
+package com.hmdp.user.service.impl;
 
 import com.hmdp.dto.Result;
-import com.hmdp.service.ISignService;
+import com.hmdp.user.service.ISignService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;

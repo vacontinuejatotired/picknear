@@ -1,4 +1,4 @@
-package com.hmdp.service;
+package com.hmdp.user.service;
 
 import com.hmdp.dto.Result;
 

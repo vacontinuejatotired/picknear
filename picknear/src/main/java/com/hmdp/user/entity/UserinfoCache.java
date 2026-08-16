@@ -1,6 +1,6 @@
-package com.hmdp.entity;
+package com.hmdp.user.entity;
 
-import com.hmdp.dto.UserDTO;
+import com.hmdp.user.dto.UserDTO;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
