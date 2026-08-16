@@ -1,14 +1,14 @@
-package com.hmdp.service.impl;
+package com.hmdp.voucher.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.injector.methods.DeleteById;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.enums.SeckillOrderCode;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.VoucherOrder;
-import com.hmdp.mapper.VoucherOrderMapper;
-import com.hmdp.service.ISeckillVoucherService;
-import com.hmdp.service.IVoucherOrderService;
+import com.hmdp.voucher.entity.VoucherOrder;
+import com.hmdp.voucher.mapper.VoucherOrderMapper;
+import com.hmdp.voucher.service.ISeckillVoucherService;
+import com.hmdp.voucher.service.IVoucherOrderService;
 import com.hmdp.utils.constants.RabbitMqConstants;
 import com.hmdp.utils.redis.RedisIdWorker;
 import com.hmdp.utils.UserHolder;

@@ -1,7 +1,7 @@
-package com.hmdp.mapper;
+package com.hmdp.voucher.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.hmdp.entity.Voucher;
+import com.hmdp.voucher.entity.Voucher;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;

@@ -1,7 +1,7 @@
  package com.hmdp.config;
 
  import com.fasterxml.jackson.databind.ObjectMapper;
- import com.hmdp.entity.VoucherOrder;
+ import com.hmdp.voucher.entity.VoucherOrder;
  import com.hmdp.utils.constants.RabbitMqConstants;
  import org.springframework.amqp.core.*;
  import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;

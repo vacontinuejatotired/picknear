@@ -1,6 +1,6 @@
-package com.hmdp.mapper;
+package com.hmdp.voucher.mapper;
 
-import com.hmdp.entity.VoucherOrder;
+import com.hmdp.voucher.entity.VoucherOrder;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**

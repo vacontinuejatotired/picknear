@@ -1,6 +1,6 @@
-package com.hmdp.service;
+package com.hmdp.voucher.service;
 
-import com.hmdp.entity.SeckillVoucher;
+import com.hmdp.voucher.entity.SeckillVoucher;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 /**

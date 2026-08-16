@@ -52,7 +52,7 @@ spring:
       mode: never
 
 mybatis-plus:
-  type-aliases-package: com.hmdp.entity,com.hmdp.shop.entity
+  type-aliases-package: com.hmdp.entity,com.hmdp.shop.entity,com.hmdp.voucher.entity
 
 # logging:
 #   level:

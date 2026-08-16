@@ -6,10 +6,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Voucher;
-import com.hmdp.entity.VoucherOrder;
-import com.hmdp.service.IVoucherOrderService;
-import com.hmdp.service.IVoucherService;
+import com.hmdp.voucher.entity.Voucher;
+import com.hmdp.voucher.entity.VoucherOrder;
+import com.hmdp.voucher.service.IVoucherOrderService;
+import com.hmdp.voucher.service.IVoucherService;
 import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;

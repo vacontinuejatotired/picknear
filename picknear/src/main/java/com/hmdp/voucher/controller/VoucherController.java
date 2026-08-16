@@ -1,9 +1,9 @@
-package com.hmdp.controller;
+package com.hmdp.voucher.controller;
 
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Voucher;
-import com.hmdp.service.IVoucherService;
+import com.hmdp.voucher.entity.Voucher;
+import com.hmdp.voucher.service.IVoucherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
