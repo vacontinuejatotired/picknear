@@ -936,7 +936,8 @@ hmdp:
 | `agent/task/PlanLoopExecutor.java` | 主循环（子 Agent/回退分支分发） |
 | `agent/task/SubAgentRoundExecutor.java` | 子 Agent 执行分支 |
 | `agent/task/FallbackRoundExecutor.java` | 回退执行分支 |
-| `agent/task/ConfirmFlowManager.java` | CONFIRM 审批流 |
+| `agent/task/ConfirmFlowManager.java` | CONFIRM 审批流（暂停中间态 + 已批工具直调） |
+| `agent/task/ConfirmResumeService.java` | CONFIRM 续流装配（审批通过 → 会话/快照/上下文重建 → resume） |
 | `agent/task/TaskReportHelper.java` | 历史/聚合助手 |
 | `agent/task/AgentContextResolver.java` | 异步上下文解析工具 |
 | `agent/task/model/SubTask.java` | 子任务数据模型 |
