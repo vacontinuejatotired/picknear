@@ -1,4 +1,4 @@
-package com.hmdp.agent.guard;
+package com.hmdp.agent.guard.model;
 
 /**
  * 工具守卫策略的投票结果

@@ -1,4 +1,4 @@
-package com.hmdp.agent.guard;
+package com.hmdp.agent.guard.model;
 
 /**
  * 守卫 CONFIRM 决策的异常信号。

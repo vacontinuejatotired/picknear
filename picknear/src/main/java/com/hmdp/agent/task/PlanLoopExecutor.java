@@ -2,7 +2,7 @@ package com.hmdp.agent.task;
 
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.context.AgentContext;
-import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;

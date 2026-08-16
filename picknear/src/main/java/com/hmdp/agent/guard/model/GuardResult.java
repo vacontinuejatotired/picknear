@@ -1,4 +1,4 @@
-package com.hmdp.agent.guard;
+package com.hmdp.agent.guard.model;
 
 /**
  * 工具守卫的最终决策结果

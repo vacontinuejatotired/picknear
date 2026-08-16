@@ -1,5 +1,8 @@
 package com.hmdp.agent.guard;
 
+import com.hmdp.agent.guard.model.ConfirmRequiredException;
+import com.hmdp.agent.guard.model.GuardResult;
+import com.hmdp.agent.guard.model.ToolInvocationContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;

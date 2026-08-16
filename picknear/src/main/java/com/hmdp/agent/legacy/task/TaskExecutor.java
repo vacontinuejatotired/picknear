@@ -2,7 +2,7 @@ package com.hmdp.agent.legacy.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
-import com.hmdp.agent.guard.ConfirmRequiredException;
+import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
