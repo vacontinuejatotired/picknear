@@ -932,17 +932,23 @@ hmdp:
 | `agent/tool/impl/BlogTool.java` | 博客工具 |
 | `agent/tool/impl/WeatherQueryTool.java` | 天气查询 |
 | `agent/tool/impl/StatsQueryTool.java` | 统计查询（测试） |
-| `agent/task/TaskPlanner.java` | 规划器（主循环） |
-| `agent/task/TaskReport.java` | 执行报告 |
-| `agent/task/SubTask.java` | 子任务数据模型 |
-| `agent/task/TaskType.java` | 枚举 |
-| `agent/task/SubTaskStatus.java` | 枚举 |
+| `agent/task/TaskPlanner.java` | 规划器（编排门面） |
+| `agent/task/PlanLoopExecutor.java` | 主循环（子 Agent/回退分支分发） |
+| `agent/task/SubAgentRoundExecutor.java` | 子 Agent 执行分支 |
+| `agent/task/FallbackRoundExecutor.java` | 回退执行分支 |
+| `agent/task/ConfirmFlowManager.java` | CONFIRM 审批流 |
+| `agent/task/TaskReportHelper.java` | 历史/聚合助手 |
+| `agent/task/AgentContextResolver.java` | 异步上下文解析工具 |
+| `agent/task/model/SubTask.java` | 子任务数据模型 |
+| `agent/task/model/SubTaskStatus.java` | 状态机枚举（五态两用：READY/RUNNING 为回退链专用） |
+| `agent/task/model/TaskType.java` | 类型枚举 |
+| `agent/task/model/TaskReport.java` | 执行报告 |
+| `agent/task/model/TaskSnapshot.java` | 任务快照（CONFIRM 续跑） |
 | `agent/legacy/task/TaskExecutor.java` | 【回退路径，已重整】串行任务执行器（`feature.subagent.enabled=false` 时由 FallbackRoundExecutor 使用，非死代码） |
 | `agent/legacy/task/TaskQueue.java` | 【回退路径，已重整】回退队列（仅 FallbackRoundExecutor 使用；TaskReportHelper 已解耦） |
 | `agent/legacy/plan/LegacyPlanRouter.java` | 【回退路径，已重整】legacy 规划策略（`feature.tool-routing.enabled=false` 条件装配） |
 | `agent/legacy/plan/ToolRouter.java` | 【回退路径，已重整】回退规划链内部路由门面（仅被 LegacyPlanRouter 使用） |
 | `agent/routing/CatalogBuilder.java` | 【活接口，已迁出】目录构建抽象——TreeCatalogBuilder/CompactCatalogBuilder 均实现它；P5 重整时从 legacy 包迁至 routing 包 |
-| `agent/task/TaskSnapshot.java` | 任务快照 |
 
 ### 权限校验模块
 
