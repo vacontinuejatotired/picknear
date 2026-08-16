@@ -3,7 +3,10 @@ package com.hmdp.agent.task;
 import com.hmdp.agent.subagent.model.SubTaskResult;
 import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
 import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.task.model.SubTaskStatus;
 import com.hmdp.agent.task.model.TaskReport;
+import com.hmdp.agent.task.model.TaskType;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
