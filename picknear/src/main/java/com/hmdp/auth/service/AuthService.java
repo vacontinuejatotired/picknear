@@ -1,8 +1,8 @@
-package com.hmdp.service;
+package com.hmdp.auth.service;
 
-import com.hmdp.dto.TokenPair;
+import com.hmdp.auth.dto.TokenPair;
+import com.hmdp.auth.dto.ValidationResult;
 import com.hmdp.dto.UserDTO;
-import com.hmdp.dto.ValidationResult;
 
 /**
  * 认证服务 — Token 生成/校验/刷新/注销，纯业务逻辑，无 HTTP 依赖。

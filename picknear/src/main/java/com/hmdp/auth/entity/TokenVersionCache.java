@@ -1,4 +1,4 @@
-package com.hmdp.entity;
+package com.hmdp.auth.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

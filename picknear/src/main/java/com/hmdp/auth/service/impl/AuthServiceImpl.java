@@ -1,15 +1,15 @@
-package com.hmdp.service.impl;
+package com.hmdp.auth.service.impl;
 
 import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.hmdp.auth.dto.TokenPair;
+import com.hmdp.auth.dto.ValidationResult;
+import com.hmdp.auth.entity.TokenVersionCache;
+import com.hmdp.auth.service.AuthService;
 import com.hmdp.dto.LuaResult;
-import com.hmdp.dto.TokenPair;
-import com.hmdp.dto.ValidationResult;
-import com.hmdp.entity.TokenVersionCache;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.entity.UserinfoCache;
 import com.hmdp.enums.TokenRefreshCode;
-import com.hmdp.service.AuthService;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.BatchLoadCache;

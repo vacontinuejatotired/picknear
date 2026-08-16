@@ -3,7 +3,7 @@ package com.hmdp.config;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.hmdp.entity.TokenVersionCache;
+import com.hmdp.auth.entity.TokenVersionCache;
 import com.hmdp.entity.UserinfoCache;
 import com.hmdp.utils.cache.BatchLoadCache;
 import com.hmdp.utils.cache.CaffeineConstants;

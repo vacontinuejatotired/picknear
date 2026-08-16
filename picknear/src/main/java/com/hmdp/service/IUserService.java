@@ -1,11 +1,11 @@
 package com.hmdp.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.hmdp.dto.LoginFormDTO;
-import com.hmdp.dto.PasswordChangeDTO;
+import com.hmdp.auth.dto.LoginFormDTO;
+import com.hmdp.auth.dto.PasswordChangeDTO;
 import com.hmdp.dto.ProfileUpdateDTO;
 import com.hmdp.dto.Result;
-import com.hmdp.dto.TokenPair;
+import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.entity.User;
 
 /**

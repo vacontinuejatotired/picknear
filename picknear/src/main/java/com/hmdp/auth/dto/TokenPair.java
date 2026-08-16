@@ -1,4 +1,4 @@
-package com.hmdp.dto;
+package com.hmdp.auth.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

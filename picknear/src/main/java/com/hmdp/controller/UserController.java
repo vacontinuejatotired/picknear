@@ -2,11 +2,11 @@ package com.hmdp.controller;
 
 
 import cn.hutool.core.bean.BeanUtil;
-import com.hmdp.dto.LoginFormDTO;
-import com.hmdp.dto.PasswordChangeDTO;
+import com.hmdp.auth.dto.LoginFormDTO;
+import com.hmdp.auth.dto.PasswordChangeDTO;
 import com.hmdp.dto.ProfileUpdateDTO;
 import com.hmdp.dto.Result;
-import com.hmdp.dto.TokenPair;
+import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;

@@ -1,9 +1,9 @@
 package com.hmdp.interceptor;
 
-import com.hmdp.dto.TokenPair;
-import com.hmdp.dto.ValidationResult;
-import com.hmdp.service.AuthService;
-import com.hmdp.service.AuthService.TokenRefreshResult;
+import com.hmdp.auth.dto.TokenPair;
+import com.hmdp.auth.dto.ValidationResult;
+import com.hmdp.auth.service.AuthService;
+import com.hmdp.auth.service.AuthService.TokenRefreshResult;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.security.CookieWriter;
 import jakarta.annotation.Resource;
