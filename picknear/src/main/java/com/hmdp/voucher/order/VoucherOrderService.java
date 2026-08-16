@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 秒杀订单 DB 服务 — 订单构建/落库/查重/删除
@@ -62,6 +63,16 @@ public class VoucherOrderService extends ServiceImpl<VoucherOrderMapper, Voucher
         return count(new LambdaQueryWrapper<VoucherOrder>()
                 .eq(VoucherOrder::getUserId, userId)
                 .eq(VoucherOrder::getVoucherId, voucherId)) > 0;
+    }
+
+    /**
+     * 查询某用户的订单列表（按下单时间倒序，供 agent 工具/业务查询使用）
+     */
+    public List<VoucherOrder> listByUserId(Long userId, int limit) {
+        return list(new LambdaQueryWrapper<VoucherOrder>()
+                .eq(VoucherOrder::getUserId, userId)
+                .orderByDesc(VoucherOrder::getCreateTime)
+                .last("LIMIT " + limit));
     }
 
     /**

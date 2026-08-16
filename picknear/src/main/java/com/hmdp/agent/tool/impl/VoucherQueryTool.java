@@ -2,13 +2,12 @@ package com.hmdp.agent.tool.impl;
 
 import java.util.List;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.dto.Result;
 import com.hmdp.voucher.entity.Voucher;
 import com.hmdp.voucher.entity.VoucherOrder;
-import com.hmdp.voucher.service.IVoucherOrderService;
+import com.hmdp.voucher.order.VoucherOrderService;
 import com.hmdp.voucher.service.IVoucherService;
 import com.hmdp.utils.constants.SystemConstants;
 
@@ -30,7 +29,7 @@ public class VoucherQueryTool {
     private IVoucherService voucherService;
 
     @Resource
-    private IVoucherOrderService voucherOrderService;
+    private VoucherOrderService voucherOrderService;
 
     public record VoucherBrief(Long id, String title, String subTitle, Long payValue, Long actualValue,
                                Integer type, Integer stock) {}
@@ -69,9 +68,8 @@ public class VoucherQueryTool {
     public List<VoucherOrderBrief> queryMyVoucherOrders(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("queryMyVoucherOrders userId: {}", userId);
-        Page<VoucherOrder> p = voucherOrderService.query().eq("user_id", userId)
-                .orderByDesc("create_time").page(new Page<>(1, SystemConstants.MAX_PAGE_SIZE));
-        return p.getRecords().stream()
+        List<VoucherOrder> orders = voucherOrderService.listByUserId(userId, SystemConstants.MAX_PAGE_SIZE);
+        return orders.stream()
                 .map(o -> new VoucherOrderBrief(o.getId(), o.getVoucherId(),
                         statusLabel(o.getStatus()), String.valueOf(o.getCreateTime())))
                 .toList();
