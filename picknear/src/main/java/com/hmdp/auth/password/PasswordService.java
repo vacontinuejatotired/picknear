@@ -5,9 +5,9 @@ import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.token.TokenService;
 import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
+import com.hmdp.user.account.UserAccountService;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.entity.User;
-import com.hmdp.user.service.IUserService;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.security.PasswordEncoder;
@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
-import java.time.LocalDateTime;
 
 /**
  * 密码服务 — 修改密码/重置密码（auth 域收敛，P2-S4）
@@ -25,7 +24,7 @@ import java.time.LocalDateTime;
  *   <li>changePassword：校验旧密码 → BCrypt 更新 → 生成全新双 Token（bump version，旧 Token 失效）</li>
  *   <li>resetPassword：验证码消费 → 密码强度校验 → 更新密码（免旧密码）</li>
  * </ul>
- * 账号读写经 {@link IUserService}（S5 后切换 {@code UserAccountService}）。
+ * 账号读写经 {@link UserAccountService}（user 域，P2-S5 切换）。
  * </p>
  */
 @Slf4j
@@ -33,7 +32,7 @@ import java.time.LocalDateTime;
 public class PasswordService {
 
     @Resource
-    private IUserService userService;
+    private UserAccountService userAccountService;
     @Resource
     private VerifyCodeService verifyCodeService;
     @Resource
@@ -62,7 +61,7 @@ public class PasswordService {
         }
 
         // 查用户
-        User user = userService.getById(userId);
+        User user = userAccountService.getById(userId);
         if (user == null || user.getPassword() == null) {
             throw new IllegalArgumentException("未设置密码，请使用验证码登录");
         }
@@ -74,9 +73,7 @@ public class PasswordService {
         }
 
         // 更新密码
-        user.setPassword(PasswordEncoder.encode(newPassword));
-        user.setUpdateTime(LocalDateTime.now());
-        userService.updateById(user);
+        userAccountService.updatePassword(user, PasswordEncoder.encode(newPassword));
 
         // 生成全新双 Token（bump version → 旧 Token 自动失效）
         TokenPair tokenPair = tokenService.generateTokenPair(userId);
@@ -97,14 +94,12 @@ public class PasswordService {
             return Result.fail("密码需至少8位，包含大写、小写、数字");
         }
         // 查用户
-        User user = userService.query().eq("phone", phone).one();
+        User user = userAccountService.queryByPhone(phone);
         if (user == null) {
             return Result.fail("该手机号未注册");
         }
         // 更新密码
-        user.setPassword(PasswordEncoder.encode(newPassword));
-        user.setUpdateTime(LocalDateTime.now());
-        userService.updateById(user);
+        userAccountService.updatePassword(user, PasswordEncoder.encode(newPassword));
         log.info("密码重置成功 phone={}, userId={}", phone, user.getId());
         return Result.ok();
     }
