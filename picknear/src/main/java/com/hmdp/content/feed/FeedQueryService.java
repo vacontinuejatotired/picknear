@@ -2,14 +2,13 @@ package com.hmdp.content.feed;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.entity.Follow;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.content.mapper.FollowMapper;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.ScrollResult;
-import com.hmdp.user.dto.UserDTO;
-import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.service.IUserInfoService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.constants.SystemConstants;
@@ -36,8 +35,8 @@ import java.util.concurrent.TimeUnit;
  *   <li>queryBlogOfFollow：ZSet 游标分页（reverseRangeByScoreWithScores） + 懒回填 + 装配</li>
  *   <li>generateFeedForUser：Feed 首次查询且 ZSet 为空时，回填所有关注账号的历史博客</li>
  * </ul>
- * 博客/关注查询经 {@link BlogMapper}/{@link FollowMapper} 直查，不依赖 Service 层。
- * 装配逻辑（setUserToBlog/isLiked）暂内聚于此，P3-S4 收敛至 BlogQueryService。
+ * 博客/关注查询经 {@link BlogMapper}/{@link FollowMapper} 直查，不依赖 Service 层；
+ * 装配经 {@link BlogQueryService}（P3-S3 收敛，单一来源）。
  * </p>
  */
 @Slf4j
@@ -51,7 +50,7 @@ public class FeedQueryService {
     @Resource
     private FollowMapper followMapper;
     @Resource
-    private IUserInfoService userInfoService;
+    private BlogQueryService blogQueryService;
 
     /** Feed 游标分页查询（最新在前；ZSet 为空触发懒回填） */
     public Result queryBlogOfFollow(Long max, Integer offset) {
@@ -95,8 +94,8 @@ public class FeedQueryService {
                 .last("order by field(id," + idStr + ")"));
         log.info("已查询到博客");
         for (Blog blog : blogList) {
-            setUserToBlog(blog);
-            isLiked(blog);
+            blogQueryService.setUserToBlog(blog);
+            blogQueryService.isLiked(blog);
         }
         result.setOffset(os);
         result.setMinTime(min);
@@ -136,25 +135,5 @@ public class FeedQueryService {
         }
         stringRedisTemplate.expire(feedKey, RedisConstants.FOLLOWS_TTL, TimeUnit.SECONDS);
         log.info("懒回填完成：用户 {} 共回填 {} 篇博客到 feed", userId, totalPushed);
-    }
-
-    /** 填充作者昵称/头像（nickName、icon 已迁移到 tb_user_info） */
-    private void setUserToBlog(Blog blog) {
-        Long userId = blog.getUserId();
-        UserInfo userInfo = userInfoService.getById(userId);
-        blog.setName(userInfo != null ? userInfo.getNickName() : "");
-        blog.setIcon(userInfo != null ? userInfo.getIcon() : "");
-    }
-
-    /** 填充当前用户是否已点赞 */
-    private void isLiked(Blog blog) {
-        UserDTO userDTO = UserHolder.getUserDTO();
-        if (userDTO == null) {
-            return;
-        }
-        Long userId = userDTO.getId();
-        String userKey = RedisConstants.USER_LIKED_KEY + userId;
-        Boolean isMember = stringRedisTemplate.opsForSet().isMember(userKey, String.valueOf(blog.getId()));
-        blog.setIsLike(Boolean.TRUE.equals(isMember));
     }
 }

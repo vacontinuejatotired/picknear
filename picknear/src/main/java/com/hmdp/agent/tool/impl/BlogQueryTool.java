@@ -2,16 +2,14 @@ package com.hmdp.agent.tool.impl;
 
 import java.util.List;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.util.TextUtils;
+import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.dto.Result;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.entity.BlogComments;
 import com.hmdp.content.service.IBlogCommentsService;
-import com.hmdp.content.service.IBlogService;
-import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -21,13 +19,16 @@ import org.springframework.ai.tool.annotation.ToolParam;
 /**
  * 博客查询工具 — 博客详情 / 博客评论 / 某用户博客。
  * 供长任务串链：用户 → 博客 → 详情/评论。
+ * <p>
+ * P3-S3 对齐 M-4：改调 BlogQueryService 业务方法，不再依赖 IBlogService 裸 query()。
+ * </p>
  */
 @TargetTool(active = true)
 @Slf4j
 public class BlogQueryTool {
 
     @Resource
-    private IBlogService blogService;
+    private BlogQueryService blogQueryService;
 
     @Resource
     private IBlogCommentsService blogCommentsService;
@@ -47,7 +48,7 @@ public class BlogQueryTool {
     @ToolMeta(keywords = {"博客详情", "这篇博客", "看看这篇", "博客信息"}, intents = {"blog"})
     public BlogBrief queryBlogById(
             @ToolParam(description = "博客ID") Long blogId) {
-        Result result = blogService.queryById(blogId);
+        Result result = blogQueryService.queryById(blogId);
         if (result == null || !Boolean.TRUE.equals(result.getSuccess())
                 || !(result.getData() instanceof Blog b)) {
             return null;
@@ -85,11 +86,17 @@ public class BlogQueryTool {
     @ToolMeta(keywords = {"某人的博客", "这个作者的博客", "他发的", "她发的", "的博客"}, intents = {"blog"})
     public List<BlogBrief> queryUserBlogs(
             @ToolParam(description = "用户ID") Long userId) {
-        Page<Blog> p = blogService.query().eq("user_id", userId).ne("images", "")
-                .orderByDesc("create_time").page(new Page<>(1, SystemConstants.MAX_PAGE_SIZE));
-        return p.getRecords().stream()
+        Result result = blogQueryService.queryByUserId(userId, 1);
+        if (result == null || !Boolean.TRUE.equals(result.getSuccess())
+                || !(result.getData() instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .filter(Blog.class::isInstance)
+                .map(Blog.class::cast)
                 .map(b -> new BlogBrief(b.getId(), b.getTitle(), TextUtils.truncate(b.getContent(), 80),
-                        b.getLiked(), b.getComments(), null))
+                        b.getLiked(), b.getComments(), b.getName()))
                 .toList();
     }
 }
+

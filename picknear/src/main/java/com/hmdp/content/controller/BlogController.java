@@ -3,6 +3,7 @@ package com.hmdp.content.controller;
 
 import com.hmdp.dto.Result;
 import com.hmdp.content.blog.BlogLikeService;
+import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedQueryService;
 import com.hmdp.content.service.IBlogService;
@@ -33,6 +34,8 @@ public class BlogController {
     private FeedQueryService feedQueryService;
     @Resource
     private BlogLikeService blogLikeService;
+    @Resource
+    private BlogQueryService blogQueryService;
 
     @PostMapping
     @Operation(summary = "发布博客", description = "创建新的探店博客")
@@ -65,35 +68,35 @@ public class BlogController {
     public Result queryBlogByUserId(
             @Parameter(description = "页码") @RequestParam(value = "current", defaultValue = "1") Integer current,
             @Parameter(description = "用户ID") @RequestParam("id") Long id) {
-        return blogService.queryByUserId(id, current);
+        return blogQueryService.queryByUserId(id, current);
     }
 
     @GetMapping("/of/me")
     @Operation(summary = "查询我的博客", description = "查询当前用户发布的博客列表")
     public Result queryMyBlog(
             @Parameter(description = "页码") @RequestParam(value = "current", defaultValue = "1") Integer current) {
-        return blogService.queryMyBlog(current);
+        return blogQueryService.queryMyBlog(current);
     }
 
     @GetMapping("/hot")
     @Operation(summary = "查询热门博客", description = "查询热门推荐博客列表")
     public Result queryHotBlog(
             @Parameter(description = "页码") @RequestParam(value = "current", defaultValue = "1") Integer current) {
-        return blogService.queryHotById(current);
+        return blogQueryService.queryHotById(current);
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "查询博客详情", description = "根据博客ID获取博客详细信息")
     public Result queryBlogById(
             @Parameter(description = "博客ID") @PathVariable("id") Long id) {
-        return blogService.queryById(id);
+        return blogQueryService.queryById(id);
     }
 
     @GetMapping("/likes/{id}")
     @Operation(summary = "查询点赞用户", description = "查询给博客点赞的用户列表")
     public Result queryLikeBlog(
             @Parameter(description = "博客ID") @PathVariable("id") Long id) {
-        return blogService.queryUserList(id);
+        return blogQueryService.queryUserList(id);
     }
     @GetMapping("/of/follow")
     @Operation(summary = "查询关注用户博客", description = "查询关注用户的博客Feed流")

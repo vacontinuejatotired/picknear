@@ -7,32 +7,16 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import java.util.List;
 
 /**
+ * 探店笔记服务接口 — 发布域（P3-S3 拆分后）
  * <p>
- *  服务类
+ * 查询/点赞/Feed 已分别收敛至 BlogQueryService / BlogLikeService / feed 域；
+ * 本接口仅剩发布（P3-S5 删除）。
  * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
- */
-/**
- * 探店笔记服务接口 — 笔记CRUD、点赞、点赞用户列表、关注者Feed流
  */
 public interface IBlogService extends IService<Blog> {
-
-    Result queryById(Long id);
-
-    Result queryHotById(Integer current);
-
-    Result queryUserList(Long id);
 
     Result saveBlog(Blog blog);
 
     /** 更新博客图片列表 — 上传完成后调用，JSON 数组接收 */
     Result updateBlogImages(Long id, List<String> images);
-
-    /** 查询某个用户的所有笔记（分页），含作者信息和点赞状态 */
-    Result queryByUserId(Long id, Integer current);
-
-    /** 查询当前登录用户的笔记（分页），含作者信息和点赞状态 */
-    Result queryMyBlog(Integer current);
 }
