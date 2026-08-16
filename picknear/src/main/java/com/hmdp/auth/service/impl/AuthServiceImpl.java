@@ -55,8 +55,6 @@ public class AuthServiceImpl implements AuthService {
     private LoadingCache<String, UserinfoCache> userinfoCaffeine;
     @Resource(name = "tokenValidVersionCache")
     private LoadingCache<String, TokenVersionCache> tokenValidVersionCache;
-    @Resource(name = "consumeVerifyCodeScript")
-    private DefaultRedisScript<String> consumeVerifyCodeScript;
     @Resource(name = "REDIS_LOGIN_SET_TOKEN")
     private DefaultRedisScript<String> REDIS_LOGIN_SET_TOKEN;
     @Resource
@@ -337,18 +335,6 @@ public class AuthServiceImpl implements AuthService {
         String versionKey = CaffeineConstants.TOKEN_VALID_VERSION_CACHE_KEY + userId;
         tokenValidVersionCache.invalidate(versionKey);
         log.info("【登出】已清除 userId={} 的所有 Token、Version 和本地缓存", userId);
-    }
-
-    // ==================== 验证码 ====================
-
-    @Override
-    public boolean consumeVerifyCode(String phone, String code) {
-        if (code == null) {
-            return false;
-        }
-        String tempCode = stringRedisTemplate.execute(consumeVerifyCodeScript,
-                List.of(RedisConstants.LOGIN_CODE_KEY + phone));
-        return code.equals(tempCode);
     }
 
     // ==================== 用户缓存 ====================

@@ -13,7 +13,6 @@ import com.hmdp.user.dto.UserDTO;
  *   <li>JWT 解析 + 两级版本校验（validateAccessToken）</li>
  *   <li>临期/过期刷新（refreshTokenPair）</li>
  *   <li>登出吊销（revokeTokens）</li>
- *   <li>验证码原子消费（consumeVerifyCode）</li>
  *   <li>用户信息缓存（cacheUserInfo）</li>
  * </ul>
  * Controller 和 Interceptor 只负责 HTTP 读写（响应头/请求头），不关心 Token 如何生成。
@@ -67,9 +66,6 @@ public interface AuthService {
 
     /** 登出：删除 Redis 中该用户的所有 Token/Version */
     void revokeTokens(Long userId);
-
-    /** 原子消费验证码：GET + DEL，防止重放 */
-    boolean consumeVerifyCode(String phone, String code);
 
     /**
      * 带锁刷新结果：OK=成功（tokenPair 非空）；SKIPPED=锁被占用，调用方跳过刷新直接放行；

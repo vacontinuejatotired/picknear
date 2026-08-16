@@ -6,6 +6,7 @@ import com.hmdp.auth.dto.LoginFormDTO;
 import com.hmdp.auth.dto.PasswordChangeDTO;
 import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.service.AuthService;
+import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
 import com.hmdp.service.FileService;
 import com.hmdp.user.dto.ProfileUpdateDTO;
@@ -44,6 +45,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Resource
     @Lazy
     private AuthService authService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
     @Resource
     private IUserInfoService userInfoService;
     @Resource
@@ -135,7 +138,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
      */
     private TokenPair loginByCode(String phone, String code) {
         // 原子消费验证码
-        if (!authService.consumeVerifyCode(phone, code)) {
+        if (!verifyCodeService.consumeVerifyCode(phone, code)) {
             log.info("验证码错误 phone={}, code={}", phone, code);
             throw new IllegalArgumentException("验证码错误");
         }
@@ -238,7 +241,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Override
     public Result resetPassword(String phone, String code, String newPassword) {
         // 校验验证码
-        if (!authService.consumeVerifyCode(phone, code)) {
+        if (!verifyCodeService.consumeVerifyCode(phone, code)) {
             return Result.fail("验证码错误或已过期");
         }
         // 校验密码强度
@@ -260,19 +263,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result sendCode(String phone) {
-        if (RegexUtils.isPhoneInvalid(phone)) {
-            throw new IllegalArgumentException("手机号不规范");
-        }
-        String freqKey = RedisConstants.LOGIN_CODE_FREQ_KEY + phone;
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(freqKey))) {
-            return Result.fail("发送太频繁，请稍后再试");
-        }
-        String code = RandomUtil.randomNumbers(6);
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY + phone, code, RedisConstants.LOGIN_CODE_TTL, TimeUnit.MINUTES);
-        stringRedisTemplate.opsForValue().set(freqKey, "1", 60, TimeUnit.SECONDS);
-        log.info("send code {} success", code);
-        // DEV ONLY: 返回验证码便于开发调试，生产环境应移除
-        return Result.ok(code);
+        return verifyCodeService.sendCode(phone);
     }
 
     @Override
