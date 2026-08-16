@@ -12,12 +12,11 @@ import com.hmdp.voucher.entity.VoucherOrder;
 import com.hmdp.voucher.mapper.VoucherOrderMapper;
 import com.hmdp.voucher.service.ISeckillVoucherService;
 import com.hmdp.voucher.service.IVoucherOrderService;
+import com.hmdp.voucher.stock.SeckillStockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.context.annotation.Primary;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,27 +35,21 @@ import java.util.*;
 public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
-
-    @Resource
     private RedisIdWorker redisIdWorker;
     @Resource
     private RabbitTemplate rabbitTemplate;
     @Resource
     private ISeckillVoucherService seckillVoucherService;
-
-    @Resource(name = "seckillScript")
-    private DefaultRedisScript<Long> seckillScript;
-    private static final int MAX_RETRY = 3;
+    @Resource
+    private SeckillStockService seckillStockService;
 
     @Override
     public Result querySeckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUserId();
         Long orderId = redisIdWorker.getIdFromQueue();
-        Long result = stringRedisTemplate.execute(seckillScript, Collections.emptyList(), voucherId.toString(), userId.toString(), orderId.toString());
+        Long result = seckillStockService.deductStock(voucherId, userId, orderId);
         int r = result.intValue();
         //0代表才加入缓存，1代表库存不足，2代表重复下单
-        //集群部署的redis，你这怎么查？
         if (r != 0) {
             return Result.fail(r == 1 ? "库存不足" : "不能重复下单");
         }
@@ -91,8 +84,8 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
         long orderIdGenStart = System.currentTimeMillis();
         Long orderId = redisIdWorker.getIdFromQueue();
         // 2. 执行Lua脚本扣减库存
-        Long luaResult = executeSeckillLua(voucherId, userId, orderId);
-        if (!luaResult .equals( SeckillOrderCode.SUCCESS.getCode())) {
+        Long luaResult = seckillStockService.deductStock(voucherId, userId, orderId);
+        if (!luaResult.equals(SeckillOrderCode.SUCCESS.getCode())) {
             log.info("【Lua脚本执行】耗时: {} ms", System.currentTimeMillis() - startTime);
             return Result.fail(SeckillOrderCode.getDefaultMessage(luaResult));
         }
@@ -127,45 +120,12 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
      * @param stock
      */
     @Override
-    public void deleteVoucherOrders(Long voucherId,Long stock) {
-        seckillVoucherService.update().eq("voucher_id", voucherId).set("stock",stock).update();
+    public void deleteVoucherOrders(Long voucherId, Long stock) {
+        seckillStockService.restoreDbStock(voucherId, stock);
         LambdaQueryWrapper<VoucherOrder> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(VoucherOrder::getVoucherId, voucherId);
         boolean removed = this.remove(wrapper);
         log.info("删除{}", removed);
-
-    }
-
-    /**
-     * 执行秒杀Lua脚本
-     */
-    private Long executeSeckillLua(Long voucherId, Long userId, Long orderId) {
-        long startTime = System.currentTimeMillis();
-
-        List<String> args = Arrays.asList(
-                String.valueOf(voucherId),
-                String.valueOf(userId),
-                String.valueOf(orderId)
-        );
-
-        try {
-            Long result = stringRedisTemplate.execute(
-                    seckillScript,
-                    Collections.emptyList(),
-                    args.toArray()
-            );
-
-            long costTime = System.currentTimeMillis() - startTime;
-            // Lua脚本执行耗时告警
-            if (costTime > 200) {
-                log.warn("【性能告警】Lua脚本执行过慢: {} ms", costTime);
-            }
-
-            return result != null ? result : -1;
-        } catch (Exception e) {
-            log.error("【executeSeckillLua】执行异常", e);
-            throw new RuntimeException("Lua脚本执行失败", e);
-        }
     }
 
     /**
