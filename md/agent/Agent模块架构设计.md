@@ -958,20 +958,22 @@ hmdp:
 
 ### PromptGuard 守卫模块
 
-> 包名 `guard`（旧文档 `promptguard` 为历史包名，已修正）。GuardedToolCallback 为薄壳门面，
-> 决策小步（ToolGuardGate）与执行小步（ToolCallExecutor）拆分见 §5.7。
+> 包名 `guard`（旧文档 `promptguard` 为历史包名，已修正）。按职责分层（提交 0475a85）：
+> guard 根 = 门面三件套，`guard/model` = 决策模型与上下文，`guard/policy` = 策略接口与实现，
+> 执行小步 `ToolCallExecutor` 归工具域（tool 包）。
 
 | 文件路径 | 角色 |
 |---------|------|
 | `guard/GuardedToolCallback.java` | ToolCallback 代理（薄壳：回调协议 + 元数据代理 + 上下文装配） |
 | `guard/ToolGuardGate.java` | 守卫门（决策小步：策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流） |
-| `guard/ToolCallExecutor.java` | 执行小步（self 占位符解析 + 委托调用 + 结果限长 + 参数转换错误兜底） |
 | `guard/ToolGuardManager.java` | 策略收集与决策聚合 |
-| `guard/ToolGuardPolicy.java` | 策略接口 |
-| `guard/ToolInvocationContext.java` | 评估上下文 |
-| `guard/GuardResult.java` | 决策结果 |
-| `guard/Vote.java` | 投票枚举 |
-| `guard/policy/*.java` | 各策略实现 |
+| `guard/model/GuardResult.java` | 决策结果 |
+| `guard/model/Vote.java` | 投票枚举 |
+| `guard/model/ToolInvocationContext.java` | 评估上下文 |
+| `guard/model/ConfirmRequiredException.java` | CONFIRM 暂停信号（审批流异常，TaskPlanner/工具循环捕获） |
+| `guard/policy/ToolGuardPolicy.java` | 策略接口 |
+| `guard/policy/*.java` | 各策略实现（HighRiskList/ConfirmTool/PatternMatch/RateLimit） |
+| `tool/ToolCallExecutor.java` | 执行小步（self 占位符解析 + 委托调用 + 结果限长 + 参数转换错误兜底） |
 
 ### PromptHook 输入拦截模块
 
