@@ -1,5 +1,6 @@
 package com.hmdp.voucher.service.impl;
 
+import com.hmdp.common.idempotent.Idempotent;
 import com.hmdp.dto.Result;
 import com.hmdp.enums.SeckillOrderCode;
 import com.hmdp.utils.UserHolder;
@@ -69,6 +70,11 @@ public class SeckillOrderService implements IVoucherOrderService {
         voucherOrderService.saveOrder(voucherOrder);
     }
 
+    /**
+     * 秒杀下单主链路（HTTP 层幂等防重：@Idempotent 窗口防双击；
+     * 内层 Redis Lua 已有"库存不足/重复下单"原子判断，两层互补）
+     */
+    @Idempotent(key = "#voucherId + ':' + T(com.hmdp.utils.UserHolder).getUserId()", ttl = 10)
     @Override
     public Result saveOrder(Long voucherId) {
         long startTime = System.currentTimeMillis();
