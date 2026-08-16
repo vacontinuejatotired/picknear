@@ -2,6 +2,7 @@ package com.hmdp.content.controller;
 
 
 import com.hmdp.dto.Result;
+import com.hmdp.content.blog.BlogLikeService;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedQueryService;
 import com.hmdp.content.service.IBlogService;
@@ -30,6 +31,8 @@ public class BlogController {
     private IBlogService blogService;
     @Resource
     private FeedQueryService feedQueryService;
+    @Resource
+    private BlogLikeService blogLikeService;
 
     @PostMapping
     @Operation(summary = "发布博客", description = "创建新的探店博客")
@@ -54,10 +57,7 @@ public class BlogController {
     @Operation(summary = "点赞博客", description = "给博客点赞或取消点赞")
     public Result likeBlog(
             @Parameter(description = "博客ID") @PathVariable("id") Long id) {
-        // 修改点赞数量
-//        blogService.update()
-//                .setSql("liked = liked + 1").eq("id", id).update();
-        return blogService.likeBlog(id);
+        return blogLikeService.likeBlog(id);
     }
 
     @GetMapping("/of/user")

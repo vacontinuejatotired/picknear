@@ -116,46 +116,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     //TODO 点赞有bug  ，一人一赞没实现，还有取消点赞再点还是取消
-    @Override
-    public Result likeBlog(Long id) {
-        Long userId = UserHolder.getUserId();
-        String zsetKey = RedisConstants.BLOG_LIKED_KEY + id;
-        String userKey = RedisConstants.USER_LIKED_KEY + userId;
-        String lockKey = "lock:like:" + id + ":" + userId;
-
-        // 分布式锁，防并发重复点赞/取消
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS);
-        if (Boolean.FALSE.equals(locked)) {
-            return Result.fail("操作太频繁，请稍后再试");
-        }
-        try {
-            // 优先查 Set（用户维度），ZSet 只用于 TopN 查询
-            Boolean isLiked = stringRedisTemplate.opsForSet().isMember(userKey, String.valueOf(id));
-            if (Boolean.FALSE.equals(isLiked)) {
-                boolean update = update().setSql("liked = liked + 1").eq("id", id).update();
-                if (update) {
-                    stringRedisTemplate.opsForSet().add(userKey, String.valueOf(id));
-                    stringRedisTemplate.opsForZSet().add(zsetKey, userId.toString(), System.currentTimeMillis());
-                }
-            } else {
-                boolean update = update().setSql("liked = liked - 1").eq("id", id).update();
-                if (update) {
-                    stringRedisTemplate.opsForSet().remove(userKey, String.valueOf(id));
-                    stringRedisTemplate.opsForZSet().remove(zsetKey, userId.toString());
-                }
-            }
-            // 同步刷新博客缓存中的 liked 数
-            Blog blog = getById(id);
-            if (blog != null) {
-                String cacheKey = RedisConstants.CACHE_BLOG_KEY + id;
-                long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
-                stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
-            }
-        } finally {
-            stringRedisTemplate.delete(lockKey);
-        }
-        return Result.ok();
-    }
+    // 点赞逻辑已迁 BlogLikeService（P3-S2）
 
     @Override
     public Result queryUserList(Long id) {
