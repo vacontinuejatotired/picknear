@@ -1,12 +1,11 @@
-package com.hmdp.utils.cache;
+package com.hmdp.common.cache;
 
-import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.common.lock.LockTemplate;
-import com.hmdp.shop.entity.Shop;
+import com.hmdp.utils.cache.RedisData;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -14,24 +13,118 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
- * 缓存客户端工具 — 封装 Redis 缓存操作，提供缓存穿透/击穿解决方案
+ * 缓存管理器 — 通用单键缓存唯一入口（common 域收敛，P4-S2）
+ * <p>
+ * 自 CacheClient 迁出（行为等价，P4-S3 后 CacheClient 删除）：
+ * <ul>
+ *   <li>queryWithCache：缓存穿透防护（空值缓存 + 兜底回源）</li>
+ *   <li>queryWithLogicExpire：缓存击穿防护（逻辑过期 + 异步重建，锁经 LockTemplate）</li>
+ *   <li>set / setWithLogicalExpire / setWithBlankExpire / evict：写入与失效</li>
+ * </ul>
+ * 异步重建线程池为 Spring 托管有界池（{@code cacheRebuildExecutor}，替代静态 Executors）。
+ * 用户信息批量缓存（BatchLoadCache，Hash 形态）不并入本门面——数据形态不同。
+ * </p>
  */
 @Slf4j
 @Component
-public class CacheClient {
-    private final StringRedisTemplate stringRedisTemplate;
+public class CacheManager {
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Resource
     private LockTemplate lockTemplate;
 
-    public CacheClient(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
+    @Resource(name = "cacheRebuildExecutor")
+    private Executor cacheRebuildExecutor;
+
+    /** 通用单键缓存（空值兜底 + 回源） */
+    public <R, ID> R queryWithCache(ID id, Class<R> clazz, String keyPrefix,
+                                    Function<ID, R> dbFallBack, Long time, TimeUnit timeUnit) {
+        String key = keyPrefix + id;
+        String json = stringRedisTemplate.opsForValue().get(key);
+        if (StrUtil.isNotBlank(json)) {
+            return JSONUtil.toBean(json, clazz, false);
+        }
+        // 判断命中的是不是空值
+        if (json != null) {
+            return null;
+        }
+        R result = dbFallBack.apply(id);
+        if (result == null) {
+            stringRedisTemplate.opsForValue().set(key, "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return null;
+        }
+        set(key, result, time, timeUnit);
+        return result;
+    }
+
+    /** 逻辑过期缓存查询（异步重建 + LockTemplate 防击穿） */
+    public <R, ID> R queryWithLogicExpire(String keyPrefix, ID id, Class<R> clazz,
+                                          Function<ID, R> dbFallBack,
+                                          Long time, TimeUnit timeUnit) {
+        String key = keyPrefix + id;
+        String redisData = stringRedisTemplate.opsForValue().get(key);
+        String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
+
+        // 1. 空值缓存（占位符）
+        if (redisData != null && redisData.equals("")) {
+            log.info("命中空值缓存，id={}", id);
+            return null;
+        }
+
+        // 2. 缓存物理缺失
+        if (redisData == null) {
+            LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey,
+                    RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
+            if (lock != null) {
+                try {
+                    // 双检：再次检查是否被其他线程刚写入
+                    R cached = doubleCheckCache(key, clazz);
+                    if (cached != null) {
+                        return cached;
+                    }
+                } finally {
+                    lock.close(); // 立即释放锁
+                }
+                // 锁已释放，提交异步任务（任务内会重新抢锁执行重建）
+                asyncRebuildCache(key, lockKey, id, dbFallBack, time, timeUnit, clazz);
+            }
+            // 没拿到锁或异步已提交，返回 null（降级）
+            return null;
+        }
+
+        // 3. 解析缓存数据
+        RedisData redisData1 = JSONUtil.toBean(redisData, RedisData.class);
+        R r = JSONUtil.toBean((JSONObject) redisData1.getData(), clazz);
+
+        // 4. 未过期，直接返回
+        if (LocalDateTime.now().isBefore(redisData1.getExpireTime())) {
+            return r;
+        }
+
+        // 5. 逻辑过期
+        LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey,
+                RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
+        if (lock != null) {
+            try {
+                R updated = doubleCheckCache(key, clazz);
+                if (updated != null) {
+                    return updated; // 被其他线程更新了
+                }
+            } finally {
+                lock.close(); // 释放锁
+            }
+            // 释放锁后提交异步重建
+            asyncRebuildCache(key, lockKey, id, dbFallBack, time, timeUnit, clazz);
+        }
+        // 返回旧数据（可能已过期，但允许）
+        return r;
     }
 
     public void set(String key, Object value, Long time, TimeUnit timeUnit) {
@@ -48,10 +141,6 @@ public class CacheClient {
 
     /**
      * 设置空缓存，过期时间为传入时间的范围随机值（70%~100%）
-     * 
-     * @param key
-     * @param time
-     * @param timeUnit
      */
     public void setWithBlankExpire(String key, Long time, TimeUnit timeUnit) {
         time = RandomUtil.randomLong(time * 7 / 10, time);
@@ -59,87 +148,9 @@ public class CacheClient {
         log.info("设置空缓存：key={}，过期时间：{}，单位：{}", key, time, timeUnit);
     }
 
-    public <R, ID> R queryById(ID id, Class<R> clazz, String keyPrefix, Function<ID, R> dbFallBack, Long time,
-            TimeUnit timeUnit) {
-        String key = keyPrefix + id;
-        String Json = stringRedisTemplate.opsForValue().get(key);
-        if (StrUtil.isNotBlank(Json)) {
-            return JSONUtil.toBean(Json, clazz, false);
-        }
-        // 判断命中的是不是空值
-        if (Json != null) {
-            return null;
-        }
-        R result = dbFallBack.apply(id);
-        if (result == null) {
-            stringRedisTemplate.opsForValue().set(key, "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
-            return null;
-        }
-        this.set(key, result, time, timeUnit);
-        return result;
-    }
-
-    private static final ExecutorService CACHE_REBUILD_THREAD_POOL = Executors.newFixedThreadPool(10);
-
-    public <R, ID> R queryWithLogicExpire(String keyPrefix, ID id, Class<R> clazz,
-            Function<ID, R> dbFallBack,
-            Long time1, TimeUnit timeUnit) {
-        String key = keyPrefix + id;
-        String redisData = stringRedisTemplate.opsForValue().get(key);
-        String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
-
-        // 1. 空值缓存（占位符）
-        if (redisData != null && redisData.equals("")) {
-            log.info("命中空值缓存，id={}", id);
-            return null;
-        }
-
-        // 2. 缓存物理缺失
-        if (redisData == null) {
-            LockTemplate.LockHandle lock = tryLock(lockKey);
-            if (lock != null) {
-                try {
-                    // 双检：再次检查是否被其他线程刚写入
-                    R cached = doubleCheckCache(key, clazz);
-                    if (cached != null) {
-                        return cached;
-                    }
-                    // 未命中，需要重建，但不在持有锁时提交异步任务
-                } finally {
-                    unlock(lock); // 立即释放锁
-                }
-                // 锁已释放，提交异步任务（任务内会重新抢锁执行重建）
-                asyncRebuildCache(key, lockKey, id, dbFallBack, time1, timeUnit, clazz);
-            }
-            // 没拿到锁或异步已提交，返回 null（降级）
-            return null;
-        }
-
-        // 3. 解析缓存数据
-        RedisData redisData1 = JSONUtil.toBean(redisData, RedisData.class);
-        R r = JSONUtil.toBean((JSONObject) redisData1.getData(), clazz);
-
-        // 4. 未过期，直接返回
-        if (LocalDateTime.now().isBefore(redisData1.getExpireTime())) {
-            return r;
-        }
-
-        // 5. 逻辑过期
-        LockTemplate.LockHandle lock = tryLock(lockKey);
-        if (lock != null) {
-            try {
-                R updated = doubleCheckCache(key, clazz);
-                if (updated != null) {
-                    return updated; // 被其他线程更新了
-                }
-            } finally {
-                unlock(lock); // 释放锁
-            }
-            // 释放锁后提交异步重建
-            asyncRebuildCache(key, lockKey, id, dbFallBack, time1, timeUnit, clazz);
-        }
-        // 返回旧数据（可能已过期，但允许）
-        return r;
+    /** 删除缓存键（更新场景失效用） */
+    public void evict(String key) {
+        stringRedisTemplate.delete(key);
     }
 
     /**
@@ -161,11 +172,12 @@ public class CacheClient {
      * 异步重建缓存（任务内自行加锁并解锁）
      */
     private <R, ID> void asyncRebuildCache(String key, String lockKey, ID id,
-            Function<ID, R> dbFallBack,
-            Long time1, TimeUnit timeUnit, Class<R> clazz) {
-        CACHE_REBUILD_THREAD_POOL.submit(() -> {
+                                           Function<ID, R> dbFallBack,
+                                           Long time, TimeUnit timeUnit, Class<R> clazz) {
+        cacheRebuildExecutor.execute(() -> {
             // 异步任务自己抢锁，保证只有一个任务执行
-            LockTemplate.LockHandle lock = tryLock(lockKey);
+            LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey,
+                    RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
             if (lock == null) {
                 return; // 抢不到锁说明其他任务正在执行，直接返回
             }
@@ -177,29 +189,15 @@ public class CacheClient {
                 }
                 R result = dbFallBack.apply(id);
                 if (result != null) {
-                    this.setWithLogicalExpire(key, result, time1, timeUnit);
+                    this.setWithLogicalExpire(key, result, time, timeUnit);
                 } else {
                     stringRedisTemplate.opsForValue().set(key, "", 2, TimeUnit.MINUTES);
                 }
             } catch (Exception e) {
                 log.error("异步重建缓存失败，key={}", key, e);
             } finally {
-                unlock(lock);
+                lock.close();
             }
         });
     }
-
-    private LockTemplate.LockHandle tryLock(String key) {
-        return lockTemplate.tryLock(key, RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
-    }
-
-    /**
-     * 释放锁 — LockTemplate Lua 校验所有者释放（H-3 修复，P4-S1）
-     */
-    private void unlock(LockTemplate.LockHandle lock) {
-        if (lock != null) {
-            lock.close();
-        }
-    }
-
 }

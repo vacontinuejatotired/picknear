@@ -15,18 +15,32 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.lang.Nullable;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 多级缓存配置 — Caffeine本地缓存（用户信息、Token版本号）定义
+ * 多级缓存配置 — Caffeine本地缓存（用户信息、Token版本号）定义 + 缓存重建线程池
  */
 @Slf4j
 @Configuration
 @EnableCaching
 public class CacheConfig {
+
+    /** 缓存异步重建线程池（Spring 托管有界池，替代 CacheClient 静态 Executors，P4-S2） */
+    @Bean("cacheRebuildExecutor")
+    public ThreadPoolTaskExecutor cacheRebuildExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("cache-rebuild-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(10);
+        return executor;
+    }
 
     @Resource
     @Lazy
