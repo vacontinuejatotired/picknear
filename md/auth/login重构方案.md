@@ -101,7 +101,7 @@
            │                    │  GET  /user/sign/count    │
            │                    └───────────────────────────┘
            ▼
-┌─ AuthServiceImpl (新增) ──────────────────────────────────┐
+┌─ AuthService (新增) ──────────────────────────────────┐
 │  generateTokenPair(userId)    → TokenPair          ← 纯业务，无HTTP依赖  │
 │  validateAccessToken(token)   → ValidationResult                        │
 │  refreshTokenPair(refresh)    → TokenPair                               │
@@ -212,6 +212,11 @@ RefreshTokenInterceptor (瘦身):
 
 ### Phase 2 — 抽取 AuthService
 
+> ✅ **已落地并演进（P2 认证域拆分，见《后端架构拆分方案》`e2325f2`~`5e23915`）**：
+> AuthService/AuthServiceImpl 后续进一步拆为 TokenService（生成/校验/刷新/吊销）、
+> SessionContextService、VerifyCodeService、PasswordService + LoginStrategy 策略族
+> （密码/验证码登录）+ UserAccountService（注册/查询）；`AuthServiceImpl` 已删除（369→0）。
+
 | #   | 操作                                     | 文件                      | 说明                                                                    |
 | --- | -------------------------------------- | ----------------------- | --------------------------------------------------------------------- |
 | 2.1 | 新建 `dto/TokenPair.java`                | dto/                    | 含 accessToken, refreshToken, version                                  |
@@ -249,7 +254,7 @@ RefreshTokenInterceptor (瘦身):
 | 操作     | 文件                                          | Phase                |
 | ------ | ------------------------------------------- | -------------------- |
 | 🆕 新建  | `service/AuthService.java`                  | P2                   |
-| 🆕 新建  | `service/impl/AuthServiceImpl.java`         | P2                   |
+| 🆕 新建  | `service/impl/AuthServiceImpl.java`         | P2（✅ 后续 P2 认证域拆分时删除，职责由 TokenService/VerifyCodeService/PasswordService/LoginStrategy 承接）                   |
 | 🆕 新建  | `dto/TokenPair.java`                        | P2                   |
 | 🆕 新建  | `dto/ValidationResult.java`                 | P2                   |
 | 🆕 新建  | `utils/TokenTestUtil.java`                  | P1                   |

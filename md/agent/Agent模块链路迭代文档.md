@@ -251,7 +251,7 @@ ToolGuardManager.evaluate()
 
 ### 输入处理
 - 守卫层注入：`ToolBeanCollector` 收集 `ToolCallback[]` 后自动包裹 `GuardedToolCallback`
-- 配置驱动：`application.yaml` 中 `promptguard.policies` 配置规则
+- 配置驱动：`application.yaml` 中 `hmdp.prompt-guard.*` 配置规则（原 `promptguard.policies` 旧前缀）
 - `RateLimitPolicy` 基于 Redis + Lua 滑动窗口限流
 
 ### 调用执行
@@ -1018,13 +1018,17 @@ AiServiceImpl（编排层，~200 行）
 | `stream/SseResponseProcessor` | AfterAiHook + decision 观测 + AiResponseRouter + 历史落库 | AiServiceImpl 后处理段 |
 | `history/HistoryRecorder` | 最佳努力历史落库（失败静默），双模共用 | recordTurnBestEffort |
 
-### 废弃归档（`com.hmdp.agent.legacy`，package-info 声明"新代码禁止依赖"）
+### 回退链（`com.hmdp.agent.legacy`，P5 重整后为 feature 开关控制的活回退路径，非死代码）
 
-| 归档位置 | 组件 | 现状 |
+> 2026-08 用户拍板"保留回退=重整"（`93c59a0`）：活接口迁出、活代码解耦、包结构自洽，
+> 与活链（Tree 链）并存。依赖方向单向：legacy 可用活链组件，活链禁止反向依赖
+> （FallbackRoundExecutor 为唯一合法入口）。
+
+| 位置 | 组件 | 现状 |
 |----------|------|------|
-| `legacy.task` | TaskExecutor、TaskQueue | `feature.subagent.enabled=false` 回退路径使用（保留研究） |
-| `legacy.plan` | LegacyPlanRouter | `feature.tool-routing.enabled=false` 激活 |
-| `legacy.routing` | ToolRouter、CatalogBuilder（死抽象） | 旧链配套 |
+| `legacy.task` | TaskExecutor、TaskQueue | `feature.subagent.enabled=false` 回退路径使用（已移除 @Deprecated，回退路径活组件） |
+| `legacy.plan` | LegacyPlanRouter、ToolRouter | `feature.tool-routing.enabled=false` 激活（ToolRouter 从旧 legacy.routing 收拢） |
+| `routing/`（活包） | CatalogBuilder | 活接口，已从 legacy 迁出至 `agent/routing`（Tree/Compact 两实现同包） |
 
 > `SubTask`/`SubTaskStatus`/`TaskType`/`TaskReport` 留在原包——新链（TreePlanRouter/PlanValidator/ToolLoop）仍在用，不是废弃组件。
 

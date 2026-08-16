@@ -74,10 +74,8 @@ hmdp:
 #logging:
 #  level:
 #    com.hmdp: debug                            # 其他 hmdp 包安静
-#    com.hmdp.agent: DEBUG                     # AI Agent 主链路
+#    com.hmdp.agent: DEBUG                     # AI Agent 主链路（含守卫/规划/Hook 子域）
 #    com.hmdp.agent.tool: DEBUG                # 工具调用细节
-#    com.hmdp.promptguard: DEBUG               # 守卫拦截器
-#    com.hmdp.prompthook: DEBUG                # Hook 链执行
 #    com.hmdp.interceptor: DEBUG                       # 拦截器链执行
 
 agent:

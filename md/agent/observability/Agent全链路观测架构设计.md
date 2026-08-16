@@ -42,7 +42,7 @@
 
 **LLM 调用层观测用成熟方案（Spring AI 内置），业务语义层观测自研（AgentTracer 埋点），展示用 Langfuse 现成 UI。**
 
-> ⚠️ **默认路径提醒**：生产默认走 **SubTaskAgent** 路径（`feature.subagent.enabled=true`），`TaskExecutor` 仅回退路径使用（已 `@Deprecated`）。业务观测必须覆盖两条路径，缺一不可（见 5.1）。
+> ⚠️ **默认路径提醒**：生产默认走 **SubTaskAgent** 路径（`feature.subagent.enabled=true`），`TaskExecutor` 仅回退路径使用（P5 重整后为回退路径组件，已去 `@Deprecated`，见《Agent模块架构设计》legacy 一节）。业务观测必须覆盖两条路径，缺一不可（见 5.1）。
 
 ---
 
@@ -435,7 +435,7 @@ micrometer-registry-prometheus   <!-- 缺它 /actuator/prometheus 404 -->
 | `agent/task/TaskPlanner.java` | decompose 校验后 | `agent.plan` | validate_result、plan.tools |
 | `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count（M4 待补逐工具回填） |
 | `agent/task/TaskExecutor.java` | TOOL_CALL / LLM_REASON（回退路径） | `agent.tool_call` / `agent.llm_reason` | status、tool.result_summary / based_on |
-| `agent/promptguard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]） | tool.name、model.name、tool.arguments、guard.policy |
+| `agent/guard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]，决策小步在 ToolGuardGate） | tool.name、model.name、tool.arguments、guard.policy |
 | `agent/prompt/impl/DefaultPromptService.java` | 模板获取/渲染 | `agent.prompt`（semantic=模板键） | prompt.source、prompt.rendered_len |
 
 ---

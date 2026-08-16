@@ -208,7 +208,7 @@ Phase 1 → PLANNING:
 可通过 application.yaml 指定：
 
 ```yaml
-com.hmdp.prompthook: DEBUG    # 查看每个 Hook 的决策日志
+com.hmdp.agent.hook: DEBUG    # 查看每个 Hook 的决策日志（Hook 链在 agent.hook 包）
 ```
 
 ### 5.2 AfterAiHookChain（后处理决策）
@@ -238,10 +238,8 @@ private static final List<String> TRIGGERS = List.of(
 logging:
   level:
     com.hmdp: WARN                     # 其他 hmdp 包安静
-    com.hmdp.agent: DEBUG              # AI Agent 主链路
+    com.hmdp.agent: DEBUG              # AI Agent 主链路（含守卫/规划/Hook 子域）
     com.hmdp.agent.tool: DEBUG         # 工具调用细节
-    com.hmdp.promptguard: DEBUG        # 守卫拦截器
-    com.hmdp.prompthook: DEBUG         # Hook 链执行
 ```
 
 ---
@@ -279,15 +277,14 @@ StatsQueryTool 提供测试用统计工具：
 
 | 文件 | 说明 |
 |------|------|
-| `prompthook/PromptHook.java` | 前置 Hook 接口 |
-| `prompthook/PromptHookChain.java` | 前置链式执行器（Fail-Open） |
-| `prompthook/AfterAiHook.java` | 后处理 Hook 接口 |
-| `prompthook/AfterAiHookChain.java` | 后处理链式执行器（优先级短路） |
-| `prompthook/HookResult.java` | 决策结果（PASS/BLOCK/REPLACE/PLANNING） |
-| `prompthook/ChatContext.java` | 对话上下文（含 TaskSnapshot 快照） |
-| `prompthook/impl/TaskTriggerHook.java` | 触发词检测（≤15 行） |
+| `hook/PromptHook.java` | 前置 Hook 接口 |
+| `hook/PromptHookChain.java` | 前置链式执行器（Fail-Open） |
+| `hook/AfterAiHook.java` | 后处理 Hook 接口 |
+| `hook/AfterAiHookChain.java` | 后处理链式执行器（优先级短路） |
+| `hook/HookResult.java` | 决策结果（PASS/BLOCK/REPLACE/PLANNING） |
+| `hook/impl/TaskTriggerHook.java` | 触发词检测（≤15 行） |
 | `agent/response/AiResponseRouter.java` | 后处理路由器 |
-| `agent/task/SubTask.java` | 子任务数据模型 |
+| `agent/task/model/SubTask.java` | 子任务数据模型 |
 | `agent/task/TaskType.java` | 枚举：TOOL_CALL / LLM_REASON |
 | `agent/task/SubTaskStatus.java` | 枚举：PENDING / READY / RUNNING / COMPLETED / FAILED |
 | `agent/task/TaskQueue.java` | 任务队列（终结状态检查） |

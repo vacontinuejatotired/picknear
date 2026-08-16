@@ -2,7 +2,7 @@
 
 > **版本**: v2.0  
 > **最后更新**: 2026-07-24  
-> **对应代码路径**: `picknear/src/main/java/com/hmdp/` 下的 `agent/`, `permission/`, `aspect/`, `promptguard/`, `prompthook/`, `exception/`  
+> **对应代码路径**: `picknear/src/main/java/com/hmdp/` 下的 `agent/`（含 `guard/`、`guard/model/`、`guard/policy/`、`plan/`、`plan/model/`、`plan/support/`、`task/`、`task/model/`、`routing/`、`tool/`、`hook/`、`stream/`、`prompt/`、`subagent/`、`legacy/` 等子包）、`permission/`、`aspect/`、`exception/`
 > **相关文档**: [Agent任务队列方案](./Agent任务队列方案.md), [Agent模块简历亮点](./Agent模块简历亮点.md), [SSE后端实现规范](./SSE后端实现规范.md)
 
 ---
@@ -786,8 +786,7 @@ logging:
     com.hmdp: WARN
     com.hmdp.agent: DEBUG
     com.hmdp.agent.tool: DEBUG
-    com.hmdp.promptguard: DEBUG
-    com.hmdp.prompthook: DEBUG
+    # 守卫/规划/Hook 等子域均在 com.hmdp.agent 包内，由 agent 级别统一控制
 ```
 
 ### 5.10 为什么提示词用 Langfuse Prompt Management + 内置兜底，而非本地 DB 表？
@@ -984,15 +983,17 @@ hmdp:
 
 ### PromptHook 输入拦截模块
 
+> 包名 `hook`（旧文档 `prompthook` 为历史包名，已修正）。ChatContext 已删除（M-3 并入 AgentContext）。
+
 | 文件路径 | 角色 |
 |---------|------|
-| `prompthook/PromptHook.java` | 前置 Hook 接口 |
-| `prompthook/PromptHookChain.java` | 链式执行器 |
-| `prompthook/HookResult.java` | 决策结果 |
-| `prompthook/ChatContext.java` | 上下文对象 |
-| `prompthook/AfterAiHook.java` | 后处理 Hook 接口 |
-| `prompthook/AfterAiHookChain.java` | 后处理链式执行器 |
-| `prompthook/impl/TaskTriggerHook.java` | 触发词检测 |
+| `hook/PromptHook.java` | 前置 Hook 接口 |
+| `hook/PromptHookChain.java` | 链式执行器 |
+| `hook/HookResult.java` | 决策结果 |
+| `hook/AfterAiHook.java` | 后处理 Hook 接口 |
+| `hook/AfterAiHookChain.java` | 后处理链式执行器 |
+| `hook/impl/TaskTriggerHook.java` | 触发词检测 |
+| `hook/PromptHookExecutor.java` | Hook 链执行 + 决策（双模共用） |
 
 ### 基础设施
 
