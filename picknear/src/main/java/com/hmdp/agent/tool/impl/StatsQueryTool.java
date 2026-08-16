@@ -2,7 +2,7 @@ package com.hmdp.agent.tool.impl;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.service.IBlogService;
 import com.hmdp.shop.service.IShopService;
 import com.hmdp.user.service.IUserService;
 import jakarta.annotation.Resource;

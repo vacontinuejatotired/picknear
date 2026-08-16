@@ -1,17 +1,17 @@
-package com.hmdp.service.impl;
+package com.hmdp.content.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.entity.Follow;
+import com.hmdp.content.mapper.BlogMapper;
+import com.hmdp.content.service.IBlogService;
+import com.hmdp.content.service.IFollowService;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.ScrollResult;
-import com.hmdp.entity.Blog;
-import com.hmdp.entity.Follow;
-import com.hmdp.mapper.BlogMapper;
-import com.hmdp.service.IBlogService;
-import com.hmdp.service.IFollowService;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.service.IUserInfoService;

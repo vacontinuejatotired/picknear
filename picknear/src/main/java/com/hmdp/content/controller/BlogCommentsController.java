@@ -1,4 +1,4 @@
-package com.hmdp.controller;
+package com.hmdp.content.controller;
 
 
 import io.swagger.v3.oas.annotations.tags.Tag;

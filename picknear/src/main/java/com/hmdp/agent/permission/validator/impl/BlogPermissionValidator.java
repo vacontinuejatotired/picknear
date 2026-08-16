@@ -2,8 +2,8 @@ package com.hmdp.agent.permission.validator.impl;
 
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.permission.validator.DataPermissionValidator;
-import com.hmdp.entity.Blog;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.service.IBlogService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

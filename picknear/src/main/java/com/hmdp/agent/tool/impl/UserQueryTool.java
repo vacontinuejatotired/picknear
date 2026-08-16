@@ -7,8 +7,8 @@ import java.util.Objects;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.entity.Follow;
-import com.hmdp.service.IFollowService;
+import com.hmdp.content.entity.Follow;
+import com.hmdp.content.service.IFollowService;
 import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.service.IUserInfoService;
 

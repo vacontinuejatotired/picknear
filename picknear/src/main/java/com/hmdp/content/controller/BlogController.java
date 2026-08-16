@@ -1,9 +1,9 @@
-package com.hmdp.controller;
+package com.hmdp.content.controller;
 
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Blog;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.service.IBlogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

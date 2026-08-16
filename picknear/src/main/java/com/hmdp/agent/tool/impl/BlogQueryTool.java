@@ -7,10 +7,10 @@ import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.util.TextUtils;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.Blog;
-import com.hmdp.entity.BlogComments;
-import com.hmdp.service.IBlogCommentsService;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.entity.BlogComments;
+import com.hmdp.content.service.IBlogCommentsService;
+import com.hmdp.content.service.IBlogService;
 import com.hmdp.utils.constants.SystemConstants;
 
 import jakarta.annotation.Resource;

@@ -1,8 +1,8 @@
-package com.hmdp.controller;
+package com.hmdp.content.controller;
 
 
 import com.hmdp.dto.Result;
-import com.hmdp.service.IFollowService;
+import com.hmdp.content.service.IFollowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -12,8 +12,8 @@ import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.permission.annotation.RequiredDataPermission;
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.util.TextUtils;
-import com.hmdp.entity.Blog;
-import com.hmdp.service.IBlogService;
+import com.hmdp.content.entity.Blog;
+import com.hmdp.content.service.IBlogService;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
