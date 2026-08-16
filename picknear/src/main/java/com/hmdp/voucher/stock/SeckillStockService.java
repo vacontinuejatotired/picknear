@@ -18,7 +18,7 @@ import java.util.List;
  * Lua 原子性保证"库存校验 + 重复下单校验 + 扣减"单次完成。
  * </p>
  * <p>
- * 返回码语义沿用 Lua 脚本原始约定（Seckill.lua）：
+ * 返回码语义沿用 Lua 脚本原始约定（MqSeckill.lua）：
  * 0=成功扣减；1=库存不足；2=重复下单。⚠️ 与 {@code SeckillOrderCode}
  * 枚举（200/501/511）不一致，属既有设计，本组件保持等价透传。
  * </p>

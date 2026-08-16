@@ -25,9 +25,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 @Slf4j
 public class RedisIdWorker {
-    private static final Long BEGIN_TIME = 1735689600L;
-
-    private static final Long BEGIN_TIME_MS= 1735689600000L;
+    private static final Long BEGIN_TIME_MS = 1735689600000L;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
@@ -108,15 +106,6 @@ public class RedisIdWorker {
     public RedisIdWorker(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
     }
-
-    public long nextId(String keyPrefix) {
-        LocalDateTime now = LocalDateTime.now();
-        long timeStamp = now.toEpochSecond(ZoneOffset.UTC) - BEGIN_TIME;
-        String date = now.format(DateTimeFormatter.ofPattern("yyyy:MM:dd"));
-        Long count = stringRedisTemplate.opsForValue().increment("icr:" + keyPrefix + ":" + date);
-        return timeStamp << COUNT_BITS | count;
-    }
-
 
     /**
      * 本方法只可在ThreadLocal置上下文的线程上使用
