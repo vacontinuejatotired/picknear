@@ -1,17 +1,15 @@
-package com.hmdp.content.service.impl;
+package com.hmdp.content.blog;
 
 import cn.hutool.json.JSONUtil;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.BlogMapper;
-import com.hmdp.content.service.IBlogService;
 import com.hmdp.dto.Result;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
@@ -19,27 +17,34 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 探店笔记服务实现 — 发布域（P3-S3 拆分后）
+ * 博客发布服务 — 发布/更新图片（content 域收敛，P3-S4）
  * <p>
- * 查询已迁 {@code BlogQueryService}、点赞迁 {@code BlogLikeService}、Feed 迁 feed 域；
- * 本类仅剩 saveBlog/updateBlogImages，P3-S5 迁 {@code BlogPublishService} 后删除。
+ * 自 BlogServiceImpl 迁出（行为等价）：
+ * <ul>
+ *   <li>saveBlog：创建草稿（初始无图）+ 写缓存，不推 Feed（等图片上传）</li>
+ *   <li>updateBlogImages：作者校验 + 事务内更新图片 + 推 Feed 给粉丝</li>
+ * </ul>
+ * 事务内推 Feed（Redis 外部副作用）为既有行为，P4 统一评审 afterCommit 修正（10.3-3）。
  * </p>
  */
-@Service
 @Slf4j
-public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
+@Component
+public class BlogPublishService {
+
+    @Resource
+    private BlogMapper blogMapper;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private FeedPushService feedPushService;
 
-    @Override
+    /** 发布博客（创建草稿，图片为空，暂不推 Feed） */
     public Result saveBlog(Blog blog) {
         Long user = UserHolder.getUserId();
         blog.setUserId(user);
         blog.setImages("");          // 初始无图片，创建草稿
-        boolean isSuccess = save(blog);
-        if (!isSuccess) {
+        int inserted = blogMapper.insert(blog);
+        if (inserted <= 0) {
             return Result.fail("新增笔记失败");
         }
         // 写入 Redis 缓存
@@ -50,11 +55,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         return Result.ok(blog.getId());
     }
 
-    @Override
-    @Transactional
+    /** 更新博客图片列表（作者校验；首次设置图片时推 Feed 给粉丝） */
+    @Transactional(rollbackFor = Exception.class)
     public Result updateBlogImages(Long id, List<String> images) {
         // 1. 校验博客存在
-        Blog blog = getById(id);
+        Blog blog = blogMapper.selectById(id);
         if (blog == null) {
             return Result.fail("博客不存在");
         }
@@ -66,8 +71,8 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 3. List<String> → 逗号分隔字符串（API 用 JSON 数组，DB 兼容存量数据）
         String imagesStr = (images == null || images.isEmpty()) ? "" : String.join(",", images);
         blog.setImages(imagesStr);
-        boolean ok = updateById(blog);
-        if (!ok) {
+        int updated = blogMapper.updateById(blog);
+        if (updated <= 0) {
             return Result.fail("更新失败");
         }
         // 4. 更新 Redis 缓存

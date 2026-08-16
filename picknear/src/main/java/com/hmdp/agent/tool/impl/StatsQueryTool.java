@@ -2,7 +2,7 @@ package com.hmdp.agent.tool.impl;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.content.service.IBlogService;
+import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.shop.service.IShopService;
 import com.hmdp.user.service.IUserService;
 import jakarta.annotation.Resource;
@@ -22,7 +22,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 public class StatsQueryTool {
 
     @Resource
-    private IBlogService blogService;
+    private BlogQueryService blogQueryService;
 
     @Resource
     private IUserService userService;
@@ -42,7 +42,7 @@ public class StatsQueryTool {
             """)
     @ToolMeta(keywords = {"统计博客", "博客总数", "博客数量", "多少篇博客", "多少博客", "查一下博客数量"}, intents = {"stats"})
     public String queryTotalBlogs() {
-        long count = blogService.count();
+        long count = blogQueryService.countAll();
         log.info("StatsQueryTool.queryTotalBlogs = {}", count);
         return "📝 当前共有 " + count + " 篇博客。";
     }

@@ -144,6 +144,37 @@ public class BlogQueryService {
         return Result.ok(userDTOS);
     }
 
+    // ==================== Agent 工具查询（M-4 对齐，P3-S4） ====================
+
+    /** 某用户已发布博客（按点赞降序，工具用） */
+    public List<Blog> queryPublishedByUserId(Long userId, int limit) {
+        return blogMapper.selectPage(new Page<>(1, limit),
+                        new LambdaQueryWrapper<Blog>().eq(Blog::getUserId, userId).orderByDesc(Blog::getLiked))
+                .getRecords();
+    }
+
+    /** 某用户博客总数（工具用） */
+    public long countByUserId(Long userId) {
+        return blogMapper.selectCount(new LambdaQueryWrapper<Blog>().eq(Blog::getUserId, userId));
+    }
+
+    /** 按标题模糊搜索（工具用，不限用户） */
+    public List<Blog> queryByTitle(String title, int limit) {
+        return blogMapper.selectPage(new Page<>(1, limit),
+                        new LambdaQueryWrapper<Blog>().like(Blog::getTitle, title))
+                .getRecords();
+    }
+
+    /** 按标题模糊搜索总数（工具用） */
+    public long countByTitle(String title) {
+        return blogMapper.selectCount(new LambdaQueryWrapper<Blog>().like(Blog::getTitle, title));
+    }
+
+    /** 博客总数（统计工具用） */
+    public long countAll() {
+        return blogMapper.selectCount(null);
+    }
+
     /** 填充作者昵称/头像（nickName、icon 已迁移到 tb_user_info） */
     public void setUserToBlog(Blog blog) {
         Long userId = blog.getUserId();

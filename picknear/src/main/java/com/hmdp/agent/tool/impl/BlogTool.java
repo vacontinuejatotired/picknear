@@ -12,8 +12,10 @@ import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.permission.annotation.RequiredDataPermission;
 import com.hmdp.agent.permission.enums.DataAction;
 import com.hmdp.agent.util.TextUtils;
+import com.hmdp.content.blog.BlogPublishService;
+import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.content.entity.Blog;
-import com.hmdp.content.service.IBlogService;
+import com.hmdp.dto.Result;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +25,10 @@ import lombok.extern.slf4j.Slf4j;
 public class BlogTool {
 
     @Resource
-    private IBlogService blogService;
+    private BlogQueryService blogQueryService;
+
+    @Resource
+    private BlogPublishService blogPublishService;
 
     /**
      * 博客紧凑投影——只给 LLM 够用的最小字段集（标题 + 内容摘要 + 点赞数 + 总数），
@@ -48,9 +53,9 @@ public class BlogTool {
         Long userId = (Long) toolContext.getContext().get("userId");
 
         log.info("queryPublishedBlogs userId: {}", userId);
-        long total = blogService.query().eq("user_id", userId).count();
-        Page<Blog> page = blogService.query().eq("user_id", userId).orderByDesc("liked").page(new Page<>(1, 5));
-        return page.getRecords().stream()
+        long total = blogQueryService.countByUserId(userId);
+        List<Blog> records = blogQueryService.queryPublishedByUserId(userId, 5);
+        return records.stream()
                 .map(b -> new BlogBrief(b.getTitle(),
                         TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
                 .toList();
@@ -76,8 +81,8 @@ public class BlogTool {
         blog.setUserId(userId);
         blog.setTitle("测试博客");
         blog.setContent("这是一篇测试博客");
-        boolean save = blogService.save(blog);
-        if (!save) {
+        Result result = blogPublishService.saveBlog(blog);
+        if (result == null || !Boolean.TRUE.equals(result.getSuccess())) {
             log.error("publishTestBlog failed, blog: {}", blog);
             return null;
         }
@@ -96,9 +101,9 @@ public class BlogTool {
     @ToolMeta(keywords = {"找博客", "搜博客", "搜索博客", "找一篇", "查一下关于", "有没有博客"}, intents = {"blog"})
     @RequiredDataPermission(resource  = "blog", action = DataAction.READ)
     public List<BlogBrief> queryBlogsByTitle(@ToolParam(description = "搜索关键词，例如：旅游——会搜到标题含「旅游」的博客") String title) {
-        long total = blogService.query().like("title", title).count();
-        Page<Blog> page = blogService.query().like("title", title).page(new Page<>(1, 10));
-        return page.getRecords().stream()
+        long total = blogQueryService.countByTitle(title);
+        List<Blog> records = blogQueryService.queryByTitle(title, 10);
+        return records.stream()
                 .map(b -> new BlogBrief(b.getTitle(),
                         TextUtils.truncate(b.getContent(), 80), b.getLiked(), total))
                 .toList();

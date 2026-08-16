@@ -3,10 +3,10 @@ package com.hmdp.content.controller;
 
 import com.hmdp.dto.Result;
 import com.hmdp.content.blog.BlogLikeService;
+import com.hmdp.content.blog.BlogPublishService;
 import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedQueryService;
-import com.hmdp.content.service.IBlogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,19 +29,19 @@ import java.util.List;
 public class BlogController {
 
     @Resource
-    private IBlogService blogService;
-    @Resource
     private FeedQueryService feedQueryService;
     @Resource
     private BlogLikeService blogLikeService;
     @Resource
     private BlogQueryService blogQueryService;
+    @Resource
+    private BlogPublishService blogPublishService;
 
     @PostMapping
     @Operation(summary = "发布博客", description = "创建新的探店博客")
     public Result saveBlog(
             @Parameter(description = "博客内容") @RequestBody Blog blog) {
-        return blogService.saveBlog(blog);
+        return blogPublishService.saveBlog(blog);
     }
 
     /**
@@ -53,7 +53,7 @@ public class BlogController {
     public Result updateBlogImages(
             @Parameter(description = "博客ID") @PathVariable("id") Long id,
             @Parameter(description = "图片URL列表") @RequestBody List<String> images) {
-        return blogService.updateBlogImages(id, images);
+        return blogPublishService.updateBlogImages(id, images);
     }
 
     @PutMapping("/like/{id}")
