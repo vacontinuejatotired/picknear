@@ -6,52 +6,49 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.content.entity.Blog;
-import com.hmdp.content.entity.Follow;
+import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.content.service.IBlogService;
-import com.hmdp.content.service.IFollowService;
 import com.hmdp.dto.Result;
-import com.hmdp.dto.ScrollResult;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.service.IUserInfoService;
-import com.hmdp.utils.redis.RedisConstants;
-import com.hmdp.utils.constants.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import com.hmdp.utils.constants.SystemConstants;
+import com.hmdp.utils.redis.RedisConstants;
 import jodd.util.StringUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
-import org.springframework.transaction.annotation.Transactional;
-import java.nio.charset.StandardCharsets;
-import java.time.ZoneOffset;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
+ * 探店笔记服务实现 — 查询/点赞/发布（P3-S1 拆分后）
  * <p>
- * 服务实现类
+ * 职责边界（2026-08 P3 拆分）：
+ * <ul>
+ *   <li>查询/点赞/发布保留；Feed 推/读已迁 {@link FeedPushService} / {@code FeedQueryService}</li>
+ *   <li>不再依赖 IFollowService（粉丝查询下沉 FeedPushService，循环依赖解除）</li>
+ * </ul>
  * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
- */
-/**
- * 探店笔记服务实现 — 笔记CRUD、点赞（Redis ZSet）、关注者Feed流（推模式）
  */
 @Service
 @Slf4j
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
     @Resource
-    private IFollowService followService;
-    @Resource
     private IUserInfoService userInfoService;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private FeedPushService feedPushService;
 
     @Override
     public Result queryById(Long id) {
@@ -162,15 +159,13 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result queryUserList(Long id) {
-        Set<String> userDTOList = new HashSet<>();
         Blog blog = getById(id);
         String key = RedisConstants.BLOG_LIKED_KEY + blog.getId();
-        userDTOList = stringRedisTemplate.opsForZSet().range(key, 0, 4);
+        Set<String> userDTOList = stringRedisTemplate.opsForZSet().range(key, 0, 4);
         if (userDTOList == null || userDTOList.isEmpty()) {
             return Result.ok(Collections.emptyList());
         }
-        List<Long> userIds = new ArrayList<>();
-        userIds = userDTOList.stream().map(Long::valueOf).toList();
+        List<Long> userIds = userDTOList.stream().map(Long::valueOf).toList();
         String idStr = StringUtil.join(userIds, ",");
 
         List<UserDTO> userDTOS = userInfoService.query()
@@ -229,86 +224,10 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
         log.info("博客缓存已更新, blogId={}", id);
-        // 5. 首次设置图片时推送 Feed 给粉丝
-        List<Follow> follows = followService.query().eq("follow_user_id", userId).list();
-        pushBloToFansBatch(follows, id);
+        // 5. 首次设置图片时推送 Feed 给粉丝（粉丝查询下沉 FeedPushService）
+        feedPushService.pushToFans(userId, id);
         log.info("博客图片更新成功, blogId={}, images={}", id, imagesStr);
         return Result.ok();
-    }
-    //抽取方法，实现批量插入，防止N次连接
-    private void  pushBloToFansBatch(List<Follow> follows,Long blogId) {
-        if (follows == null || follows.isEmpty()) {
-            log.info("Empty follows");
-            return;
-        }
-        log.info("开始批量插入");
-        stringRedisTemplate.executePipelined((RedisCallback<Object>) connect ->{
-            Long followUserId ;
-            double now = System.currentTimeMillis();
-            String key;
-            byte []keyByte;
-            byte []valueByte= blogId.toString().getBytes();
-        for (Follow follow : follows) {
-            followUserId = follow.getUserId();
-            key = "feed:"+followUserId;
-            keyByte = key.getBytes(StandardCharsets.UTF_8);
-            connect.zAdd(keyByte,now,valueByte);
-        }
-      return null;
-        } );
-        return ;
-    }
-
-    @Override
-    public Result queryBlogOfFollow(Long max, Integer offset) {
-        int pageSize = SystemConstants.MAX_PAGE_SIZE;
-        Long userId = UserHolder.getUserId();
-        String key = RedisConstants.FEED_KEY + userId;
-        ScrollResult result = new ScrollResult();
-        // 使用 reverseRangeByScoreWithScores 降序返回（最新博客在前），解决 feed 正序 bug
-        Set<ZSetOperations.TypedTuple<String>> scores = stringRedisTemplate.opsForZSet()
-                .reverseRangeByScoreWithScores(key, 0, max, offset, pageSize);
-        log.info("Feed ZSet 查询结果:{}", scores);
-        // ZSet 为空（首次访问或历史关注未回填），触发懒回填
-        if (scores == null || scores.isEmpty()) {
-            log.info("Feed ZSet 为空，触发懒回填，userId={}", userId);
-            generateFeedForUser(userId);
-            // 重试一次
-            scores = stringRedisTemplate.opsForZSet()
-                    .reverseRangeByScoreWithScores(key, 0, max, offset, pageSize);
-            if (scores == null || scores.isEmpty()) {
-                return Result.ok();
-            }
-        }
-        long min = Long.MAX_VALUE;
-        List<Long> ids = new ArrayList<>(scores.size());
-        int os = 1;
-        for (ZSetOperations.TypedTuple<String> score : scores) {
-            ids.add(Long.valueOf(Objects.requireNonNull(score.getValue())));
-            long time = Objects.requireNonNull(score.getScore()).longValue();
-            // 统计这批结果中的最小时间戳（即最后一条博客的时间），以及该时间戳的重复个数
-            if (time == min) {
-                os++;
-            } else if (time < min) {
-                min = time;
-                os = 1;
-            }
-        }
-        String idStr = StringUtil.join(ids, ",");
-        List<Blog> blogList = query().in("id", ids)
-                .ne("images", "")
-                .last("order by field(id," + idStr + ")")
-                .list();
-        log.info("已查询到博客");
-        for (Blog blog : blogList) {
-            setUserToBlog(blog);
-            isLiked(blog);
-        }
-        result.setOffset(os);
-        result.setMinTime(min);
-        result.setList(blogList);
-        log.info("即将返回页面对象{}", result);
-        return Result.ok(result);
     }
 
     @Override
@@ -337,38 +256,5 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
             isLiked(blog);
         });
         return Result.ok(records);
-    }
-
-    /**
-     * 懒回填：把当前用户关注的所有账号的历史博客写入 feed ZSet
-     * <p>
-     * 在 feed 首次查询且 ZSet 为空时触发，解决历史关注无数据的问题。
-     * 每个被关注者最多回填最近 20 篇已发布的博客。
-     */
-    private void generateFeedForUser(Long userId) {
-        List<Follow> follows = followService.query().eq("user_id", userId).list();
-        if (follows == null || follows.isEmpty()) {
-            log.info("懒回填：用户 {} 没有关注任何人", userId);
-            return;
-        }
-        String feedKey = RedisConstants.FEED_KEY + userId;
-        int totalPushed = 0;
-        for (Follow follow : follows) {
-            List<Blog> blogs = query()
-                    .eq("user_id", follow.getFollowUserId())
-                    .ne("images", "")
-                    .orderByDesc("create_time")
-                    .last("LIMIT 20")
-                    .list();
-            for (Blog blog : blogs) {
-                double score = (double) blog.getCreateTime()
-                        .toInstant(ZoneOffset.UTC).toEpochMilli();
-                stringRedisTemplate.opsForZSet().add(
-                        feedKey, String.valueOf(blog.getId()), score);
-            }
-            totalPushed += blogs.size();
-        }
-        stringRedisTemplate.expire(feedKey, RedisConstants.FOLLOWS_TTL, TimeUnit.SECONDS);
-        log.info("懒回填完成：用户 {} 共回填 {} 篇博客到 feed", userId, totalPushed);
     }
 }

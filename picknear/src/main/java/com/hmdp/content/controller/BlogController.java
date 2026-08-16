@@ -3,6 +3,7 @@ package com.hmdp.content.controller;
 
 import com.hmdp.dto.Result;
 import com.hmdp.content.entity.Blog;
+import com.hmdp.content.feed.FeedQueryService;
 import com.hmdp.content.service.IBlogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -27,6 +28,8 @@ public class BlogController {
 
     @Resource
     private IBlogService blogService;
+    @Resource
+    private FeedQueryService feedQueryService;
 
     @PostMapping
     @Operation(summary = "发布博客", description = "创建新的探店博客")
@@ -97,7 +100,7 @@ public class BlogController {
     public Result queryBlogOfFollow(
             @Parameter(description = "最后一条博客ID") @RequestParam("lastId") Long max,
             @Parameter(description = "偏移量") @RequestParam(defaultValue  ="0",value ="offset")Integer offset) {
-    return blogService.queryBlogOfFollow(max,offset);
+        return feedQueryService.queryBlogOfFollow(max, offset);
     }
 }
 

@@ -3,23 +3,20 @@ package com.hmdp.content.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.content.entity.Blog;
 import com.hmdp.content.entity.Follow;
+import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.FollowMapper;
-import com.hmdp.content.service.IBlogService;
 import com.hmdp.content.service.IFollowService;
 import com.hmdp.dto.Result;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.service.IUserService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -27,6 +24,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 关注服务实现 — 关注/取关（Redis Set存储关注列表）、共同关注（Set交集运算）
+ * <p>
+ * P3-S1 后不再依赖 IBlogService（Feed 回填迁 {@link FeedPushService}，循环依赖解除）。
+ * </p>
  */
 @Service
 @Slf4j
@@ -39,8 +39,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     private IUserService userService;
 
     @Resource
-    @Lazy  // 避免与 BlogServiceImpl → IFollowService 形成循环依赖
-    private IBlogService blogService;
+    private FeedPushService feedPushService;
 
     // 最大重试次数
     private static final int MAX_RETRY_TIMES = 3;
@@ -254,31 +253,9 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
      * 推模式（push mode）下，只有新发布的博客才会推送给粉丝。
      * 当用户新关注一个已有博客的账号时，需要把该账号的历史博客回填，
      * 否则关注者的 feed 流中永远不会出现该账号的旧博客。
+     * 实现已下沉 {@link FeedPushService#backfillOnFollow}（依赖单向化）。
      */
     private void backfillFeedOnFollow(Long followerUserId, Long followedUserId) {
-        // 查询被关注者已发布的博客（有图片的），按 id 降序取前 20 篇
-        List<Blog> recentBlogs = blogService.query()
-                .eq("user_id", followedUserId)
-                .ne("images", "")
-                .orderByDesc("id")
-                .last("LIMIT 20")
-                .list();
-        if (recentBlogs == null || recentBlogs.isEmpty()) {
-            log.info("回填 feed：被关注用户 {} 没有已发布的博客", followedUserId);
-            return;
-        }
-
-        String feedKey = RedisConstants.FEED_KEY + followerUserId;
-        // 使用博客的创建时间作为 score，逐条写入 ZSet
-        for (Blog blog : recentBlogs) {
-            double score = (double) blog.getCreateTime()
-                    .toInstant(ZoneOffset.UTC).toEpochMilli();
-            stringRedisTemplate.opsForZSet().add(
-                    feedKey, String.valueOf(blog.getId()), score);
-        }
-        // 设置过期时间（与关注列表保持一致）
-        stringRedisTemplate.expire(feedKey, RedisConstants.FOLLOWS_TTL, TimeUnit.SECONDS);
-        log.info("回填 feed 完成：用户 {} 的 {} 篇博客已推送到用户 {} 的 feed",
-                followedUserId, recentBlogs.size(), followerUserId);
+        feedPushService.backfillOnFollow(followerUserId, followedUserId);
     }
 }
