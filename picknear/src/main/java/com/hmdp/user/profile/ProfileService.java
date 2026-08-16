@@ -8,6 +8,7 @@ import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.entity.UserinfoCache;
 import com.hmdp.user.service.IUserInfoService;
 import com.hmdp.utils.UserHolder;
+import com.hmdp.utils.cache.BatchLoadCache;
 import com.hmdp.utils.cache.CaffeineConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,8 @@ import java.util.Set;
  *   <li>updateProfile：昵称/头像/城市/简介更新 + 旧头像删除 + Caffeine 缓存刷新</li>
  *   <li>uploadIcon：头像格式/大小校验 + FileService 上传（icons/ 目录）</li>
  * </ul>
- * 头像白名单常量从 Controller 下沉至此。
+ * 头像白名单常量从 Controller 下沉至此。P4-S4 起 Redis 侧刷新统一经
+ * {@link BatchLoadCache#saveFuture} 触发（写路径单一来源）。
  * </p>
  */
 @Slf4j
@@ -41,6 +43,8 @@ public class ProfileService {
     private FileService fileService;
     @Resource(name = "userinfoCache")
     private LoadingCache<String, UserinfoCache> userinfoCaffeine;
+    @Resource
+    private BatchLoadCache batchLoadCache;
 
     /** 编辑个人资料 — nickName/icon/city/introduce 均为可选 */
     public Result updateProfile(ProfileUpdateDTO dto) {
@@ -82,7 +86,7 @@ public class ProfileService {
         }
         if (needUpdateInfo) {
             userInfoService.updateById(userInfo);
-            // 从 DB 查完整数据后刷新 Caffeine 缓存
+            // 从 DB 查完整数据后刷新 Caffeine 缓存（即时生效）
             String userInfoKey = CaffeineConstants.USERINFO_CACHE_KEY + userId;
             UserInfo fresh = userInfoService.getById(userId);
             if (fresh != null) {
@@ -90,6 +94,8 @@ public class ProfileService {
                 userinfoCaffeine.put(userInfoKey, newCache);
                 log.debug("已更新用户缓存 userId={}", userId);
             }
+            // Redis 侧刷新统一触发 BatchLoadCache（定时 2s 批量回写，写路径单一来源）
+            batchLoadCache.saveFuture(userId);
         }
 
         log.info("用户 {} 更新个人资料: nickName={}, icon={}, city={}, introduce={}",
