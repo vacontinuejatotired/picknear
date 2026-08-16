@@ -131,13 +131,15 @@ Phase 2: TaskPlanner 规划执行
                            ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                  Guard 层（工具调用守卫）                                 │
-│  GuardedToolCallback (ToolCallback 代理)                                │
-│  └─ ToolGuardManager.evaluate() → List<ToolGuardPolicy>                 │
-│       ├─ HighRiskListPolicy     — 高危工具精确匹配                      │
-│       ├─ ConfirmToolPolicy      — 需确认工具列表                        │
-│       ├─ PatternMatchPolicy     — 正则匹配拦截                          │
-│       ├─ RateLimitPolicy        — Redis 频率限制                        │
-│       └─ ... 纯无状态策略，零业务 Service 依赖                          │
+│  GuardedToolCallback (ToolCallback 代理薄壳)                              │
+│  ├─ ToolGuardGate — 决策小步：投票 + guard span 观测 + 分流               │
+│  │    └─ ToolGuardManager.evaluate() → List<ToolGuardPolicy>              │
+│  │         ├─ HighRiskListPolicy     — 高危工具精确匹配                  │
+│  │         ├─ ConfirmToolPolicy      — 需确认工具列表                    │
+│  │         ├─ PatternMatchPolicy     — 正则匹配拦截                      │
+│  │         ├─ RateLimitPolicy        — Redis 频率限制                    │
+│  │         └─ ... 纯无状态策略，零业务 Service 依赖                      │
+│  └─ ToolCallExecutor — 执行小步：占位符解析 + 调用 + 限长                 │
 └──────────────────────────┬──────────────────────────────────────────────┘
                            │ AOP
                            ▼
@@ -764,6 +766,12 @@ if-else 硬编码违背 OCP。策略模式 + AOP 新增资源只需加实现类�
 
 ToolCallbacks.from() 返回的 ToolCallback 是 Spring AI 内部生成的匿名类，无法继承。代理模式零侵入。
 
+**职责拆分（3.6 建议落地，提交 08d9ae4）**：回调本体保持代理薄壳（340→~200 行），
+决策小步抽 `ToolGuardGate`（策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流），
+执行小步抽 `ToolCallExecutor`（self 占位符解析 + 委托调用 + 结果限长 + 参数转换
+错误友好兜底）；callBypass（审批恢复路径）随执行器迁入。公共 API（构造器/
+call/callBypass/静态工具方法）零变化。
+
 ### 5.8 为什么 RateLimitPolicy 使用 Redis？
 
 重启保持、多实例共享、自动过期。本地计数器在重启时丢失、多实例无效。
@@ -950,15 +958,20 @@ hmdp:
 
 ### PromptGuard 守卫模块
 
+> 包名 `guard`（旧文档 `promptguard` 为历史包名，已修正）。GuardedToolCallback 为薄壳门面，
+> 决策小步（ToolGuardGate）与执行小步（ToolCallExecutor）拆分见 §5.7。
+
 | 文件路径 | 角色 |
 |---------|------|
-| `promptguard/GuardedToolCallback.java` | ToolCallback 代理 |
-| `promptguard/ToolGuardManager.java` | 策略收集与决策聚合 |
-| `promptguard/ToolGuardPolicy.java` | 策略接口 |
-| `promptguard/ToolInvocationContext.java` | 评估上下文 |
-| `promptguard/GuardResult.java` | 决策结果 |
-| `promptguard/Vote.java` | 投票枚举 |
-| `promptguard/policy/*.java` | 各策略实现 |
+| `guard/GuardedToolCallback.java` | ToolCallback 代理（薄壳：回调协议 + 元数据代理 + 上下文装配） |
+| `guard/ToolGuardGate.java` | 守卫门（决策小步：策略投票 + guard span 观测 + BLOCK/CONFIRM/ALLOW 分流） |
+| `guard/ToolCallExecutor.java` | 执行小步（self 占位符解析 + 委托调用 + 结果限长 + 参数转换错误兜底） |
+| `guard/ToolGuardManager.java` | 策略收集与决策聚合 |
+| `guard/ToolGuardPolicy.java` | 策略接口 |
+| `guard/ToolInvocationContext.java` | 评估上下文 |
+| `guard/GuardResult.java` | 决策结果 |
+| `guard/Vote.java` | 投票枚举 |
+| `guard/policy/*.java` | 各策略实现 |
 
 ### PromptHook 输入拦截模块
 
