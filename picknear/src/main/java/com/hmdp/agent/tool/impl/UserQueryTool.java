@@ -64,7 +64,7 @@ public class UserQueryTool {
     public List<FollowBrief> queryMyFollows(ToolContext toolContext) {
         Long userId = (Long) toolContext.getContext().get("userId");
         log.info("queryMyFollows userId: {}", userId);
-        List<Follow> follows = followService.query().eq("user_id", userId).list();
+        List<Follow> follows = followService.listFollowsByUserId(userId);
         if (follows.isEmpty()) return List.of();
 
         List<Long> ids = follows.stream().map(Follow::getFollowUserId)

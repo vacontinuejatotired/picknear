@@ -257,4 +257,9 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     private void backfillFeedOnFollow(Long followerUserId, Long followedUserId) {
         feedPushService.backfillOnFollow(followerUserId, followedUserId);
     }
+
+    @Override
+    public List<Follow> listFollowsByUserId(Long userId) {
+        return query().eq("user_id", userId).list();
+    }
 }

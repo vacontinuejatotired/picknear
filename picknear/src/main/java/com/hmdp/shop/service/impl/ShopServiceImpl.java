@@ -138,4 +138,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         if (field == null) return null;
         return SORTABLE_FIELDS.getOrDefault(field, field);
     }
+
+    @Override
+    public List<Shop> listByTypeOrderByScore(Long typeId, int page, int size) {
+        return query().eq("type_id", typeId)
+                .orderByDesc("score")
+                .page(new Page<>(page, size))
+                .getRecords();
+    }
 }

@@ -27,4 +27,7 @@ public interface IShopService extends IService<Shop> {
     Result queryShopByType(Integer typeId, Integer current, Double x, Double y, String sortBy);
 
     List<Shop> getHotShop(Double x, Double y, Integer typeId);
+
+    /** 按类型分页查店（评分降序，agent 工具用，M-4 对齐） */
+    List<Shop> listByTypeOrderByScore(Long typeId, int page, int size);
 }

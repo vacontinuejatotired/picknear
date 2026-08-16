@@ -67,8 +67,7 @@ public class BlogQueryTool {
     @ToolMeta(keywords = {"评论", "看看评论", "回复"}, intents = {"blog"})
     public List<BlogCommentBrief> queryBlogComments(
             @ToolParam(description = "博客ID") Long blogId) {
-        List<BlogComments> list = blogCommentsService.query().eq("blog_id", blogId)
-                .orderByAsc("create_time").list();
+        List<BlogComments> list = blogCommentsService.listByBlogIdOrderByCreateTime(blogId);
         return list.stream()
                 .map(c -> new BlogCommentBrief(c.getId(), c.getUserId(),
                         TextUtils.truncate(c.getContent(), 120),

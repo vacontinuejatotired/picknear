@@ -4,6 +4,8 @@ import com.hmdp.dto.Result;
 import com.hmdp.content.entity.Follow;
 import com.baomidou.mybatisplus.extension.service.IService;
 
+import java.util.List;
+
 /**
  * <p>
  *  服务类
@@ -22,4 +24,7 @@ public interface IFollowService extends IService<Follow> {
     Result follow(Long id, Boolean isfollow);
 
     Result queryCommonFollow(Long id);
+
+    /** 某用户关注列表（agent 工具用，M-4 对齐） */
+    List<Follow> listFollowsByUserId(Long userId);
 }

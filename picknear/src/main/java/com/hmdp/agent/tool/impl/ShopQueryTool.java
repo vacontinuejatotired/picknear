@@ -69,9 +69,7 @@ public class ShopQueryTool {
             @ToolParam(description = "店铺类型ID（来自 queryShopTypes 的 id）") Long typeId,
             @ToolParam(description = "页码，从1开始，可选，默认1") Integer current) {
         int page = current != null && current > 0 ? current : 1;
-        Page<Shop> p = shopService.query().eq("type_id", typeId)
-                .orderByDesc("score").page(new Page<>(page, SystemConstants.MAX_PAGE_SIZE));
-        return p.getRecords().stream()
+        return shopService.listByTypeOrderByScore(typeId, page, SystemConstants.MAX_PAGE_SIZE).stream()
                 .map(s -> new ShopBrief(s.getId(), s.getName(), s.getArea(), s.getAvgPrice(),
                         s.getScore(), s.getSold()))
                 .toList();
