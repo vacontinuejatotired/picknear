@@ -1,149 +1,128 @@
- package com.hmdp.config;
+package com.hmdp.config;
 
- import com.fasterxml.jackson.databind.ObjectMapper;
- import com.hmdp.voucher.entity.VoucherOrder;
- import com.hmdp.utils.constants.RabbitMqConstants;
- import org.springframework.amqp.core.*;
- import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
- import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
- import org.springframework.amqp.rabbit.connection.ConnectionFactory;
- import org.springframework.amqp.rabbit.core.RabbitTemplate;
- import org.springframework.amqp.rabbit.listener.RabbitListenerContainerFactory;
- import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
- import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
- import org.springframework.amqp.support.converter.MessageConverter;
- import org.springframework.context.annotation.Bean;
- import org.springframework.context.annotation.Configuration;
- import org.springframework.context.annotation.Primary;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.voucher.entity.VoucherOrder;
+import com.hmdp.utils.constants.RabbitMqConstants;
+import org.springframework.amqp.core.AcknowledgeMode;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Exchange;
+import org.springframework.amqp.core.ExchangeBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.listener.RabbitListenerContainerFactory;
+import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
- import java.util.HashMap;
- import java.util.Map;
-
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * RabbitMQ 配置 — 正常队列/死信队列/备用交换器声明，可靠投递回调
+ * RabbitMQ 配置 — 正常队列/死信队列/备用交换器声明，可靠投递回调（C 组卫生清理，2026-08）
+ * <p>
+ * 清理：缩进修正、删除注释死代码（connectionFactory/myRabbitTemplate）、
+ * messageConverter 注入复用（消除重复创建）、未用 Map 删除、bean 命名规范化。
+ * </p>
  */
- @Configuration
- public class RabbitConfig {
+@Configuration
+public class RabbitConfig {
 
-//     @Bean
-//     @Primary
-//     public CachingConnectionFactory connectionFactory() {
-//         CachingConnectionFactory factory = new CachingConnectionFactory("192.168.49.130");
-//         factory.setPort(5672);
-//         factory.setUsername("qyh");
-//         factory.setPassword("123321");
-//         factory.setVirtualHost("/");
-//         factory.setChannelCacheSize(25);           // 默认值，可调大
-//         factory.setConnectionCacheSize(1);         // 单连接
-//         factory.setPublisherConfirms(true);        // 启用确认，防止某些异常
-//         factory.setPublisherReturns(true);
-//         return factory;
-//     }
-     @Bean
-     public MessageConverter messageConverter(ObjectMapper objectMapper) {// 复用 Spring 统一管理的 ObjectMapper（含 JavaTimeModule 等配置）
-         // 创建 JSON 消息转换器
-         Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
+    @Bean
+    public MessageConverter messageConverter(ObjectMapper objectMapper) {
+        // 复用 Spring 统一管理的 ObjectMapper（含 JavaTimeModule 等配置）
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
+        // 设置类型映射（重要！）：消息头类型信息 → Java 类型
+        DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
+        typeMapper.setTypePrecedence(DefaultJackson2JavaTypeMapper.TypePrecedence.TYPE_ID);
+        Map<String, Class<?>> idClassMapping = new HashMap<>();
+        idClassMapping.put("voucherOrder", VoucherOrder.class);
+        typeMapper.setIdClassMapping(idClassMapping);
+        converter.setJavaTypeMapper(typeMapper);
+        return converter;
+    }
 
-         // 6. 设置类型映射（重要！）
-         DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory cf, MessageConverter messageConverter) {
+        RabbitTemplate template = new RabbitTemplate(cf);
+        template.setMessageConverter(messageConverter);
+        template.setMandatory(true);  // 不可路由时触发 ReturnCallback
+        return template;
+    }
 
-         // 设置消息头中的类型信息
-         typeMapper.setTypePrecedence(DefaultJackson2JavaTypeMapper.TypePrecedence.TYPE_ID);
+    @Bean
+    public RabbitListenerContainerFactory<?> rabbitListenerContainerFactory(ConnectionFactory connectionFactory,
+                                                                            MessageConverter messageConverter) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(messageConverter);
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        return factory;
+    }
 
-         // 创建类型映射
-         Map<String, Class<?>> idClassMapping = new HashMap<>();
-         idClassMapping.put("voucherOrder", VoucherOrder.class);
-         typeMapper.setIdClassMapping(idClassMapping);
+    /** 备用交换器（不可路由消息落点；无队列绑定则丢弃） */
+    @Bean
+    public Exchange alternateExchange() {
+        return ExchangeBuilder.fanoutExchange(RabbitMqConstants.ALTERNATE_EXCHANGE_NAME).durable(true).build();
+    }
 
-         converter.setJavaTypeMapper(typeMapper);
-         return converter;
-     }
-     // 如果使用 RabbitTemplate，也可自定义
-//     @Bean("myRabbitTemplate")
-     @Bean
-     public RabbitTemplate rabbitTemplate(ConnectionFactory cf, ObjectMapper objectMapper) {
-         RabbitTemplate template = new RabbitTemplate(cf);
-         template.setMessageConverter(messageConverter(objectMapper));
-         template.setMandatory(true);  // 如有返回，可观察
-         return template;
-     }
+    @Bean
+    public Exchange deadExchange() {
+        return ExchangeBuilder.topicExchange(RabbitMqConstants.DEAD_EXCHANGE_NAME).durable(true).build();
+    }
 
-     /**
-      * 自动转json
-      * @param connectionFactory
-      * @return
-      */
-     @Bean
-     public RabbitListenerContainerFactory<?> rabbitListenerContainerFactory(ConnectionFactory connectionFactory,
-                                                                             ObjectMapper objectMapper) {
-         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-         factory.setConnectionFactory(connectionFactory);
-         factory.setMessageConverter(messageConverter(objectMapper));
-         factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-         return factory;
-     }
-     @Bean
-     public Exchange AlternatEexchange(){
-         Map<String, Object> arguments = new HashMap<>();
-         return ExchangeBuilder.fanoutExchange(RabbitMqConstants.ALTERNATE_EXCHANGE_NAME).durable(true)
-                 .build();
-     }
+    @Bean
+    public Exchange normalExchange() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("alternate-exchange", RabbitMqConstants.ALTERNATE_EXCHANGE_NAME);
+        return new TopicExchange(RabbitMqConstants.NORMAL_EXCHANGE_NAME, true, false, args);
+    }
 
-     @Bean
-     public Exchange deadExchange(){
-         Map<String, Object> arguments = new HashMap<>();
-         return ExchangeBuilder.topicExchange(RabbitMqConstants.DEAD_EXCHANGE_NAME).durable(true)
-                 .build();
-     }
+    /**
+     * 正常队列：死信转发 + 消息 TTL + 长度上限（x-queue-type 实际为 classic，非仲裁）
+     */
+    @Bean
+    public Queue voucherOrderQueue() {
+        Map<String, Object> arguments = new HashMap<>();
+        arguments.put("x-dead-letter-exchange", RabbitMqConstants.DEAD_EXCHANGE_NAME);
+        arguments.put("x-dead-letter-routing-key", RabbitMqConstants.DEAD_ROUTING_KEY);
+        arguments.put("x-message-ttl", 60000);
+        arguments.put("x-max-length", 100000);
+        arguments.put("x-queue-type", "classic");
+        return QueueBuilder.durable(RabbitMqConstants.QUEUE_NAME).withArguments(arguments).build();
+    }
 
-     @Bean
-     public Exchange TopicExchange() {
-         Map<String, Object> args = new HashMap<>();
-         args.put("alternate-exchange", RabbitMqConstants.ALTERNATE_EXCHANGE_NAME);
-         return new TopicExchange(RabbitMqConstants.NORMAL_EXCHANGE_NAME,true,false,args);
-     }
-     /**
-      * 声明一个仲裁对列
-      * @return
-      */
-     @Bean
-     public Queue voucherOrderQueue() {
-         Map<String, Object> arguments = new HashMap<>();
-         arguments.put("x-dead-letter-exchange", RabbitMqConstants.DEAD_EXCHANGE_NAME);
-         arguments.put("x-dead-letter-routing-key",RabbitMqConstants.DEAD_ROUTING_KEY);
-         arguments.put("x-message-ttl", 60000);
-         arguments.put("x-max-length", 100000);
-         arguments.put("x-queue-type","classic");
-         return QueueBuilder.durable(RabbitMqConstants.QUEUE_NAME).withArguments(arguments).build();
-     }
+    /** 死信队列：TTL + 长度上限 + 溢出丢弃头部 + 投递上限（防毒消息无限循环） */
+    @Bean
+    public Queue deadQueue() {
+        Map<String, Object> arguments = new HashMap<>();
+        arguments.put("x-message-ttl", 60000);
+        arguments.put("x-max-length", 10000);
+        arguments.put("x-queue-type", "classic");
+        arguments.put("x-overflow", "drop-head");
+        arguments.put("x-delivery-limit", 20);
+        return QueueBuilder.durable(RabbitMqConstants.DEAD_QUEUE_NAME).build();
+    }
 
-     @Bean
-     public Queue deadQueue() {
-         Map<String, Object> arguments = new HashMap<>();
-         arguments.put("x-message-ttl", 60000);
-         arguments.put("x-max-length", 10000);
-         arguments.put("x-queue-type","classic");
-         arguments.put("x-overflow", "drop-head");
-         // 可选：消息最大重试投递次数（防毒消息无限循环）
+    @Bean
+    public Binding voucherOrderBinding() {
+        return BindingBuilder
+                .bind(voucherOrderQueue())
+                .to(normalExchange())
+                .with(RabbitMqConstants.NORMAL_ROUTING_KEY).noargs();
+    }
 
-         arguments.put("x-delivery-limit", 20);
-         return QueueBuilder.durable(RabbitMqConstants.DEAD_QUEUE_NAME).build();
-     }
-
-     @Bean
-     public Binding voucherOrderBinding() {
-         return BindingBuilder
-                 .bind(voucherOrderQueue())
-                 .to(TopicExchange()).
-                 with(RabbitMqConstants.NORMAL_ROUTING_KEY).noargs();
-     }
-
-     @Bean
-     public Binding deadQueueBinding() {
-         return BindingBuilder
-                 .bind(deadQueue())
-                 .to(deadExchange())
-                 .with(RabbitMqConstants.DEAD_ROUTING_KEY).noargs();
-     }
- }
+    @Bean
+    public Binding deadQueueBinding() {
+        return BindingBuilder
+                .bind(deadQueue())
+                .to(deadExchange())
+                .with(RabbitMqConstants.DEAD_ROUTING_KEY).noargs();
+    }
+}
