@@ -2,12 +2,12 @@ package com.hmdp.shop.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hmdp.common.cache.CacheManager;
 import com.hmdp.dto.Result;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.shop.mapper.ShopMapper;
 import com.hmdp.shop.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.utils.cache.CacheClient;
 import com.hmdp.utils.redis.RedisConstants;
 import com.hmdp.utils.constants.SystemConstants;
 import org.springframework.data.geo.Distance;
@@ -36,11 +36,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private StringRedisTemplate stringRedisTemplate;
 
     @Resource
-    private CacheClient cacheClient;
+    private CacheManager cacheManager;
 
     @Override
     public Result queryById(Long id) {
-        Shop shop = cacheClient.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById, 20L, TimeUnit.SECONDS);
+        Shop shop = cacheManager.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById, 20L, TimeUnit.SECONDS);
         if (shop == null) {
             log.info("Mysql中不存在该店铺数据，id={}",id);
                 return Result.fail("店铺不存在");
