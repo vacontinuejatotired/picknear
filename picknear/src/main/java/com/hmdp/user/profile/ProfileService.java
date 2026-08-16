@@ -1,54 +1,40 @@
-package com.hmdp.user.service.impl;
+package com.hmdp.user.profile;
 
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.hmdp.auth.dto.LoginFormDTO;
-import com.hmdp.auth.dto.PasswordChangeDTO;
-import com.hmdp.auth.dto.TokenPair;
-import com.hmdp.auth.login.LoginStrategyRegistry;
-import com.hmdp.auth.password.PasswordService;
-import com.hmdp.auth.session.SessionContextService;
-import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
 import com.hmdp.service.FileService;
 import com.hmdp.user.dto.ProfileUpdateDTO;
-import com.hmdp.user.entity.User;
 import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.entity.UserinfoCache;
-import com.hmdp.user.mapper.UserMapper;
 import com.hmdp.user.service.IUserInfoService;
-import com.hmdp.user.service.IUserService;
-import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.cache.CaffeineConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.Resource;
+import java.io.IOException;
+import java.util.Set;
 
 /**
- * 用户服务实现 — P2 拆分后收敛为：登录入口（策略路由）+ 资料域 + 认证委托
+ * 个人资料服务 — 资料更新与头像上传（user 域收敛，P2-S6）
  * <p>
- * 职责边界（2026-08 P2 拆分后）：
+ * 职责边界（自 UserServiceImpl.updateProfile + UserController.uploadIcon 迁出，行为等价）：
  * <ul>
- *   <li>登录：LoginStrategyRegistry 策略路由（密码/验证码，auth.login）</li>
- *   <li>资料：updateProfile（P2-S6 迁 ProfileService 后移除）</li>
- *   <li>委托：验证码 / 改密 / 重置 / 登出（VerifyCodeService / PasswordService / SessionContextService）</li>
+ *   <li>updateProfile：昵称/头像/城市/简介更新 + 旧头像删除 + Caffeine 缓存刷新</li>
+ *   <li>uploadIcon：头像格式/大小校验 + FileService 上传（icons/ 目录）</li>
  * </ul>
+ * 头像白名单常量从 Controller 下沉至此。
  * </p>
  */
 @Slf4j
-@Service
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
+@Component
+public class ProfileService {
 
-    @Resource
-    private LoginStrategyRegistry loginStrategyRegistry;
-    @Resource
-    private SessionContextService sessionContextService;
-    @Resource
-    private VerifyCodeService verifyCodeService;
-    @Resource
-    private PasswordService passwordService;
+    public static final Set<String> ALLOWED_ICON_TYPES = Set.of("jpg", "jpeg", "png", "gif", "webp");
+    public static final long MAX_ICON_SIZE = 2 * 1024 * 1024L;
+
     @Resource
     private IUserInfoService userInfoService;
     @Resource
@@ -56,22 +42,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Resource(name = "userinfoCache")
     private LoadingCache<String, UserinfoCache> userinfoCaffeine;
 
-    @Override
-    public TokenPair login(LoginFormDTO loginForm) {
-        // ① 手机号格式校验
-        if (RegexUtils.isPhoneInvalid(loginForm.getPhone())) {
-            throw new IllegalArgumentException("手机号不规范");
-        }
-        // ② 策略路由：密码登录（password 非空）/ 验证码登录，supports 自判定
-        return loginStrategyRegistry.resolve(loginForm).login(loginForm);
-    }
-
-    @Override
-    public void logout(Long userId) {
-        sessionContextService.revokeTokens(userId);
-    }
-
-    @Override
+    /** 编辑个人资料 — nickName/icon/city/introduce 均为可选 */
     public Result updateProfile(ProfileUpdateDTO dto) {
         Long userId = UserHolder.getUserId();
 
@@ -126,18 +97,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Result.ok();
     }
 
-    @Override
-    public Result resetPassword(String phone, String code, String newPassword) {
-        return passwordService.resetPassword(phone, code, newPassword);
-    }
-
-    @Override
-    public Result sendCode(String phone) {
-        return verifyCodeService.sendCode(phone);
-    }
-
-    @Override
-    public TokenPair changePassword(PasswordChangeDTO dto) {
-        return passwordService.changePassword(dto);
+    /** 上传头像到 FileService（icons/ 目录），含基本校验 */
+    public String uploadIcon(MultipartFile iconFile) throws IOException {
+        String originalFilename = iconFile.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isBlank()) {
+            throw new IllegalArgumentException("文件名不能为空");
+        }
+        String ext = cn.hutool.core.util.StrUtil.subAfter(originalFilename, ".", true).toLowerCase();
+        if (!ALLOWED_ICON_TYPES.contains(ext)) {
+            throw new IllegalArgumentException("不支持的头像格式，仅允许: " + ALLOWED_ICON_TYPES);
+        }
+        if (iconFile.getSize() > MAX_ICON_SIZE) {
+            throw new IllegalArgumentException("头像文件过大，最大允许 2MB");
+        }
+        return fileService.upload(iconFile.getInputStream(), originalFilename, "icons");
     }
 }

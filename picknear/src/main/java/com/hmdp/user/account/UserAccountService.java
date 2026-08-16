@@ -1,10 +1,11 @@
 package com.hmdp.user.account;
 
 import cn.hutool.core.util.RandomUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hmdp.user.entity.User;
 import com.hmdp.user.entity.UserInfo;
+import com.hmdp.user.mapper.UserMapper;
 import com.hmdp.user.service.IUserInfoService;
-import com.hmdp.user.service.IUserService;
 import com.hmdp.utils.constants.SystemConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,7 +22,8 @@ import java.time.LocalDateTime;
  *   <li>createUser：自动注册（User 记录 + 同步 UserInfo 记录，nickName 迁移至此）</li>
  *   <li>getById / updatePassword：账号读写</li>
  * </ul>
- * 登录策略（auth.login）只调不建，避免注册逻辑散落。
+ * 登录策略（auth.login）只调不建；数据访问经 {@link UserMapper} 直查，
+ * 避免依赖 IUserService 形成 Service 层循环（userServiceImpl → 策略 → 本类 → userServiceImpl）。
  * </p>
  */
 @Slf4j
@@ -29,18 +31,18 @@ import java.time.LocalDateTime;
 public class UserAccountService {
 
     @Resource
-    private IUserService userService;
+    private UserMapper userMapper;
     @Resource
     private IUserInfoService userInfoService;
 
     /** 手机号查账号 */
     public User queryByPhone(String phone) {
-        return userService.query().eq("phone", phone).one();
+        return userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhone, phone));
     }
 
     /** 按 ID 查账号 */
     public User getById(Long userId) {
-        return userService.getById(userId);
+        return userMapper.selectById(userId);
     }
 
     /**
@@ -57,7 +59,7 @@ public class UserAccountService {
         if (encodedPassword != null) {
             user.setPassword(encodedPassword);
         }
-        userService.save(user);
+        userMapper.insert(user);
         // 同步创建 UserInfo 记录
         UserInfo newInfo = new UserInfo();
         newInfo.setUserId(user.getId());
@@ -71,6 +73,6 @@ public class UserAccountService {
     public void updatePassword(User user, String encodedPassword) {
         user.setPassword(encodedPassword);
         user.setUpdateTime(LocalDateTime.now());
-        userService.updateById(user);
+        userMapper.updateById(user);
     }
 }

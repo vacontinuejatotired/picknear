@@ -2,8 +2,9 @@ package com.hmdp.interceptor;
 
 import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.dto.ValidationResult;
-import com.hmdp.auth.service.AuthService;
-import com.hmdp.auth.service.AuthService.TokenRefreshResult;
+import com.hmdp.auth.session.SessionContextService;
+import com.hmdp.auth.token.TokenService;
+import com.hmdp.auth.token.TokenService.TokenRefreshResult;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.security.CookieWriter;
 import jakarta.annotation.Resource;
@@ -15,7 +16,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * Token 自动续期间拦截器 — 校验/刷新/用户上下文全权委托 AuthService，仅处理 HTTP 细节。
+ * Token 自动续期间拦截器 — 校验/刷新委托 TokenService，用户上下文委托 SessionContextService，
+ * 本类仅处理 HTTP 细节（P2-S6 后 AuthService 门面删除）。
  * 优先级高于 LoginInterceptor，拦截所有请求（除公开接口）
  */
 @Slf4j
@@ -23,7 +25,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class RefreshTokenInterceptor implements HandlerInterceptor {
 
     @Resource
-    private AuthService authService;
+    private TokenService tokenService;
+    @Resource
+    private SessionContextService sessionContextService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -48,13 +52,13 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
             // （跨 host / 浏览器清 cookie 时请求头仍能送达，规避"refreshToken is null"掉登录）
             String refreshToken = readRefreshToken(request);
 
-            // ① AuthService 做完整校验：JWT 解析 + Caffeine + Redis 版本
-            ValidationResult result = authService.validateAccessToken(token);
+            // ① TokenService 做完整校验：JWT 解析 + Caffeine + Redis 版本
+            ValidationResult result = tokenService.validateAccessToken(token);
 
             if (!result.isValid() && !result.isNeedsRefresh()) {
                 // JWT 无效（签名错误、格式错误等）或会话被更新登录顶替（版本校验不过）。
                 // 后者是"被顶替"最常见路径：AT 未过期、但 validVersion 已被新登录顶高。
-                boolean superseded = authService.isSessionSuperseded(result.getUserId(), result.getVersion());
+                boolean superseded = tokenService.isSessionSuperseded(result.getUserId(), result.getVersion());
                 writeUnauthorized(response, superseded);
                 log.warn("【Token拦截】JWT校验失败或会话被顶替, URI={}, superseded={}", requestURI, superseded);
                 return false;
@@ -67,7 +71,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
-            if (!authService.saveUserToContext(userId)) {
+            if (!sessionContextService.saveUserToContext(userId)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return false;
             }
@@ -78,9 +82,9 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                 return true;
             }
 
-            // ④ 需要刷新 — 带锁刷新委托 AuthService（锁的获取/释放内聚服务层）
+            // ④ 需要刷新 — 带锁刷新委托 TokenService（锁的获取/释放内聚服务层）
             log.info("【Token拦截】Token 需要刷新 userId={}", userId);
-            TokenRefreshResult refreshResult = authService.refreshTokenPairWithLock(
+            TokenRefreshResult refreshResult = tokenService.refreshTokenPairWithLock(
                     token, refreshToken, userId, result.getVersion(), !result.isValid());
 
             switch (refreshResult.status()) {
@@ -107,7 +111,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                     log.warn("【Token拦截】刷新失败 userId={}", userId);
                     response.setHeader("X-Token-Refresh", "failed");
                     // 区分失败原因：被新登录顶替 vs 无有效会话，供前端决策提示文案
-                    boolean superseded = authService.isSessionSuperseded(userId, result.getVersion());
+                    boolean superseded = tokenService.isSessionSuperseded(userId, result.getVersion());
                     writeUnauthorized(response, superseded);
                     return false;
                 }

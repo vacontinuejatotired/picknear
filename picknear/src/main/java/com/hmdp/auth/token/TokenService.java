@@ -5,7 +5,6 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.dto.ValidationResult;
 import com.hmdp.auth.entity.TokenVersionCache;
-import com.hmdp.auth.service.AuthService;
 import com.hmdp.dto.LuaResult;
 import com.hmdp.enums.TokenRefreshCode;
 import com.hmdp.utils.cache.CaffeineConstants;
@@ -38,7 +37,8 @@ import java.util.concurrent.TimeUnit;
  *   <li>带锁刷新（refreshTokenPairWithLock，锁行为保持，P4 LockTemplate 统一修）</li>
  *   <li>会话顶替判定（isSessionSuperseded）</li>
  * </ul>
- * 5 个 RedisScript 与本地版本缓存全部内聚于此。
+ * 5 个 RedisScript 与本地版本缓存全部内聚于此。P2-S6 后 AuthService 门面删除，
+ * 本类成为 Token 生命周期唯一入口。
  * </p>
  */
 @Slf4j
@@ -248,27 +248,27 @@ public class TokenService {
      * 带分布式锁的刷新 — 同一用户并发只执行一次刷新，其余请求跳过。
      * <p>锁的获取/释放内聚在此；无所有者标识问题（H-3）由 P4 LockTemplate 统一修复。</p>
      */
-    public AuthService.TokenRefreshResult refreshTokenPairWithLock(String accessToken, String refreshToken,
-                                                                   Long userId, Long oldVersion, boolean isExpired) {
+    public TokenRefreshResult refreshTokenPairWithLock(String accessToken, String refreshToken,
+                                                       Long userId, Long oldVersion, boolean isExpired) {
         // 分布式锁保护：同一用户同时只有一个刷新请求执行
         String lockKey = "lock:refresh:" + userId;
         boolean locked = Boolean.TRUE.equals(stringRedisTemplate.opsForValue()
                 .setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS));
         if (!locked) {
             log.info("【Token刷新】刷新锁被占用，跳过刷新 userId={}", userId);
-            return AuthService.TokenRefreshResult.skipped();
+            return TokenRefreshResult.skipped();
         }
         try {
             if (oldVersion == null) {
                 log.warn("【Token刷新】无法获取 version, userId={}", userId);
-                return AuthService.TokenRefreshResult.failed();
+                return TokenRefreshResult.failed();
             }
             TokenPair newPair = refreshTokenPair(accessToken, refreshToken, userId, oldVersion, isExpired);
             if (newPair == null) {
                 log.warn("【Token刷新】刷新失败 userId={}", userId);
-                return AuthService.TokenRefreshResult.failed();
+                return TokenRefreshResult.failed();
             }
-            return AuthService.TokenRefreshResult.ok(newPair);
+            return TokenRefreshResult.ok(newPair);
         } finally {
             stringRedisTemplate.delete(lockKey);
         }
@@ -305,5 +305,26 @@ public class TokenService {
         tokenVersionCache.setVersion(version);
         tokenVersionCache.setStatus(CaffeineConstants.TOKEN_VERSION_CACHE_HIT_MATCH);
         tokenValidVersionCache.put(versionKey, tokenVersionCache);
+    }
+
+    /**
+     * 带锁刷新结果：OK=成功（tokenPair 非空）；SKIPPED=锁被占用，调用方跳过刷新直接放行；
+     * FAILED=刷新失败（tokenPair 为 null）。
+     */
+    public record TokenRefreshResult(TokenPair tokenPair, TokenRefreshStatus status) {
+
+        public static TokenRefreshResult ok(TokenPair tokenPair) {
+            return new TokenRefreshResult(tokenPair, TokenRefreshStatus.OK);
+        }
+
+        public static TokenRefreshResult skipped() {
+            return new TokenRefreshResult(null, TokenRefreshStatus.SKIPPED);
+        }
+
+        public static TokenRefreshResult failed() {
+            return new TokenRefreshResult(null, TokenRefreshStatus.FAILED);
+        }
+
+        public enum TokenRefreshStatus { OK, SKIPPED, FAILED }
     }
 }

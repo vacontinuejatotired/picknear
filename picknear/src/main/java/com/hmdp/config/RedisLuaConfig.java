@@ -40,11 +40,6 @@ public class RedisLuaConfig {
         return createScript("MqSeckill.lua", Long.class);
     }
 
-    @Bean(name = "refreshDeadlineTokenScript")
-    public DefaultRedisScript<Long> refreshTokenScript() {
-        return createScript("RefreshToken.lua", Long.class);
-    }
-
     @Bean(name = "refreshDeadTokenScript")
     public DefaultRedisScript<Long> refreshTokenScript2() {
         return createScript("RefreshExpiredToken.lua", Long.class);
