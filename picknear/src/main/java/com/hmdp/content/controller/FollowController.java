@@ -2,6 +2,7 @@ package com.hmdp.content.controller;
 
 
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.content.service.IFollowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -38,7 +39,7 @@ public class FollowController {
     public Result queryFollowStatus(
             @Parameter(description = "目标用户ID") @PathVariable("targetId") Long targetId) {
                 if (targetId == null) {
-                    return Result.fail("目标用户ID不能为空");
+                    return Result.fail(ErrorCode.BAD_REQUEST, "目标用户ID不能为空");
                 }
 
         return followService.queryFollowStatus(targetId);

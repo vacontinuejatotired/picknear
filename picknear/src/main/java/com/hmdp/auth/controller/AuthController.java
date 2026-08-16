@@ -8,6 +8,7 @@ import com.hmdp.auth.password.PasswordService;
 import com.hmdp.auth.session.SessionContextService;
 import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
@@ -87,7 +88,7 @@ public class AuthController {
     public Result logout(HttpServletResponse response) {
         UserDTO userDTO = UserHolder.getUserDTO();
         if (userDTO == null) {
-            return Result.fail("未登录");
+            return Result.fail(ErrorCode.UNAUTHORIZED, "未登录");
         }
         Long userId = userDTO.getId();
         sessionContextService.revokeTokens(userId);

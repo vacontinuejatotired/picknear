@@ -4,6 +4,7 @@ package com.hmdp.shop.controller;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.shop.service.IShopService;
 import com.hmdp.utils.constants.SystemConstants;
@@ -117,14 +118,14 @@ public class ShopController {
             @Parameter(description = "经度") @RequestParam Double x,
             @Parameter(description = "纬度") @RequestParam Double y) {
         if (typeId == null) {
-            return Result.fail("请传入商铺类型");
+            return Result.fail(ErrorCode.BAD_REQUEST, "请传入商铺类型");
         }
         if(x==null||y==null){
-            return Result.fail("请传入位置(x,y)坐标");
+            return Result.fail(ErrorCode.BAD_REQUEST, "请传入位置(x,y)坐标");
         }
         List<Shop> hotShopList = shopService.getHotShop(x,y,typeId);
         if(hotShopList.isEmpty()){
-            return Result.fail("周边暂无店铺");
+            return Result.fail(ErrorCode.NOT_FOUND, "周边暂无店铺");
         }
         return Result.ok(hotShopList);
     }

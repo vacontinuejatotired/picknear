@@ -2,6 +2,7 @@ package com.hmdp.auth.verifycode;
 
 import cn.hutool.core.util.RandomUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +39,7 @@ public class VerifyCodeService {
         }
         String freqKey = RedisConstants.LOGIN_CODE_FREQ_KEY + phone;
         if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(freqKey))) {
-            return Result.fail("发送太频繁，请稍后再试");
+            return Result.fail(ErrorCode.TOO_MANY_REQUESTS, "发送太频繁，请稍后再试");
         }
         String code = RandomUtil.randomNumbers(6);
         stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY + phone,

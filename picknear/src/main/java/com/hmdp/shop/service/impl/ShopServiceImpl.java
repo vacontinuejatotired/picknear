@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.common.cache.CacheManager;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.shop.mapper.ShopMapper;
 import com.hmdp.shop.service.IShopService;
@@ -43,7 +44,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         Shop shop = cacheManager.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById, 20L, TimeUnit.SECONDS);
         if (shop == null) {
             log.info("Mysql中不存在该店铺数据，id={}",id);
-                return Result.fail("店铺不存在");
+                return Result.fail(ErrorCode.NOT_FOUND, "店铺不存在");
         }
         return Result.ok(shop);
     }
@@ -53,7 +54,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public Result updateShop(Shop shop) {
         Long id = shop.getId();
         if (id == null) {
-            return Result.fail("店铺id不存在");
+            return Result.fail(ErrorCode.BAD_REQUEST, "店铺id不存在");
         }
         updateById(shop);
         stringRedisTemplate.delete(RedisConstants.CACHE_SHOP_KEY + id);

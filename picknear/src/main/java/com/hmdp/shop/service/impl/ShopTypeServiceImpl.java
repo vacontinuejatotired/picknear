@@ -2,6 +2,7 @@ package com.hmdp.shop.service.impl;
 
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.shop.entity.ShopType;
 import com.hmdp.shop.mapper.ShopTypeMapper;
 import com.hmdp.shop.service.IShopTypeService;
@@ -40,7 +41,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         }//不存在则查数据然后插入缓存中
         List<ShopType>list=query().list();
         if (list==null|| list.isEmpty()){
-            return Result.fail("商店种类加载错误");
+            return Result.fail(ErrorCode.SERVER_ERROR, "商店种类加载错误");
         }
         for (ShopType shopType:list){
             stringRedisTemplate.opsForList().rightPush(RedisConstants.CACHE_SHOPTYPE_KEY,JSONUtil.toJsonStr(shopType));

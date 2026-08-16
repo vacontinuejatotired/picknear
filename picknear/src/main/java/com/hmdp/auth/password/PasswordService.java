@@ -5,6 +5,7 @@ import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.token.TokenService;
 import com.hmdp.auth.verifycode.VerifyCodeService;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.user.account.UserAccountService;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.entity.User;
@@ -87,16 +88,16 @@ public class PasswordService {
     public Result resetPassword(String phone, String code, String newPassword) {
         // 校验验证码
         if (!verifyCodeService.consumeVerifyCode(phone, code)) {
-            return Result.fail("验证码错误或已过期");
+            return Result.fail(ErrorCode.BAD_REQUEST, "验证码错误或已过期");
         }
         // 校验密码强度
         if (RegexUtils.isPasswordInvalid(newPassword)) {
-            return Result.fail("密码需至少8位，包含大写、小写、数字");
+            return Result.fail(ErrorCode.BAD_REQUEST, "密码需至少8位，包含大写、小写、数字");
         }
         // 查用户
         User user = userAccountService.queryByPhone(phone);
         if (user == null) {
-            return Result.fail("该手机号未注册");
+            return Result.fail(ErrorCode.NOT_FOUND, "该手机号未注册");
         }
         // 更新密码
         userAccountService.updatePassword(user, PasswordEncoder.encode(newPassword));

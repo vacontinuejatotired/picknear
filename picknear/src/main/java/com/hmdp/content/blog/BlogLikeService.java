@@ -7,6 +7,7 @@ import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +48,7 @@ public class BlogLikeService {
         // 分布式锁，防并发重复点赞/取消
         try (LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey, 3, TimeUnit.SECONDS)) {
             if (lock == null) {
-                return Result.fail("操作太频繁，请稍后再试");
+                return Result.fail(ErrorCode.TOO_MANY_REQUESTS, "操作太频繁，请稍后再试");
             }
             // 优先查 Set（用户维度），ZSet 只用于 TopN 查询
             Boolean isLiked = stringRedisTemplate.opsForSet().isMember(userKey, String.valueOf(id));

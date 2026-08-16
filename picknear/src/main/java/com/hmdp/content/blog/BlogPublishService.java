@@ -7,6 +7,7 @@ import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +52,7 @@ public class BlogPublishService {
         blog.setImages("");          // 初始无图片，创建草稿
         int inserted = blogMapper.insert(blog);
         if (inserted <= 0) {
-            return Result.fail("新增笔记失败");
+            return Result.fail(ErrorCode.SERVER_ERROR, "新增笔记失败");
         }
         // 写入 Redis 缓存（随机 TTL 防雪崩）
         cacheManager.setWithJitter(RedisConstants.CACHE_BLOG_KEY + blog.getId(), blog,
@@ -66,19 +67,19 @@ public class BlogPublishService {
         // 1. 校验博客存在
         Blog blog = blogMapper.selectById(id);
         if (blog == null) {
-            return Result.fail("博客不存在");
+            return Result.fail(ErrorCode.NOT_FOUND, "博客不存在");
         }
         // 2. 校验作者身份 (S3)
         Long userId = UserHolder.getUserId();
         if (!userId.equals(blog.getUserId())) {
-            return Result.fail("无权修改他人博客");
+            return Result.fail(ErrorCode.FORBIDDEN, "无权修改他人博客");
         }
         // 3. List<String> → 逗号分隔字符串（API 用 JSON 数组，DB 兼容存量数据）
         String imagesStr = (images == null || images.isEmpty()) ? "" : String.join(",", images);
         blog.setImages(imagesStr);
         int updated = blogMapper.updateById(blog);
         if (updated <= 0) {
-            return Result.fail("更新失败");
+            return Result.fail(ErrorCode.SERVER_ERROR, "更新失败");
         }
         // 4. 更新 Redis 缓存（随机 TTL 防雪崩）
         cacheManager.setWithJitter(RedisConstants.CACHE_BLOG_KEY + id, blog,

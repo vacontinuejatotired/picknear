@@ -1,5 +1,6 @@
 package com.hmdp.common.idempotent;
 
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.exception.BizException;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +44,7 @@ public class IdempotentAspect {
                 .setIfAbsent(redisKey, "1", idempotent.ttl(), TimeUnit.SECONDS);
         if (!Boolean.TRUE.equals(ok)) {
             log.warn("幂等拦截重复请求 key={}", redisKey);
-            throw new BizException(429, idempotent.message());
+            throw new BizException(ErrorCode.TOO_MANY_REQUESTS.getCode(), idempotent.message());
         }
         try {
             return pjp.proceed();

@@ -1,6 +1,7 @@
 package com.hmdp.agent.controller;
 
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.context.AgentContext;
@@ -205,7 +206,7 @@ public class ChatController {
         }
         AgentApproval approval = approvalService.getByConfirmId(confirmId, userId);
         if (approval == null) {
-            return Result.fail("审批记录不存在");
+            return Result.fail(ErrorCode.NOT_FOUND, "审批记录不存在");
         }
 
         // SSE 模式：续流恢复执行

@@ -2,6 +2,7 @@ package com.hmdp.user.profile;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.service.FileService;
 import com.hmdp.user.dto.ProfileUpdateDTO;
 import com.hmdp.user.entity.UserInfo;
@@ -60,7 +61,7 @@ public class ProfileService {
         if (dto.getNickName() != null) {
             String nickName = dto.getNickName().strip();
             if (nickName.isEmpty()) {
-                return Result.fail("昵称不能为空");
+                return Result.fail(ErrorCode.BAD_REQUEST, "昵称不能为空");
             }
             userInfo.setNickName(nickName);
             needUpdateInfo = true;

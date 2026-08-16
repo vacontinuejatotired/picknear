@@ -2,6 +2,7 @@ package com.hmdp.voucher.service.impl;
 
 import com.hmdp.common.idempotent.Idempotent;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.enums.SeckillOrderCode;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisIdWorker;
@@ -93,7 +94,7 @@ public class SeckillOrderService implements IVoucherOrderService {
         boolean saved = voucherOrderService.saveOrder(voucherOrder);
         if (!saved) {
             log.info("【数据库操作】耗时: {} ms", System.currentTimeMillis() - startTime);
-            return Result.fail("订单创建失败，请稍后重试");
+            return Result.fail(ErrorCode.SERVER_ERROR, "订单创建失败，请稍后重试");
         }
 
         // 5. 事务提交后发送MQ消息（H-5：不在事务内发外部副作用）

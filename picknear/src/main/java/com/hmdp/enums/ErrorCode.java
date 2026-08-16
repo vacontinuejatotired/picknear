@@ -20,6 +20,7 @@ public enum ErrorCode {
     FORBIDDEN(403, "无权访问"),
     NOT_FOUND(404, "资源不存在"),
     CONFLICT(409, "请求冲突"),
+    TOO_MANY_REQUESTS(429, "请求过于频繁"),
 
     // 服务端错误 (5xx)
     SERVER_ERROR(500, "服务器异常"),

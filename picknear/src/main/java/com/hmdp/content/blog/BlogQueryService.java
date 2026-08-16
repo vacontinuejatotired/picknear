@@ -7,6 +7,7 @@ import com.hmdp.common.cache.CacheManager;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.ErrorCode;
 import com.hmdp.user.dto.UserDTO;
 import com.hmdp.user.entity.UserInfo;
 import com.hmdp.user.service.IUserInfoService;
@@ -55,7 +56,7 @@ public class BlogQueryService {
                 blogMapper::selectById, RedisConstants.CACHE_BLOG_TTL, TimeUnit.MINUTES);
         if (blog == null) {
             // 空值缓存命中 或 DB 不存在（穿透防护）
-            return Result.fail("博客不存在");
+            return Result.fail(ErrorCode.NOT_FOUND, "博客不存在");
         }
         // 填充动态字段后返回
         setUserToBlog(blog);
