@@ -5,13 +5,14 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.ibatis.annotations.Select;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,6 +26,9 @@ import java.util.function.Function;
 @Component
 public class CacheClient {
     private final StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private LockTemplate lockTemplate;
 
     public CacheClient(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -92,8 +96,8 @@ public class CacheClient {
 
         // 2. 缓存物理缺失
         if (redisData == null) {
-            boolean isLock = tryLock(lockKey);
-            if (isLock) {
+            LockTemplate.LockHandle lock = tryLock(lockKey);
+            if (lock != null) {
                 try {
                     // 双检：再次检查是否被其他线程刚写入
                     R cached = doubleCheckCache(key, clazz);
@@ -102,7 +106,7 @@ public class CacheClient {
                     }
                     // 未命中，需要重建，但不在持有锁时提交异步任务
                 } finally {
-                    unlock(lockKey); // 立即释放锁
+                    unlock(lock); // 立即释放锁
                 }
                 // 锁已释放，提交异步任务（任务内会重新抢锁执行重建）
                 asyncRebuildCache(key, lockKey, id, dbFallBack, time1, timeUnit, clazz);
@@ -121,15 +125,15 @@ public class CacheClient {
         }
 
         // 5. 逻辑过期
-        boolean isLock = tryLock(lockKey);
-        if (isLock) {
+        LockTemplate.LockHandle lock = tryLock(lockKey);
+        if (lock != null) {
             try {
                 R updated = doubleCheckCache(key, clazz);
                 if (updated != null) {
                     return updated; // 被其他线程更新了
                 }
             } finally {
-                unlock(lockKey); // 释放锁
+                unlock(lock); // 释放锁
             }
             // 释放锁后提交异步重建
             asyncRebuildCache(key, lockKey, id, dbFallBack, time1, timeUnit, clazz);
@@ -161,7 +165,8 @@ public class CacheClient {
             Long time1, TimeUnit timeUnit, Class<R> clazz) {
         CACHE_REBUILD_THREAD_POOL.submit(() -> {
             // 异步任务自己抢锁，保证只有一个任务执行
-            if (!tryLock(lockKey)) {
+            LockTemplate.LockHandle lock = tryLock(lockKey);
+            if (lock == null) {
                 return; // 抢不到锁说明其他任务正在执行，直接返回
             }
             try {
@@ -179,27 +184,22 @@ public class CacheClient {
             } catch (Exception e) {
                 log.error("异步重建缓存失败，key={}", key, e);
             } finally {
-                unlock(lockKey);
+                unlock(lock);
             }
         });
     }
 
-    private boolean tryLock(String key) {
-        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", RedisConstants.LOCK_SHOP_TTL,
-                TimeUnit.SECONDS);
-        // 拆箱要判空，防止NPE
-        return BooleanUtil.isTrue(flag);
+    private LockTemplate.LockHandle tryLock(String key) {
+        return lockTemplate.tryLock(key, RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
     }
 
     /**
-     * 释放锁
-     *
-     * @param key
+     * 释放锁 — LockTemplate Lua 校验所有者释放（H-3 修复，P4-S1）
      */
-    private void unlock(String key) {
-        // TODO 释放之前需要检查谁持有锁，只有当前线程持有锁才能释放，推荐lua脚本操作
-        stringRedisTemplate.delete(key);
+    private void unlock(LockTemplate.LockHandle lock) {
+        if (lock != null) {
+            lock.close();
+        }
     }
 
-   
 }

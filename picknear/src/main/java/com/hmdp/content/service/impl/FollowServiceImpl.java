@@ -3,6 +3,7 @@ package com.hmdp.content.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.content.entity.Follow;
 import com.hmdp.content.feed.FeedPushService;
 import com.hmdp.content.mapper.FollowMapper;
@@ -40,6 +41,9 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
 
     @Resource
     private FeedPushService feedPushService;
+
+    @Resource
+    private LockTemplate lockTemplate;
 
     // 最大重试次数
     private static final int MAX_RETRY_TIMES = 3;
@@ -87,21 +91,20 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
             return queryFromDatabase(userId, targetUserId);
         }
 
-        // 7. 尝试加锁
+        // 7. 尝试加锁（LockTemplate：UUID 所有者 + Lua 校验释放，H-3 修复）
         String lockKey = RedisConstants.LOCK_FOLLOW_KEY + targetUserId;
-        Boolean lockAcquired = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", RedisConstants.LOCK_FOLLOW_TTL, TimeUnit.SECONDS);
-
-        if (!Boolean.TRUE.equals(lockAcquired)) {
-            // 加锁失败，等待后重试
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        try (LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey,
+                RedisConstants.LOCK_FOLLOW_TTL, TimeUnit.SECONDS)) {
+            if (lock == null) {
+                // 加锁失败，等待后重试
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return queryFollowStatusWithRetry(targetUserId, retryCount + 1);
             }
-            return queryFollowStatusWithRetry(targetUserId, retryCount + 1);
-        }
 
-        try {
             // 8. 双重检查
             isMember = stringRedisTemplate.opsForSet().isMember(followersKey, userId.toString());
             if (Boolean.TRUE.equals(isMember)) {
@@ -140,10 +143,6 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
                 stringRedisTemplate.opsForValue().set(emptyKey, "1", RedisConstants.FOLLOWS_EMPTY_TTL, TimeUnit.SECONDS);
                 return Result.ok(false);
             }
-
-        } finally {
-            // 10. 释放锁
-            stringRedisTemplate.delete(lockKey);
         }
     }
 

@@ -2,6 +2,7 @@ package com.hmdp.content.blog;
 
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.dto.Result;
@@ -18,8 +19,7 @@ import java.util.concurrent.TimeUnit;
  * 博客点赞服务 — 点赞/取消（content 域收敛，P3-S2）
  * <p>
  * 自 BlogServiceImpl.likeBlog 迁出（行为等价）：Redis Set（用户维度）+ ZSet（TopN）
- * 双写 + DB liked 计数 + 博客缓存同步刷新。手写锁（setIfAbsent+delete）保持现状，
- * P4 LockTemplate 统一修复（H-3）。
+ * 双写 + DB liked 计数 + 博客缓存同步刷新。锁经 {@link LockTemplate}（P4-S1 修复 H-3）。
  * </p>
  */
 @Slf4j
@@ -30,6 +30,8 @@ public class BlogLikeService {
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private BlogMapper blogMapper;
+    @Resource
+    private LockTemplate lockTemplate;
 
     /** 点赞/取消点赞（防并发重复由 Redis 锁保证） */
     public Result likeBlog(Long id) {
@@ -39,11 +41,10 @@ public class BlogLikeService {
         String lockKey = "lock:like:" + id + ":" + userId;
 
         // 分布式锁，防并发重复点赞/取消
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS);
-        if (Boolean.FALSE.equals(locked)) {
-            return Result.fail("操作太频繁，请稍后再试");
-        }
-        try {
+        try (LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey, 3, TimeUnit.SECONDS)) {
+            if (lock == null) {
+                return Result.fail("操作太频繁，请稍后再试");
+            }
             // 优先查 Set（用户维度），ZSet 只用于 TopN 查询
             Boolean isLiked = stringRedisTemplate.opsForSet().isMember(userKey, String.valueOf(id));
             if (Boolean.FALSE.equals(isLiked)) {
@@ -68,8 +69,6 @@ public class BlogLikeService {
                 long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
                 stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
             }
-        } finally {
-            stringRedisTemplate.delete(lockKey);
         }
         return Result.ok();
     }

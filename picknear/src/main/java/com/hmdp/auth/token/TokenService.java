@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.hmdp.auth.dto.TokenPair;
 import com.hmdp.auth.dto.ValidationResult;
 import com.hmdp.auth.entity.TokenVersionCache;
+import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.dto.LuaResult;
 import com.hmdp.enums.TokenRefreshCode;
 import com.hmdp.utils.cache.CaffeineConstants;
@@ -59,6 +60,8 @@ public class TokenService {
     private DefaultRedisScript<String> REDIS_LOGIN_SET_TOKEN;
     @Resource(name = "tokenValidVersionCache")
     private LoadingCache<String, TokenVersionCache> tokenValidVersionCache;
+    @Resource
+    private LockTemplate lockTemplate;
 
     /** 登录：生成双 Token + version */
     public TokenPair generateTokenPair(Long userId) {
@@ -246,19 +249,17 @@ public class TokenService {
 
     /**
      * 带分布式锁的刷新 — 同一用户并发只执行一次刷新，其余请求跳过。
-     * <p>锁的获取/释放内聚在此；无所有者标识问题（H-3）由 P4 LockTemplate 统一修复。</p>
+     * <p>锁的获取/释放经 {@link LockTemplate}（UUID 所有者 + Lua 校验释放，H-3 修复，P4-S1）。</p>
      */
     public TokenRefreshResult refreshTokenPairWithLock(String accessToken, String refreshToken,
                                                        Long userId, Long oldVersion, boolean isExpired) {
         // 分布式锁保护：同一用户同时只有一个刷新请求执行
         String lockKey = "lock:refresh:" + userId;
-        boolean locked = Boolean.TRUE.equals(stringRedisTemplate.opsForValue()
-                .setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS));
-        if (!locked) {
-            log.info("【Token刷新】刷新锁被占用，跳过刷新 userId={}", userId);
-            return TokenRefreshResult.skipped();
-        }
-        try {
+        try (LockTemplate.LockHandle lock = lockTemplate.tryLock(lockKey, 3, TimeUnit.SECONDS)) {
+            if (lock == null) {
+                log.info("【Token刷新】刷新锁被占用，跳过刷新 userId={}", userId);
+                return TokenRefreshResult.skipped();
+            }
             if (oldVersion == null) {
                 log.warn("【Token刷新】无法获取 version, userId={}", userId);
                 return TokenRefreshResult.failed();
@@ -269,8 +270,6 @@ public class TokenService {
                 return TokenRefreshResult.failed();
             }
             return TokenRefreshResult.ok(newPair);
-        } finally {
-            stringRedisTemplate.delete(lockKey);
         }
     }
 

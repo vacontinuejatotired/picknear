@@ -60,4 +60,9 @@ public class RedisLuaConfig {
         return createScript("LoginSetToken.lua", String.class);
     }
 
+    @Bean(name = "redisUnlockScript")
+    public DefaultRedisScript<Long> redisUnlockScript() {
+        return createScript("RedisUnlock.lua", Long.class);
+    }
+
 }
