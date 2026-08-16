@@ -1,6 +1,7 @@
 package com.hmdp.content.blog;
 
 import cn.hutool.json.JSONUtil;
+import com.hmdp.common.cache.CacheManager;
 import com.hmdp.content.dto.BlogFormDTO;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.feed.FeedPushService;
@@ -9,7 +10,6 @@ import com.hmdp.dto.Result;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.utils.redis.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>saveBlog：创建草稿（初始无图）+ 写缓存，不推 Feed（等图片上传）；请求体为 {@link BlogFormDTO}（H-1 修复）</li>
  *   <li>updateBlogImages：作者校验 + 事务内更新图片；Feed 推送移出事务（afterCommit，H-5 修复）</li>
  * </ul>
+ * 缓存写入经 {@link CacheManager}（随机 TTL 防雪崩，P4 博客缓存收敛）。
  * </p>
  */
 @Slf4j
@@ -36,7 +37,7 @@ public class BlogPublishService {
     @Resource
     private BlogMapper blogMapper;
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private CacheManager cacheManager;
     @Resource
     private FeedPushService feedPushService;
 
@@ -52,10 +53,9 @@ public class BlogPublishService {
         if (inserted <= 0) {
             return Result.fail("新增笔记失败");
         }
-        // 写入 Redis 缓存
-        String key = RedisConstants.CACHE_BLOG_KEY + blog.getId();
-        long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
+        // 写入 Redis 缓存（随机 TTL 防雪崩）
+        cacheManager.setWithJitter(RedisConstants.CACHE_BLOG_KEY + blog.getId(), blog,
+                RedisConstants.CACHE_BLOG_TTL, TimeUnit.MINUTES);
         // 注意：此时不推送 Feed，等图片上传完成后 updateBlogImages 再推送
         return Result.ok(blog.getId());
     }
@@ -80,10 +80,9 @@ public class BlogPublishService {
         if (updated <= 0) {
             return Result.fail("更新失败");
         }
-        // 4. 更新 Redis 缓存
-        String key = RedisConstants.CACHE_BLOG_KEY + id;
-        long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
+        // 4. 更新 Redis 缓存（随机 TTL 防雪崩）
+        cacheManager.setWithJitter(RedisConstants.CACHE_BLOG_KEY + id, blog,
+                RedisConstants.CACHE_BLOG_TTL, TimeUnit.MINUTES);
         log.info("博客缓存已更新, blogId={}", id);
         // 5. 推 Feed 给粉丝 — 移出事务（H-5：不在事务内发外部副作用），
         //    事务提交后执行；无事务环境直接推送

@@ -60,7 +60,8 @@ public class CacheManager {
             stringRedisTemplate.opsForValue().set(key, "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
             return null;
         }
-        set(key, result, time, timeUnit);
+        // 写入带随机 TTL（防缓存雪崩，P4 博客缓存收敛后统一语义）
+        setWithJitter(key, result, time, timeUnit);
         return result;
     }
 
@@ -129,6 +130,14 @@ public class CacheManager {
 
     public void set(String key, Object value, Long time, TimeUnit timeUnit) {
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, timeUnit);
+    }
+
+    /**
+     * 带随机 TTL 的写入（70%~100% 区间）— 防缓存雪崩（博客/通用缓存统一语义）
+     */
+    public void setWithJitter(String key, Object value, Long time, TimeUnit timeUnit) {
+        long jittered = RandomUtil.randomLong(time * 7 / 10, time);
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), jittered, timeUnit);
     }
 
     public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit timeUnit) {

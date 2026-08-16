@@ -2,6 +2,7 @@ package com.hmdp.content.blog;
 
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.hmdp.common.cache.CacheManager;
 import com.hmdp.common.lock.LockTemplate;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.mapper.BlogMapper;
@@ -19,7 +20,8 @@ import java.util.concurrent.TimeUnit;
  * 博客点赞服务 — 点赞/取消（content 域收敛，P3-S2）
  * <p>
  * 自 BlogServiceImpl.likeBlog 迁出（行为等价）：Redis Set（用户维度）+ ZSet（TopN）
- * 双写 + DB liked 计数 + 博客缓存同步刷新。锁经 {@link LockTemplate}（P4-S1 修复 H-3）。
+ * 双写 + DB liked 计数 + 博客缓存同步刷新（经 {@link CacheManager}，随机 TTL）。
+ * 锁经 {@link LockTemplate}（P4-S1 修复 H-3）。
  * </p>
  */
 @Slf4j
@@ -32,6 +34,8 @@ public class BlogLikeService {
     private BlogMapper blogMapper;
     @Resource
     private LockTemplate lockTemplate;
+    @Resource
+    private CacheManager cacheManager;
 
     /** 点赞/取消点赞（防并发重复由 Redis 锁保证） */
     public Result likeBlog(Long id) {
@@ -62,12 +66,11 @@ public class BlogLikeService {
                     stringRedisTemplate.opsForZSet().remove(zsetKey, userId.toString());
                 }
             }
-            // 同步刷新博客缓存中的 liked 数
+            // 同步刷新博客缓存中的 liked 数（经 CacheManager，随机 TTL 防雪崩）
             Blog blog = blogMapper.selectById(id);
             if (blog != null) {
-                String cacheKey = RedisConstants.CACHE_BLOG_KEY + id;
-                long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
-                stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
+                cacheManager.setWithJitter(RedisConstants.CACHE_BLOG_KEY + id, blog,
+                        RedisConstants.CACHE_BLOG_TTL, TimeUnit.MINUTES);
             }
         }
         return Result.ok();

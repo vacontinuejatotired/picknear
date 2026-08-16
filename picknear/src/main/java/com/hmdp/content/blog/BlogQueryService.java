@@ -1,10 +1,9 @@
 package com.hmdp.content.blog;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hmdp.common.cache.CacheManager;
 import com.hmdp.content.entity.Blog;
 import com.hmdp.content.mapper.BlogMapper;
 import com.hmdp.dto.Result;
@@ -30,7 +29,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 自 BlogServiceImpl 查询方法迁出（行为等价）：
  * <ul>
- *   <li>queryById：缓存穿透/雪崩防护（空值缓存 + 随机 TTL）</li>
+ *   <li>queryById：缓存穿透/雪崩防护（空值缓存 + 随机 TTL，经 {@link CacheManager}）</li>
  *   <li>queryHotById / queryByUserId / queryMyBlog：分页查询</li>
  *   <li>queryUserList：点赞 TopN 用户列表</li>
  *   <li>setUserToBlog / isLiked：作者信息与点赞状态装配（FeedQueryService 复用，单一来源）</li>
@@ -44,35 +43,21 @@ public class BlogQueryService {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
     @Resource
+    private CacheManager cacheManager;
+    @Resource
     private BlogMapper blogMapper;
     @Resource
     private IUserInfoService userInfoService;
 
-    /** 博客详情（缓存穿透/雪崩防护） */
+    /** 博客详情（缓存穿透防护 + 随机 TTL 防雪崩，经 CacheManager 统一入口） */
     public Result queryById(Long id) {
-        String key = RedisConstants.CACHE_BLOG_KEY + id;
-        // 1. 优先查 Redis
-        String json = stringRedisTemplate.opsForValue().get(key);
-        if (StrUtil.isNotBlank(json)) {
-            Blog blog = JSONUtil.toBean(json, Blog.class);
-            setUserToBlog(blog);
-            isLiked(blog);
-            return Result.ok(blog);
-        }
-        // 2. 空值缓存命中（缓存穿透防护）
-        if (json != null) {
-            return Result.fail("博客不存在");
-        }
-        // 3. 查 MySQL
-        Blog blog = blogMapper.selectById(id);
+        Blog blog = cacheManager.queryWithCache(id, Blog.class, RedisConstants.CACHE_BLOG_KEY,
+                blogMapper::selectById, RedisConstants.CACHE_BLOG_TTL, TimeUnit.MINUTES);
         if (blog == null) {
-            stringRedisTemplate.opsForValue().set(key, "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            // 空值缓存命中 或 DB 不存在（穿透防护）
             return Result.fail("博客不存在");
         }
-        // 4. 写入 Redis（过期时间加随机偏移，防缓存雪崩）
-        long ttl = RedisConstants.CACHE_BLOG_TTL + (long) (Math.random() * RedisConstants.CACHE_BLOG_TTL);
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(blog), ttl, TimeUnit.MINUTES);
-        // 5. 填充动态字段后返回
+        // 填充动态字段后返回
         setUserToBlog(blog);
         isLiked(blog);
         return Result.ok(blog);
