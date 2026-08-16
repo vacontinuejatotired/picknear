@@ -3,36 +3,25 @@ package com.hmdp.voucher.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.injector.methods.DeleteById;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.enums.SeckillOrderCode;
 import com.hmdp.dto.Result;
+import com.hmdp.enums.SeckillOrderCode;
+import com.hmdp.utils.UserHolder;
+import com.hmdp.utils.constants.RabbitMqConstants;
+import com.hmdp.utils.redis.RedisIdWorker;
 import com.hmdp.voucher.entity.VoucherOrder;
 import com.hmdp.voucher.mapper.VoucherOrderMapper;
 import com.hmdp.voucher.service.ISeckillVoucherService;
 import com.hmdp.voucher.service.IVoucherOrderService;
-import com.hmdp.utils.constants.RabbitMqConstants;
-import com.hmdp.utils.redis.RedisIdWorker;
-import com.hmdp.utils.UserHolder;
-import com.rabbitmq.client.AMQP;
-import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.MessageBuilder;
-import org.springframework.amqp.core.MessageProperties;
-import org.springframework.amqp.core.MessagePropertiesBuilder;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.aop.framework.AopContext;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -58,115 +47,7 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
 
     @Resource(name = "seckillScript")
     private DefaultRedisScript<Long> seckillScript;
-    private static final String LOCK_KET_PREFIX = "voucher:order:lock";
     private static final int MAX_RETRY = 3;
-
-    @RabbitListener(queues = RabbitMqConstants.QUEUE_NAME)
-    public void voucherOrderHandler(
-            VoucherOrder voucherOrder,
-            Message message,                                      // 新增：用于读取和设置 headers
-            Channel channel,
-            @Header(AmqpHeaders.DELIVERY_TAG) Long deliveryTag) throws IOException {
-
-        // 从消息头中获取当前重试次数（第一次消费为 null）
-        Integer retryCount = message.getMessageProperties()
-                .getHeader("x-retry-count");
-        if (retryCount == null) {
-            retryCount = 0;
-        }
-
-        // 超过最大重试次数 → 直接进入死信队列
-        if (retryCount >= MAX_RETRY) {
-            log.warn("deliveryTag：{} 已超过最大重试次数 {}，放入死信队列", deliveryTag, MAX_RETRY);
-            channel.basicAck(deliveryTag, false);
-            rabbitTemplate.convertAndSend(
-                    RabbitMqConstants.DEAD_EXCHANGE_NAME,
-                    RabbitMqConstants.DEAD_ROUTING_KEY,
-                    voucherOrder);
-            return;
-        }
-
-        boolean success = false;
-        try {
-            success = seckillVoucherService.update()
-                    .setSql("stock = stock -1")
-                    .eq("voucher_id", voucherOrder.getVoucherId())
-                    .gt("stock", 0)
-                    .update();
-        } catch (Exception e) {
-            log.error("更新库存失败,订单id:{}", voucherOrder.getVoucherId(), e);
-            // 系统异常：增加重试计数后重新入队
-            rejectAndRequeueWithIncrement(channel, deliveryTag, message, retryCount + 1);
-            return;
-        }
-
-        if (!success) {
-            log.warn("库存不足，订单id:{}", voucherOrder.getId());
-            // 业务失败也重试（根据您的要求）
-            rejectAndRequeueWithIncrement(channel, deliveryTag, message, retryCount + 1);
-            return;
-        }
-
-        // 成功：确认消息
-        channel.basicAck(deliveryTag, false);
-        log.info("订单{}扣减数据库库存成功", voucherOrder.getId());
-    }
-
-    /**
-     * 拒绝消息并且重新入队，同时增加重试计数
-     * @param channel
-     * @param deliveryTag
-     * @param message
-     * @param nextRetryCount
-     * @throws IOException
-     */
-    private void rejectAndRequeueWithIncrement(Channel channel, Long deliveryTag,
-                                               Message message, int nextRetryCount) throws IOException {
-
-        // 1. 获取原消息属性（Spring 类型）
-        MessageProperties originalProps = message.getMessageProperties();
-
-        // 2. 构建新的属性副本，并设置重试计数
-        MessageProperties newProps = MessagePropertiesBuilder
-                .fromClonedProperties(originalProps)
-                .setHeader("x-retry-count", nextRetryCount)
-                .build();
-
-        // 3. 构建新消息
-        Message newMessage = MessageBuilder
-                .withBody(message.getBody())
-                .andProperties(newProps)
-                .build();
-
-        // 4. 重新投递到当前队列（使用默认交换机 ""）
-        Map<String, Object> headers = new HashMap<>(message.getMessageProperties().getHeaders());
-        headers.put("x-retry-count", nextRetryCount);
-
-        AMQP.BasicProperties nativeProps = new AMQP.BasicProperties.Builder()
-                .headers(headers)
-                .deliveryMode(2)  // persistent
-                .build();
-        channel.basicPublish(
-                "",                               // 默认交换机（direct to queue）
-                RabbitMqConstants.QUEUE_NAME,     // 队列名作为 routing key
-                false,                            // mandatory
-                nativeProps,  // 注意：这里要转成 Map 或用原生方式
-                newMessage.getBody()
-        );
-
-        // 5. 确认原消息（防止重复）
-        channel.basicAck(deliveryTag, false);
-    }
-
-    @RabbitListener(queues = RabbitMqConstants.DEAD_QUEUE_NAME)
-    public void deadQueueHandler(VoucherOrder voucherOrder, Channel channel, @Header(AmqpHeaders.DELIVERY_TAG) Long deliverTag) throws IOException {
-        boolean success = false;
-        log.warn("订单id：{}进入死信队列", voucherOrder.getId());
-        channel.basicAck(deliverTag, false);
-        log.info("order:{} has been down", voucherOrder.getId());
-    }
-
-
 
     @Override
     public Result querySeckillVoucher(Long voucherId) {
@@ -179,9 +60,6 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
         if (r != 0) {
             return Result.fail(r == 1 ? "库存不足" : "不能重复下单");
         }
-        //警示！！代理对象要变成全局使用的
-        //TODO 集群下目前只会有一个会有代理对象，需要解决
-        IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
         //返回订单号
         return Result.ok(orderId);
     }
