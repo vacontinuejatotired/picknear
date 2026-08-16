@@ -6,16 +6,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.enums.SeckillOrderCode;
 import com.hmdp.utils.UserHolder;
-import com.hmdp.utils.constants.RabbitMqConstants;
 import com.hmdp.utils.redis.RedisIdWorker;
 import com.hmdp.voucher.entity.VoucherOrder;
 import com.hmdp.voucher.mapper.VoucherOrderMapper;
+import com.hmdp.voucher.mq.VoucherOrderProducer;
 import com.hmdp.voucher.service.ISeckillVoucherService;
 import com.hmdp.voucher.service.IVoucherOrderService;
 import com.hmdp.voucher.stock.SeckillStockService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,11 +35,11 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
     @Resource
     private RedisIdWorker redisIdWorker;
     @Resource
-    private RabbitTemplate rabbitTemplate;
-    @Resource
     private ISeckillVoucherService seckillVoucherService;
     @Resource
     private SeckillStockService seckillStockService;
+    @Resource
+    private VoucherOrderProducer voucherOrderProducer;
 
     @Override
     public Result querySeckillVoucher(Long voucherId) {
@@ -58,22 +56,24 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
     }
 
     /**
-     * 查询现有订单表是否存在用户已下的秒杀单
-     * 创建订单,失败回滚
-     * 最后在mq异步扣减库存
-     * @param voucherOrder
+     * 查询现有订单表是否存在用户已下的秒杀单（门面委托查重，D6）
+     * <p>
+     * 落单委托 {@link VoucherOrderService}；<strong>不再在事务内直发 MQ</strong>
+     * （H-5 修复：外部副作用一律事务提交后发送）。
+     * </p>
      */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void createVoucherOrder(VoucherOrder voucherOrder) {
-        Long userId = voucherOrder.getUserId();
-        int count = Math.toIntExact(query().eq("user_id", voucherOrder.getUserId()).eq("voucher_id", voucherOrder.getVoucherId()).count());
+        int count = Math.toIntExact(query()
+                .eq("user_id", voucherOrder.getUserId())
+                .eq("voucher_id", voucherOrder.getVoucherId())
+                .count());
         if (count > 0) {
             log.error("该用户已经购买过");
             return;
         }
-        //发送到消息队列处理扣减库存
-        rabbitTemplate.convertAndSend(RabbitMqConstants.NORMAL_EXCHANGE_NAME, RabbitMqConstants.NORMAL_ROUTING_KEY, voucherOrder);
+        save(voucherOrder);
     }
 
     @Override
@@ -100,8 +100,8 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
             return Result.fail("订单创建失败，请稍后重试");
         }
 
-        // 5. 发送MQ消息（异步操作）
-        sendMqMessage(voucherOrder);
+        // 5. 事务提交后发送MQ消息（H-5：不在事务内发外部副作用）
+        voucherOrderProducer.sendAfterCommit(voucherOrder);
 
         long totalTime = System.currentTimeMillis() - startTime;
         // 耗时告警
@@ -167,21 +167,10 @@ public class MqVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, V
 
 
     /**
-     * 发送MQ消息（异步操作）
+     * 发送MQ消息（供 /test/** 测试端点调用，无事务语义直发）
      */
     @Override
     public void sendMqMessage(VoucherOrder voucherOrder) {
-        try {
-            rabbitTemplate.convertAndSend(
-                    RabbitMqConstants.NORMAL_EXCHANGE_NAME,
-                    RabbitMqConstants.NORMAL_ROUTING_KEY,
-                    voucherOrder
-            );
-
-        } catch (AmqpException e) {
-            log.error("【sendMqMessage】发送失败,  订单ID: {}",
-                     voucherOrder.getId(), e);
-            throw new RuntimeException("异步更新库存失败", e);
-        }
+        voucherOrderProducer.sendRaw(voucherOrder);
     }
 }
