@@ -2,14 +2,16 @@ package com.hmdp.agent.observability.core;
 
 import com.hmdp.agent.observability.backend.TraceBackend;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.observability.support.TriState;
 
 /**
  * span 命名策略（评审 13.2.2 / 13.3.2：命名决策与载荷编码的统一出口）。
  * <p>
- * 决策规则：<b>是否把语义后缀拼进 span 名</b>由观测后端能力推导——目标后端不展示自定义
+ * 决策规则：<b>是否把语义后缀拼进 span 名</b>默认由观测后端能力推导——目标后端不展示自定义
  * 属性时（如 Langfuse，{@code supportsSpanAttributes=false}）拼，展示属性时（Jaeger 等）不拼
- * （语义已由 {@code AgentField} 属性全量承载）。用户级覆盖开关（auto/true/false）在配置
- * 迁移步（S5）接入，本类默认 auto 行为。
+ * （语义已由 {@code AgentField} 属性全量承载）。可用用户级覆盖强制开/关
+ * （{@code hmdp.ai-observability.span-naming.semantic-encoding: auto|true|false}，
+ * 调试与口径迁移用）。
  * </p>
  * <p>
  * 两种入口：
@@ -26,9 +28,18 @@ public class SpanNamingStrategy {
     private final boolean semanticEncoding;
     private final SpanNameEncoder encoder;
 
+    /** 便捷构造（auto：跟随后端能力推导） */
     public SpanNamingStrategy(TraceBackend backend, SpanNameEncoder encoder) {
+        this(backend, encoder, TriState.AUTO);
+    }
+
+    /**
+     * 主构造：{@code override} 为 auto 时跟随 {@code supportsSpanAttributes} 推导，
+     * enabled/disabled 时强制覆盖（S5 能力覆盖开关）。
+     */
+    public SpanNamingStrategy(TraceBackend backend, SpanNameEncoder encoder, TriState override) {
         // 单一事实源：语义编码 = 不支持属性展示（评审 13.2.2，不设并列布尔字段）
-        this.semanticEncoding = backend.capabilities().defaultSemanticNameEncoding();
+        this.semanticEncoding = override.resolve(backend.capabilities().defaultSemanticNameEncoding());
         this.encoder = encoder;
     }
 

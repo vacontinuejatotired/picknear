@@ -7,6 +7,7 @@ import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
 import com.hmdp.agent.observability.support.ChatContentSerializer;
 import com.hmdp.agent.observability.support.TraceProperties;
+import com.hmdp.agent.observability.support.TriState;
 import io.micrometer.common.KeyValues;
 import org.springframework.ai.chat.observation.ChatModelObservationConvention;
 import org.springframework.ai.chat.observation.ChatModelObservationContext;
@@ -70,14 +71,19 @@ public class ChatModelObservationConventionConfig {
                                                                          ObjectMapper objectMapper,
                                                                          TraceBackendAssembler backendAssembler) {
         TraceBackendCapabilities capabilities = backendAssembler.assemble().capabilities();
-        // 语义命名编码 = 后端不展示自定义属性（单一事实源推导，评审 13.2.2）
-        boolean encodeCaller = !capabilities.supportsSpanAttributes();
-        boolean supplementContent = capabilities.contentSupplementRequired()
-                && traceProperties.getChatObservation().isIncludeContent();
+        // 语义命名编码 = 后端不展示自定义属性（单一事实源推导，评审 13.2.2），
+        // 可被 span-naming.semantic-encoding 覆盖（与 SpanNamingStrategy 同源，S5）
+        TriState semanticEncoding = traceProperties.getSpanNaming().semanticEncodingMode();
+        boolean encodeCaller = semanticEncoding.resolve(!capabilities.supportsSpanAttributes());
+        // content 补发 = include-content（auto 跟后端能力）解析
+        TriState includeContentMode = traceProperties.getChatObservation().includeContentMode();
+        boolean supplementContent = includeContentMode.resolve(capabilities.contentSupplementRequired());
         log.info("[obs-convention] 已加载自定义 ChatModelObservationConvention "
-                        + "(后端能力: encodeCaller={}, contentSupplement={}; 用户开关 includeContent={})",
-                encodeCaller, capabilities.contentSupplementRequired(),
-                traceProperties.getChatObservation().isIncludeContent());
+                        + "(后端能力: supportsSpanAttributes={}, contentSupplement={}; "
+                        + "span-naming.semantic-encoding={}, include-content={})",
+                capabilities.supportsSpanAttributes(), capabilities.contentSupplementRequired(),
+                traceProperties.getSpanNaming().getSemanticEncoding(),
+                traceProperties.getChatObservation().getIncludeContent());
         return new DefaultChatModelObservationConvention() {
             @Override
             public String getContextualName(ChatModelObservationContext context) {

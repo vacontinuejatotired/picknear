@@ -12,6 +12,7 @@ import com.hmdp.agent.observability.model.AgentSpanSpec;
 import com.hmdp.agent.observability.model.SpanContext;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
 import com.hmdp.agent.observability.support.TraceProperties;
+import com.hmdp.agent.observability.support.TriState;
 import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -52,11 +53,13 @@ public class AgentTracer {
 
     /**
      * Spring 主构造：后端由装配器按 {@code hmdp.ai-observability.backend.type} 解析
-     * （type 缺省 → Langfuse，兼容现状；Fail-Open 分级见装配器）。
+     * （type 缺省 → Langfuse，兼容现状；Fail-Open 分级见装配器）；语义编码覆盖开关
+     * {@code span-naming.semantic-encoding}（auto 跟后端能力，S5）。
      */
     public AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer, TraceProperties props,
                        TraceBackendAssembler backendAssembler, SpanNameEncoder encoder) {
-        this(lifecycle, sanitizer, props, backendAssembler.assemble(), encoder);
+        this(lifecycle, sanitizer, props, backendAssembler.assemble(), encoder,
+                props.getSpanNaming().semanticEncodingMode());
     }
 
     /**
@@ -64,16 +67,16 @@ public class AgentTracer {
      * （语义编码开启），与现状行为一致，既有测试无需改动。
      */
     public AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer, TraceProperties props) {
-        this(lifecycle, sanitizer, props, new LangfuseBackend(), new SpanNameEncoder(sanitizer));
+        this(lifecycle, sanitizer, props, new LangfuseBackend(), new SpanNameEncoder(sanitizer), TriState.AUTO);
     }
 
     private AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer, TraceProperties props,
-                        TraceBackend backend, SpanNameEncoder encoder) {
+                        TraceBackend backend, SpanNameEncoder encoder, TriState semanticEncodingOverride) {
         this.lifecycle = lifecycle;
         this.sanitizer = sanitizer;
         this.traceEnabled = props.isTraceEnabled();
         this.backend = backend;
-        this.strategy = new SpanNamingStrategy(backend, encoder);
+        this.strategy = new SpanNamingStrategy(backend, encoder, semanticEncodingOverride);
     }
 
     /**
