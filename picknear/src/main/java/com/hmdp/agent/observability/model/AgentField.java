@@ -66,6 +66,8 @@ public enum AgentField {
     MODEL_NAME("model.name", SUMMARY, AgentSpanSpec.GUARD),
     TOOL_ARGUMENTS("tool.arguments", SUMMARY, AgentSpanSpec.GUARD),
     GUARD_POLICY("guard.policy", SUMMARY, AgentSpanSpec.GUARD),
+    /** 守卫决策（BLOCK/CONFIRM/ALLOW）——语义数据进属性（换后端靠属性展示时的兜底，2026-08-17 增补） */
+    GUARD_DECISION("guard.decision", SUMMARY, AgentSpanSpec.GUARD),
 
     // —— PROMPT（Prompt 模板获取/渲染）——
     PROMPT_SOURCE("prompt.source", SUMMARY, AgentSpanSpec.PROMPT),

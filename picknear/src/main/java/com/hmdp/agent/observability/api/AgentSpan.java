@@ -45,6 +45,18 @@ public interface AgentSpan extends AutoCloseable {
     AgentSpan set(AgentField field, String segment, String value);
 
     /**
+     * 写入未注册 key 的原始属性（经 SUMMARY 脱敏统一出口）。
+     * <p>
+     * 用途边界：观测后端平台别名等一次性 key（如根 span 的 {@code langfuse.user.id}，
+     * 值来自 {@code backend.associationAttributes()} 映射）。注册表字段请走
+     * {@link #set(AgentField, String)}。
+     * </p>
+     */
+    default AgentSpan setRaw(String key, String value) {
+        return attribute(key, value);
+    }
+
+    /**
      * 打开根 span 的作用域（异步线程入口使用），返回的 Scope 必须 try-with-resources 配对。
      */
     Observation.Scope openScope();

@@ -1,6 +1,7 @@
 package com.hmdp.agent.stream;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -72,7 +73,7 @@ public class StreamingChatInvoker {
                     // TracingContext 缺失 → 断链（新 traceId）。绕开后 context 里只有下面
                     // 写入的当前栈顶 observation（phase1），model 层观察对象直接挂上。
                     // 观察标记：流式 observation 在订阅时 start()，标记需覆盖 stream 创建到消费结束
-                    ChatModelObservationConventionConfig.mark("phase1");
+                    ChatModelObservationConventionConfig.mark(CallerType.PHASE1);
                     String fullResponse;
                     try {
                         Observation streamParent = observationRegistry.getCurrentObservation();

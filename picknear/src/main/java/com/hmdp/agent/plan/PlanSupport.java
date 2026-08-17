@@ -1,6 +1,7 @@
 package com.hmdp.agent.plan;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.plan.model.PlanRequest;
 import com.hmdp.agent.plan.model.ValidationOptions;
 import com.hmdp.agent.plan.support.PlanParser;
@@ -75,7 +76,7 @@ public class PlanSupport {
         planVars.put("planEnd", PlanParser.PLAN_END);
         planVars.put("userId", userId);
 
-        ChatModelObservationConventionConfig.mark("planner");
+        ChatModelObservationConventionConfig.mark(CallerType.PLANNER);
         try {
             try {
                 String result = chatClient.prompt()
