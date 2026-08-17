@@ -9,7 +9,7 @@ import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.prompt.config.PromptProperties;
 import com.hmdp.agent.prompt.model.ResolvedToolPrompt;
 import com.hmdp.agent.prompt.repo.BuiltinPromptRepository;
-import com.hmdp.agent.prompt.repo.LangfusePromptRepository;
+import com.hmdp.agent.prompt.repo.RemotePromptRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -28,11 +28,11 @@ import java.util.Optional;
 public class DefaultPromptService implements PromptService {
 
     private final PromptProperties props;
-    private final LangfusePromptRepository remote;
+    private final RemotePromptRepository remote;
     private final BuiltinPromptRepository builtin;
     private final AgentTracer agentTracer;
 
-    public DefaultPromptService(PromptProperties props, LangfusePromptRepository remote,
+    public DefaultPromptService(PromptProperties props, RemotePromptRepository remote,
                                 BuiltinPromptRepository builtin, AgentTracer agentTracer) {
         this.props = props;
         this.remote = remote;

@@ -1,7 +1,7 @@
 package com.hmdp.agent.prompt;
 
 import com.hmdp.agent.prompt.config.PromptProperties;
-import com.hmdp.agent.prompt.repo.LangfusePromptRepository;
+import com.hmdp.agent.prompt.repo.RemotePromptRepository;
 import com.hmdp.agent.prompt.seed.PromptSeeder;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -23,10 +23,10 @@ import java.util.Optional;
 public class PromptCacheWarmer {
 
     private final PromptSeeder promptSeeder;
-    private final LangfusePromptRepository remote;
+    private final RemotePromptRepository remote;
     private final PromptProperties props;
 
-    public PromptCacheWarmer(PromptSeeder promptSeeder, LangfusePromptRepository remote,
+    public PromptCacheWarmer(PromptSeeder promptSeeder, RemotePromptRepository remote,
                              PromptProperties props) {
         this.promptSeeder = promptSeeder;
         this.remote = remote;

@@ -98,8 +98,10 @@ agent:
     compress-length: 80                       # 工具结果压缩摘要最大字符数（防上下文滚雪球）
   prompt:
     enabled: true                             # 提示词外置总开关（false → 全部走内置模板）
-    base-url: ${LANGFUSE_BASE_URL:}           # Langfuse 基础地址，空则不启用远程拉取
-    basic-auth: ${LANGFUSE_BASIC_AUTH:}       # Langfuse Basic 认证（裸 base64）
+    repository:
+      type: langfuse                          # langfuse（默认）| none（显式无远程，走内置模板）
+    base-url: ${LANGFUSE_BASE_URL:}           # 仓库实现读取（langfuse 时用）；空 = 无远程（Fail-Open）
+    basic-auth: ${LANGFUSE_BASIC_AUTH:}       # langfuse Basic 认证（裸 base64）
     default-label: production                 # 默认拉取 label
     cache-ttl: 30m                             # 成功文本 / 404 负缓存 TTL（启动预热后请求期基本全命中）
     failure-cache-ttl: 30s                    # 网络失败瞬时熔断 TTL

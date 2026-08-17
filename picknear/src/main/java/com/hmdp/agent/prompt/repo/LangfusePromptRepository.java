@@ -23,6 +23,11 @@ import java.util.Optional;
 /**
  * Langfuse Prompt Management 远程仓库（2026-08-06 实测 API）。
  * <p>
+ * 实现 {@link RemotePromptRepository} 策略接口（评审 13.3.2 / 方案 §4.5）：
+ * Langfuse 只是提示词仓库的一个实现；内部缓存/熔断/REST 逻辑整体保留，
+ * 只动"实现声明"与 {@link #evictAll()} 委托。
+ * </p>
+ * <p>
  * 端点：{@code GET {base}/api/public/prompts?name={name}&label={label}}（name 是查询参数）；
  * 200 响应内容在**顶层 {@code prompt} 字段**；404 为确定性结果 → 负缓存，网络失败/5xx → 短熔断。
  * </p>
@@ -37,7 +42,7 @@ import java.util.Optional;
  */
 @Slf4j
 @Component
-public class LangfusePromptRepository {
+public class LangfusePromptRepository implements RemotePromptRepository {
 
     private final PromptProperties props;
     private final RestClient restClient;
@@ -95,6 +100,12 @@ public class LangfusePromptRepository {
         contentCache.invalidateAll();
         failureCache.invalidateAll();
         log.info("[prompt] Langfuse 缓存已清空");
+    }
+
+    /** RemotePromptRepository.evictAll → 委托 clearCache */
+    @Override
+    public void evictAll() {
+        clearCache();
     }
 
     /** 推送模板到 Langfuse（创建/新版本，打 production label） */

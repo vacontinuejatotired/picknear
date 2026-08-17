@@ -46,6 +46,18 @@ public class PromptProperties {
     /** 种子端点开关（默认关，生产编排一次后关闭） */
     private boolean seedEnabled = false;
 
+    /** 远端提示词仓库配置（S5b：与观测后端同套路可插拔） */
+    private Repository repository = new Repository();
+
+    @Data
+    public static class Repository {
+        /**
+         * 远端提示词仓库类型：{@code langfuse}（默认，兼容现状）/ {@code none}（显式无远程，走内置模板）。
+         * base-url 为空时 langfuse 也会 Fail-Open 走内置，二者等价但语义不同。
+         */
+        private String type = "langfuse";
+    }
+
     public boolean isConfigured() {
         return StringUtils.hasText(baseUrl) && StringUtils.hasText(basicAuth);
     }
