@@ -41,7 +41,8 @@ public class PromptCacheWarmer {
         }
         List<String> keys = promptSeeder.listAllKeys();
         long start = System.currentTimeMillis();
-        long hit = keys.parallelStream()
+        // 串行预热，避免并发请求被 Langfuse 限流
+        long hit = keys.stream()
                 .map(remote::fetch)
                 .filter(Optional::isPresent)
                 .count();

@@ -13,14 +13,15 @@ COPY pom.xml .
 # 国内 Maven 镜像配置（源自本机 D:\apache-maven-3.8.8-bin\...\conf\settings.xml）
 COPY docker/maven/settings.xml /build/maven-settings.xml
 
-# Maven 本地仓库 bind-mount 构建上下文里的 .m2（build.sh 构建前从宿主 /home/docker/.m2 拷贝进 context）：
-# VM 容器网络不稳（下载依赖会被掐断），用宿主预热的 .m2 保证构建零网络依赖。
-# 注意：source 相对 build context，compose 直建需自行把 .m2 放进 context。
-RUN --mount=type=bind,source=.m2,target=/root/.m2,rw mvn -s /build/maven-settings.xml dependency:go-offline -B
+# Maven 本地仓库：用 BuildKit cache 卷持久化（首次构建自动下载，后续构建复用缓存）
+# Docker settings.xml 已配阿里云/华为云镜像，首次构建也很快
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -s /build/maven-settings.xml dependency:copy-dependencies -DoutputDirectory=/tmp/deps-check -B
 
 COPY src src/
-# -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快
-RUN --mount=type=bind,source=.m2,target=/root/.m2,rw mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B
+# -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快。
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B
 
 # 拆分层，配合 JarLauncher 路径
 RUN java -Djarmode=layertools -jar target/*.jar extract --destination extracted
