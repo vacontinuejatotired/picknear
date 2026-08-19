@@ -41,6 +41,7 @@ management:
       headers:
         Authorization: Basic ${LANGFUSE_BASIC_AUTH}
         x-langfuse-ingestion-version: "4"   # Langfuse 专有头：实时摄取（v3 批量约 5s 延迟）
+      timeout: 15s                           # OTLP导出超时（Langfuse JP延迟约3-4s，留足余量）
   tracing:
     sampling:
       probability: 1.0               # 验证期全量；日常 0.1（架构文档 §6.6）
@@ -105,7 +106,7 @@ agent:
     default-label: production                 # 默认拉取 label
     cache-ttl: 30m                             # 成功文本 / 404 负缓存 TTL（启动预热后请求期基本全命中）
     failure-cache-ttl: 30s                    # 网络失败瞬时熔断 TTL
-    timeout: 2s                               # RestClient 建连/读超时
+    timeout: 5s                               # RestClient 建连/读超时（实测容器到 Langfuse JP 约 1.3s）
     tool-description-enabled: true            # 工具描述外置开关（false → 回退 @Tool 注解）
     seed-enabled: false                       # 种子/清缓存端点开关（生产编排后关闭）
 
