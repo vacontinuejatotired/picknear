@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class UserQueryService {
 
-    @Resource
+    @Resource(name = "hmdpCacheManager")
     private CacheManager cacheManager;
     @Resource
     private IUserService userService;

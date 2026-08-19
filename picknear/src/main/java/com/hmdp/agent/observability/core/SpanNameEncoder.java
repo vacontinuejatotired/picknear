@@ -2,6 +2,7 @@ package com.hmdp.agent.observability.core;
 
 import com.hmdp.agent.observability.support.AttributeSanitizer;
 import com.hmdp.agent.util.TextUtils;
+import org.springframework.stereotype.Component;
 
 /**
  * span 名载荷编码器（评审 13.3.2：从业务类 {@code ToolGuardGate} 下沉的加工逻辑）。
@@ -16,6 +17,7 @@ import com.hmdp.agent.util.TextUtils;
  * 本类只提供"怎么拼"。
  * </p>
  */
+@Component
 public class SpanNameEncoder {
 
     /** 紧凑参数入 span 名的最大字符数（防 span 名膨胀；历史值不变，保留观测口径） */

@@ -15,6 +15,7 @@ import com.hmdp.agent.observability.support.TraceProperties;
 import com.hmdp.agent.observability.support.TriState;
 import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -56,6 +57,7 @@ public class AgentTracer {
      * （type 缺省 → Langfuse，兼容现状；Fail-Open 分级见装配器）；语义编码覆盖开关
      * {@code span-naming.semantic-encoding}（auto 跟后端能力，S5）。
      */
+    @Autowired
     public AgentTracer(SpanLifecycle lifecycle, AttributeSanitizer sanitizer, TraceProperties props,
                        TraceBackendAssembler backendAssembler, SpanNameEncoder encoder) {
         this(lifecycle, sanitizer, props, backendAssembler.assemble(), encoder,

@@ -43,7 +43,7 @@ public class BlogQueryService {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
-    @Resource
+    @Resource(name = "hmdpCacheManager")
     private CacheManager cacheManager;
     @Resource
     private BlogMapper blogMapper;

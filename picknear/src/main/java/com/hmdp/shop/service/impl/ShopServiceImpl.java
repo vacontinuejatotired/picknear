@@ -36,7 +36,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
-    @Resource
+    @Resource(name = "hmdpCacheManager")
     private CacheManager cacheManager;
 
     @Override

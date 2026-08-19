@@ -31,7 +31,7 @@ import java.util.function.Function;
  * </p>
  */
 @Slf4j
-@Component
+@Component("hmdpCacheManager")
 public class CacheManager {
 
     @Resource
