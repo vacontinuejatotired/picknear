@@ -54,3 +54,5 @@ build-tmp/
 *.jar
 *.jti
 *sping.xml
+
+*.m2

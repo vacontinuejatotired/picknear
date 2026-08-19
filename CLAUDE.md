@@ -57,3 +57,43 @@ E:\heima\                              # 工作区根目录
 - 修改前端代码请到 `E:\heima\nginx-1.18.0heima\frontend\`（那里有自己的 CLAUDE.md 详细说明前端的架构约定和代码规范）
 - 修改后端代码请在本目录下 `picknear/` 子目录操作
 - 不要混淆前后端的 git 仓库操作
+
+## 本地 Maven 编译问题（Windows 共享文件夹）
+
+### 问题原因（非 VSCode，是 VMware HGFS 权限）
+
+`E:\heima\` 是 VMware 共享文件夹。**根因是 VM 里的 Linux Maven 编译产出的 `target/` 目录文件权限为 Linux 默认（`-rw-r--r--`），通过 HGFS 映射到 Windows 时，Windows 侧只有读权限，无法写入/删除。** 与 VSCode 无关。
+
+验证方法：`E:\heima\` 根目录和 `picknear/` 目录都可写，唯独 `target/` 不可写——因为 `target/` 是 VM 里 Maven 创建的。
+
+### 一次性修复
+
+**方式 A（推荐）：启动 VM，在 VM 里执行**
+```bash
+sudo rm -rf /mnt/hgfs/heima/picknear/picknear/target
+```
+
+**方式 B：以管理员身份在 Windows PowerShell 执行**
+```powershell
+takeown /F "E:\heima\picknear\picknear\target" /R /A /D Y
+icacls "E:\heima\picknear\picknear\target" /grant "Ntwitm:(OI)(CI)(M)" /T
+Remove-Item -Recurse -Force "E:\heima\picknear\picknear\target"
+```
+
+### 预防措施
+
+每次在 VM 里跑完 Maven 后，修复权限防止下次 Windows 侧编译失败：
+```bash
+sudo chmod -R 777 /mnt/hgfs/heima/picknear/picknear/target
+```
+
+### 临时绕行方案
+
+如果暂时无法修复 `target/`，编译时复制到 `%TEMP%` 再编译，编完删除：
+```powershell
+$tempDir = "$env:TEMP\picknear-compile"
+Copy-Item -Recurse "E:\heima\picknear\picknear\src" "$tempDir\src"
+Copy-Item "E:\heima\picknear\picknear\pom.xml" "$tempDir\pom.xml"
+cd $tempDir && mvn test -Dtest="..." -DfailIfNoTests=false
+Remove-Item -Recurse -Force $tempDir  # 编完务必删除
+```

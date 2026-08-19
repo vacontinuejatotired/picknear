@@ -27,7 +27,7 @@ import jakarta.annotation.Resource;
 @Slf4j
 @Tag(name = "秒杀订单模块", description = "秒杀券下单接口")
 public class VoucherOrderController {
-    @Resource
+    @Resource(name = "seckillOrderService")
     private IVoucherOrderService voucherOrderService;
 
     @PostMapping("seckill/{id}")

@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
 @Service
 @Slf4j
 public class TestServiceimpl implements ITestService {
-    @Resource
+    @Resource(name = "seckillOrderService")
     private IVoucherOrderService voucherOrderService;
 
     @Resource
