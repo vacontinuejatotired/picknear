@@ -32,4 +32,7 @@ public class ParameterInfo {
     
     /** 是否显式指定来源（@FromTool） */
     private boolean explicitSource;
+    
+    /** 是否有歧义（多个工具返回相同类型，需要 @FromTool 指定） */
+    private boolean ambiguous;
 }

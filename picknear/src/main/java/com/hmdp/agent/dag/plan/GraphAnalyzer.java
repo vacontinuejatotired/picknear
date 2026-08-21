@@ -125,7 +125,15 @@ public class GraphAnalyzer {
     }
     
     /**
-     * 分析参数：自动推断哪些参数来自依赖工具
+     * 分析参数：推断哪些参数来自依赖工具
+     * 
+     * <p>优先级：</p>
+     * <ol>
+     *   <li>@FromTool 注解：显式指定来源（最可靠）</li>
+     *   <li>参数名匹配：参数名与工具名一致</li>
+     *   <li>类型匹配（唯一）：只有唯一工具返回该类型</li>
+     *   <li>类型匹配（有歧义）：多个工具返回相同类型，要求 @FromTool</li>
+     * </ol>
      */
     private List<ParameterInfo> analyzeParameters(Method method, List<String> dependencies) {
         List<ParameterInfo> params = new ArrayList<>();
@@ -134,7 +142,7 @@ public class GraphAnalyzer {
         for (Parameter param : methodParams) {
             Class<?> type = param.getType();
             
-            // 1. 检查 @FromTool 注解
+            // 1. 检查 @FromTool 注解（显式指定来源，最高优先级）
             FromTool fromTool = param.getAnnotation(FromTool.class);
             if (fromTool != null) {
                 ToolMetadata depMeta = toolMetadataMap.get(fromTool.value());
@@ -149,22 +157,7 @@ public class GraphAnalyzer {
                 continue;
             }
             
-            // 2. 类型匹配
-            String dependencyTool = findDependencyByReturnType(type, dependencies);
-            if (dependencyTool != null) {
-                ToolMetadata depMeta = toolMetadataMap.get(dependencyTool);
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(true)
-                    .dependencyToolName(dependencyTool)
-                    .dependencyReturnType(depMeta != null ? depMeta.getReturnType() : null)
-                    .explicitSource(false)
-                    .build());
-                continue;
-            }
-            
-            // 3. 参数名匹配
+            // 2. 参数名匹配：参数名与依赖工具名一致
             String paramDep = findDependencyByParamName(param.getName(), dependencies);
             if (paramDep != null) {
                 ToolMetadata depMeta = toolMetadataMap.get(paramDep);
@@ -179,15 +172,60 @@ public class GraphAnalyzer {
                 continue;
             }
             
-            // 4. Agent 参数（基本类型或其他）
-            params.add(ParameterInfo.builder()
-                .name(param.getName())
-                .type(type)
-                .fromDependency(false)
-                .build());
+            // 3. 类型匹配：查找返回该类型的依赖工具
+            List<String> matchingTools = findDependenciesByReturnType(type, dependencies);
+            
+            if (matchingTools.size() == 1) {
+                // 唯一匹配，自动推断
+                String toolName = matchingTools.get(0);
+                ToolMetadata depMeta = toolMetadataMap.get(toolName);
+                params.add(ParameterInfo.builder()
+                    .name(param.getName())
+                    .type(type)
+                    .fromDependency(true)
+                    .dependencyToolName(toolName)
+                    .dependencyReturnType(depMeta != null ? depMeta.getReturnType() : null)
+                    .explicitSource(false)
+                    .build());
+            } else if (matchingTools.size() > 1) {
+                // 多个工具返回相同类型，要求使用 @FromTool
+                log.warn("参数 {} 类型 {} 匹配多个工具 {}，请使用 @FromTool 指定来源",
+                    param.getName(), type.getSimpleName(), matchingTools);
+                // 标记为需要用户指定
+                params.add(ParameterInfo.builder()
+                    .name(param.getName())
+                    .type(type)
+                    .fromDependency(true)
+                    .dependencyToolName(null)  // 需要用户指定
+                    .dependencyReturnType(null)
+                    .explicitSource(false)
+                    .ambiguous(true)  // 标记为有歧义
+                    .build());
+            } else {
+                // 无匹配，作为 Agent 参数
+                params.add(ParameterInfo.builder()
+                    .name(param.getName())
+                    .type(type)
+                    .fromDependency(false)
+                    .build());
+            }
         }
         
         return params;
+    }
+    
+    /**
+     * 根据返回类型查找所有匹配的依赖工具
+     */
+    private List<String> findDependenciesByReturnType(Class<?> type, List<String> dependencies) {
+        List<String> result = new ArrayList<>();
+        for (String dep : dependencies) {
+            ToolMetadata depMeta = toolMetadataMap.get(dep);
+            if (depMeta != null && type.isAssignableFrom(depMeta.getReturnType())) {
+                result.add(dep);
+            }
+        }
+        return result;
     }
     
     /**
@@ -219,29 +257,24 @@ public class GraphAnalyzer {
      * 验证所有工具的依赖关系
      */
     private void validateDependencies() {
-        // 收集类型重复的工具
-        Map<Class<?>, List<String>> typeToTools = new HashMap<>();
-        
         for (ToolMetadata meta : toolMetadataMap.values()) {
+            // 检查依赖的工具是否已注册
             for (String dep : meta.getDependencies()) {
                 if (!toolMetadataMap.containsKey(dep)) {
                     log.warn("工具 {} 依赖的工具 {} 尚未注册", meta.getName(), dep);
                 }
             }
             
-            // 收集类型映射
-            typeToTools.computeIfAbsent(meta.getReturnType(), k -> new ArrayList<>())
-                .add(meta.getName());
-        }
-        
-        // 对于返回相同类型的工具，输出提示（使用 getByTypeAndTool 解决）
-        for (Map.Entry<Class<?>, List<String>> entry : typeToTools.entrySet()) {
-            List<String> tools = entry.getValue();
-            if (tools.size() > 1) {
-                log.info("工具 {} 返回相同类型 {}，建议使用 getByTypeAndTool() 按工具名获取", 
-                    tools, entry.getKey().getSimpleName());
+            // 检查参数是否有歧义
+            for (ParameterInfo param : meta.getParameters()) {
+                if (param.isAmbiguous()) {
+                    log.warn("工具 {} 的参数 {} 有歧义（多个工具返回相同类型 {}），请使用 @FromTool 指定来源",
+                        meta.getName(), param.getName(), param.getType().getSimpleName());
+                }
             }
         }
+        
+        log.info("GraphAnalyzer 初始化完成，注册工具 {} 个", toolMetadataMap.size());
     }
     
     /**
