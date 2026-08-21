@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
+import com.hmdp.agent.dag.annotation.DependsOn;
 import com.hmdp.agent.util.TextUtils;
 import com.hmdp.content.blog.BlogQueryService;
 import com.hmdp.dto.Result;
@@ -65,6 +66,7 @@ public class BlogQueryTool {
             返回评论ID/评论用户/内容/是否一级评论/时间。博客ID来自 queryBlogById。
             """)
     @ToolMeta(keywords = {"评论", "看看评论", "回复"}, intents = {"blog"})
+    @DependsOn(toolName = {"queryBlogById"})
     public List<BlogCommentBrief> queryBlogComments(
             @ToolParam(description = "博客ID") Long blogId) {
         List<BlogComments> list = blogCommentsService.listByBlogIdOrderByCreateTime(blogId);
@@ -83,6 +85,7 @@ public class BlogQueryTool {
             返回前10条（标题/内容摘要/点赞数/评论数）。用户ID来自 queryUserProfile。
             """)
     @ToolMeta(keywords = {"某人的博客", "这个作者的博客", "他发的", "她发的", "的博客"}, intents = {"blog"})
+    @DependsOn(toolName = {"queryUserProfile"})
     public List<BlogBrief> queryUserBlogs(
             @ToolParam(description = "用户ID") Long userId) {
         Result result = blogQueryService.queryByUserId(userId, 1);
