@@ -219,6 +219,9 @@ public class GraphAnalyzer {
      * 验证所有工具的依赖关系
      */
     private void validateDependencies() {
+        // 收集类型重复的工具
+        Map<Class<?>, List<String>> typeToTools = new HashMap<>();
+        
         for (ToolMetadata meta : toolMetadataMap.values()) {
             for (String dep : meta.getDependencies()) {
                 if (!toolMetadataMap.containsKey(dep)) {
@@ -226,13 +229,17 @@ public class GraphAnalyzer {
                 }
             }
             
-            // 检查返回类型是否唯一
-            for (ToolMetadata existing : toolMetadataMap.values()) {
-                if (existing.getReturnType().equals(meta.getReturnType()) 
-                    && !existing.getName().equals(meta.getName())) {
-                    log.warn("工具 {} 和 {} 返回相同类型 {}，可能导致依赖注入歧义", 
-                        meta.getName(), existing.getName(), meta.getReturnType().getSimpleName());
-                }
+            // 收集类型映射
+            typeToTools.computeIfAbsent(meta.getReturnType(), k -> new ArrayList<>())
+                .add(meta.getName());
+        }
+        
+        // 对于返回相同类型的工具，输出提示（使用 getByTypeAndTool 解决）
+        for (Map.Entry<Class<?>, List<String>> entry : typeToTools.entrySet()) {
+            List<String> tools = entry.getValue();
+            if (tools.size() > 1) {
+                log.info("工具 {} 返回相同类型 {}，建议使用 getByTypeAndTool() 按工具名获取", 
+                    tools, entry.getKey().getSimpleName());
             }
         }
     }
