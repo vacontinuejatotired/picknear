@@ -1650,8 +1650,8 @@ public class HybridToolLoop extends AbstractToolLoop {
     @Resource
     private SubTaskProperties subTaskProperties;  // 配置属性
     
-    @Resource(required = false)
-    private PlanReviewer planReviewer;  // 可选
+    @Resource
+    private ObjectProvider<PlanReviewer> planReviewerProvider;  // 可选（ObjectProvider）
     
     @Override
     public String toolCallRule() {
@@ -1669,6 +1669,7 @@ public class HybridToolLoop extends AbstractToolLoop {
             .collect(Collectors.toList());
         
         // 2. 审查（可选）
+        PlanReviewer planReviewer = planReviewerProvider.getIfAvailable();
         if (planReviewer != null) {
             PlanReviewer.ReviewResult review = planReviewer.review(selectedTools, null);
             if (!review.isApproved()) {

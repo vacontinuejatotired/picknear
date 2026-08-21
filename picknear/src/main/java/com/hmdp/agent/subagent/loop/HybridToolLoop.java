@@ -11,6 +11,7 @@ import com.hmdp.agent.task.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse;
@@ -58,8 +59,8 @@ public class HybridToolLoop extends AbstractToolLoop {
     @Resource
     private SubTaskProperties subTaskProperties;
     
-    @Resource(required = false)
-    private PlanReviewer planReviewer;
+    @Resource
+    private ObjectProvider<PlanReviewer> planReviewerProvider;
     
     @Resource
     private com.hmdp.agent.dag.plan.GraphAnalyzer graphAnalyzer;
@@ -80,6 +81,7 @@ public class HybridToolLoop extends AbstractToolLoop {
             .collect(Collectors.toList());
         
         // 2. 审查（可选）
+        PlanReviewer planReviewer = planReviewerProvider.getIfAvailable();
         if (planReviewer != null) {
             PlanReviewer.ReviewResult review = planReviewer.review(selectedTools, ctx.plan().getUserInput());
             if (!review.isApproved()) {

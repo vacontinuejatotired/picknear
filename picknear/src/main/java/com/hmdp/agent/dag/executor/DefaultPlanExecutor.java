@@ -62,6 +62,7 @@ public class DefaultPlanExecutor implements PlanExecutor {
         
         try {
             for (int i = 0; i < plan.getLayers().size(); i++) {
+                final int layerIndex = i;
                 List<String> layer = plan.getLayers().get(i);
                 log.info("执行 Layer {}: {}", i, layer);
                 
@@ -100,7 +101,7 @@ public class DefaultPlanExecutor implements PlanExecutor {
                                 .toolName(toolName)
                                 .duration(duration)
                                 .success(true)
-                                .layer(i)
+                                .layer(layerIndex)
                                 .executedAt(LocalDateTime.now())
                                 .build());
                             
@@ -125,7 +126,7 @@ public class DefaultPlanExecutor implements PlanExecutor {
                                 .duration(duration)
                                 .success(false)
                                 .errorMessage(e.getMessage())
-                                .layer(i)
+                                .layer(layerIndex)
                                 .executedAt(LocalDateTime.now())
                                 .build());
                         }
@@ -137,25 +138,26 @@ public class DefaultPlanExecutor implements PlanExecutor {
                     CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .orTimeout(dagProperties.getLayerTimeoutSeconds(), TimeUnit.SECONDS)
                         .join();
-                } catch (TimeoutException e) {
-                    log.error("Layer {} 执行超时 ({}s)，取消未完成任务", 
-                        i, dagProperties.getLayerTimeoutSeconds());
-                    // 取消所有未完成的 futures
-                    futures.forEach(f -> f.cancel(true));
-                    
-                    return DagExecutionResult.builder()
-                        .success(false)
-                        .results(results)
-                        .failedReasons(failedReasons)
-                        .executedTools(executedTools)
-                        .failedTools(failedTools)
-                        .metrics(metrics)
-                        .duration(System.currentTimeMillis() - startTime)
-                        .errorMessage("Layer " + i + " 执行超时")
-                        .build();
                 } catch (CompletionException e) {
-                    log.error("Layer {} 执行异常", i, e);
-                    // 继续处理其他异常
+                    if (e.getCause() instanceof TimeoutException) {
+                        log.error("Layer {} 执行超时 ({}s)，取消未完成任务",
+                            i, dagProperties.getLayerTimeoutSeconds());
+                        // 取消所有未完成的 futures
+                        futures.forEach(f -> f.cancel(true));
+
+                        return DagExecutionResult.builder()
+                            .success(false)
+                            .results(results)
+                            .failedReasons(failedReasons)
+                            .executedTools(executedTools)
+                            .failedTools(failedTools)
+                            .metrics(metrics)
+                            .duration(System.currentTimeMillis() - startTime)
+                            .errorMessage("Layer " + i + " 执行超时")
+                            .build();
+                    } else {
+                        log.error("Layer {} 执行异常", i, e);
+                    }
                 }
                 
                 // 清空当前层上下文
