@@ -88,6 +88,7 @@ public class DefaultPlanExecutor implements PlanExecutor {
                             
                             // 记录到当前层（使用 ToolResultEntry）
                             layerEntries.add(ToolResultEntry.builder()
+                                .toolName(toolName)
                                 .result(result)
                                 .type(invoker.getReturnType())
                                 .build());
@@ -115,6 +116,7 @@ public class DefaultPlanExecutor implements PlanExecutor {
                             results.put(toolName, null);
                             toolResultStore.store(toolName, null, invoker.getReturnType());  // 失败也要存储类型信息
                             layerEntries.add(ToolResultEntry.builder()
+                                .toolName(toolName)
                                 .result(null)
                                 .type(invoker.getReturnType())
                                 .build());

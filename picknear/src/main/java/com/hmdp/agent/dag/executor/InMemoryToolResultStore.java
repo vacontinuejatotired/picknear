@@ -76,6 +76,22 @@ public class InMemoryToolResultStore implements ToolResultStore {
     
     @Override
     @SuppressWarnings("unchecked")
+    public <T> T getByTypeAndTool(Class<T> type, String toolName) {
+        // 根据工具名和类型精确匹配
+        synchronized (layerLock) {
+            if (currentEntries == null) return null;
+            return currentEntries.stream()
+                .filter(e -> e.getToolName().equals(toolName) 
+                    && e.getResult() != null 
+                    && type.isInstance(e.getResult()))
+                .map(e -> (T) type.cast(e.getResult()))
+                .findFirst()
+                .orElse(null);
+        }
+    }
+    
+    @Override
+    @SuppressWarnings("unchecked")
     public <T> T getByName(String toolName, Class<T> type) {
         // 搜索全局结果（跨层）
         Object result = allResults.get(toolName);

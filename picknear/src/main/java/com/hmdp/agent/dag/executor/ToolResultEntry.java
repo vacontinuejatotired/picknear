@@ -15,6 +15,9 @@ import lombok.Data;
 @Builder
 public class ToolResultEntry {
     
+    /** 工具名称（用于区分相同类型的不同工具结果） */
+    private final String toolName;
+    
     /** 执行结果（失败时为 null） */
     private final Object result;
     

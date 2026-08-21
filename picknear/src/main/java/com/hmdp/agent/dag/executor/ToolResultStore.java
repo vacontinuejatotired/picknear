@@ -44,6 +44,18 @@ public interface ToolResultStore {
     <T> T getByType(Class<T> type);
     
     /**
+     * 根据工具名和类型获取当前层的结果
+     * 
+     * <p>当多个工具返回相同类型时，通过工具名精确匹配</p>
+     * 
+     * @param toolName 工具名称
+     * @param type     返回类型
+     * @param <T>      返回类型
+     * @return 结果
+     */
+    <T> T getByTypeAndTool(Class<T> type, String toolName);
+    
+    /**
      * 根据工具名获取结果（带类型校验）
      * 
      * <p>搜索范围：全局（allResults），可跨层获取</p>
