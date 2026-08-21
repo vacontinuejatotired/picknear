@@ -12,6 +12,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 /**
  * 线程池配置
  *
+ * <p>供 DAG 规划执行器等模块读取外部化线程池参数。</p>
+ *
  * @author DAG Planning Executor
  * @version 1.9
  */
@@ -36,7 +38,7 @@ public class ThreadPoolConfig {
      */
     @Data
     @ConfigurationProperties(prefix = "agent.subtask.thread-pool")
-    public static class ThreadPoolProperties {
+    static class ThreadPoolProperties {
         private int corePoolSize = 4;
         private int maxPoolSize = 8;
         private int queueCapacity = 100;
