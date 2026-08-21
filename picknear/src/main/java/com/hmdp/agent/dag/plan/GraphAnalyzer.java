@@ -8,7 +8,8 @@ import com.hmdp.agent.model.ToolMetadata;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -37,13 +38,35 @@ public class GraphAnalyzer {
     /** 工具名 → 元数据映射 */
     private final Map<String, ToolMetadata> toolMetadataMap = new ConcurrentHashMap<>();
     
-    /** 所有工具实例（由 Spring 容器提供） */
-    @Autowired(required = false)
-    private List<Object> toolInstances = List.of();
+    /** 应用上下文（用于按需获取 Bean，避免循环依赖） */
+    private final ApplicationContext applicationContext;
+    
+    public GraphAnalyzer(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
     
     @PostConstruct
     public void init() {
+        // 延迟获取所有 Bean，避免循环依赖
+        // 使用 ObjectProvider 按需获取
+        Map<String, Object> allBeans = applicationContext.getBeansOfType(Object.class);
+        List<Object> toolInstances = allBeans.values().stream()
+            .filter(this::hasToolMethod)
+            .toList();
         scanAndRegister(toolInstances);
+    }
+    
+    /**
+     * 检查 Bean 是否包含 @Tool 注解的方法
+     */
+    private boolean hasToolMethod(Object bean) {
+        Class<?> clazz = bean.getClass();
+        for (Method method : clazz.getMethods()) {
+            if (method.getAnnotation(Tool.class) != null) {
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
