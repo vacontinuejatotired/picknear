@@ -1,7 +1,7 @@
 package com.hmdp.agent.prompt.seed;
 
 import com.hmdp.agent.prompt.config.PromptProperties;
-import com.hmdp.agent.prompt.repo.LangfusePromptRepository;
+import com.hmdp.agent.prompt.repo.RemotePromptRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,10 +24,10 @@ import java.util.Map;
 public class PromptAdminController {
 
     private final PromptSeeder seeder;
-    private final LangfusePromptRepository remote;
+    private final RemotePromptRepository remote;
     private final PromptProperties props;
 
-    public PromptAdminController(PromptSeeder seeder, LangfusePromptRepository remote,
+    public PromptAdminController(PromptSeeder seeder, RemotePromptRepository remote,
                                  PromptProperties props) {
         this.seeder = seeder;
         this.remote = remote;
@@ -40,7 +40,7 @@ public class PromptAdminController {
             return ResponseEntity.status(403).body(Map.of("error", "种子端点未开启（需 agent.prompt.seed-enabled=true）"));
         }
         int ok = seeder.seedAll();
-        remote.clearCache();
+        remote.evictAll();
         return ResponseEntity.ok(Map.of("seeded", ok, "total", seeder.listAllKeys().size()));
     }
 
@@ -49,7 +49,7 @@ public class PromptAdminController {
         if (!props.isSeedEnabled()) {
             return ResponseEntity.status(403).body(Map.of("error", "种子端点未开启（需 agent.prompt.seed-enabled=true）"));
         }
-        remote.clearCache();
+        remote.evictAll();
         return ResponseEntity.ok(Map.of("reloaded", true));
     }
 }

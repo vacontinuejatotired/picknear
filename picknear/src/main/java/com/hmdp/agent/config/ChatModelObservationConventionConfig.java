@@ -1,9 +1,13 @@
 package com.hmdp.agent.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.observability.backend.TraceBackendAssembler;
+import com.hmdp.agent.observability.backend.TraceBackendCapabilities;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.observability.support.AttributeSanitizer;
 import com.hmdp.agent.observability.support.ChatContentSerializer;
 import com.hmdp.agent.observability.support.TraceProperties;
+import com.hmdp.agent.observability.support.TriState;
 import io.micrometer.common.KeyValues;
 import org.springframework.ai.chat.observation.ChatModelObservationConvention;
 import org.springframework.ai.chat.observation.ChatModelObservationContext;
@@ -14,49 +18,44 @@ import org.springframework.context.annotation.Configuration;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 自定义 {@link ChatModelObservationConvention}：按调用方区分 Langfuse 里的 generation 名，
- * 并补发 LLM 请求/回复全文（默认 convention 不发，Langfuse input/output 因此为 null）。
+ * 自定义 {@link ChatModelObservationConvention}：按调用方区分 generation 名（能力驱动），
+ * 并补发 LLM 请求/回复全文（默认 convention 不发，观测后端 input/output 因此为 null）。
  * <p>
- * 背景（Langfuse 云接入说明 §5.6）：Langfuse 云版 OTLP 路径下<b>自定义 span attributes 不展示</b>，
- * 关键业务语义必须编码进 span 名才可见。默认 ChatModel 观察的 span 名是
- * {@code chat <model>}（如 {@code chat qwen-plus}），主代理与子代理共用同一
- * {@code OpenAiChatModel} Bean，Langfuse 里全部显示为同一个 AI 名字，无法区分。
- * </p>
- * <p>
- * 本约定在 {@link #mark(String)} / {@link #mark(String, String)} 标记的子代理调用前，给 span 名加前缀：
- * 子代理 → {@code subagent-chat qwen-plus}，携带任务标识 → {@code subagent-exec-query-weather-chat qwen-plus}
- * （任务标识把"这次调用在驱动哪个任务"编码进名，Langfuse 控制台免点击直读），
- * 主代理（未标记）→ {@code chat qwen-plus}。
- * observation 名（{@code gen_ai.client.operation}）不变，白名单与统计不受影响。
- * </p>
- * <p>
- * content 补发：Spring AI 1.1.2 的 {@link DefaultChatModelObservationConvention} 只发
- * usage/参数/finish_reason，不产生 {@code gen_ai.request.content}/{@code gen_ai.response.content}。
- * 这里在 {@link #getHighCardinalityKeyValues} 手动补上，Langfuse 据此渲染 input/output。
- * 序列化/脱敏逻辑在 {@link ChatContentSerializer}（纯静态，可独立单测），开关
- * {@code hmdp.ai-observability.chat-observation.include-content}（默认 true）。
+ * 观测后端解耦改造（2026-08-17，方案 S3）：
+ * <ul>
+ *   <li><b>打标收敛</b>：业务类通过 {@link #mark(CallerType[, task])} 打标（引用枚举而非
+ *       魔法字符串，评审 13.3.1）；<b>打标调用保留、是否拼前缀由本类按后端能力决定</b>
+ *       （能力开关关闭时忽略标记，条件不进业务代码——铁律）。</li>
+ *   <li><b>能力驱动</b>：后端不展示自定义属性时（Langfuse）generation 名拼
+ *       {@code caller[-task]-chat <model>}（控制台免点击直读）；支持属性的后端（Jaeger 等）
+ *       保持 {@code chat <model>}（语义已在 attributes）。content 补发 =
+ *       {@code capabilities.contentSupplementRequired AND 用户开关 include-content}。</li>
+ * </ul>
+ * 背景（Langfuse 云接入说明 §5.6）：Langfuse 云版 OTLP 路径下自定义 span attributes 不展示，
+ * 默认 ChatModel 观察的 span 名是 {@code chat <model>}，主代理与子代理共用同一
+ * {@code OpenAiChatModel} Bean 时无法区分调用方——故前缀编码是 Langfuse 特有需求的兜底。
  * </p>
  */
 @Slf4j
 @Configuration
 public class ChatModelObservationConventionConfig {
 
-    /** 调用方标记（ThreadLocal，随调用线程传递）：{@code subagent} 等；空 = 主代理默认名 */
-    private static final ThreadLocal<String> CALLER = new ThreadLocal<>();
+    /** 调用方标记（ThreadLocal，随调用线程传递）：{@code CallerType} 枚举；null = 主代理默认名 */
+    private static final ThreadLocal<CallerType> CALLER = new ThreadLocal<>();
 
     /** 任务/工具标记（ThreadLocal）：当前调用对应的任务标识（如 subagent-exec 驱动执行的工具清单、compress 的工具名）；空 = 无 */
     private static final ThreadLocal<String> TASK = new ThreadLocal<>();
 
-    /** 子代理等调用方在调模型前打标，finally 中必须调 {@link #clear()} */
-    public static void mark(String caller) {
+    /** 调用方在调模型前打标，finally 中必须调 {@link #clear()} */
+    public static void mark(CallerType caller) {
         CALLER.set(caller);
     }
 
     /**
-     * 打标 + 携带任务/工具标识（编码进 generation 名，Langfuse 控制台免点击直读"这是哪个任务"）。
-     * task 为空时等价于 {@link #mark(String)}。
+     * 打标 + 携带任务/工具标识（编码进 generation 名，控制台免点击直读"这是哪个任务"）。
+     * task 为空时等价于 {@link #mark(CallerType)}。
      */
-    public static void mark(String caller, String task) {
+    public static void mark(CallerType caller, String task) {
         CALLER.set(caller);
         TASK.set(task);
     }
@@ -69,29 +68,46 @@ public class ChatModelObservationConventionConfig {
     @Bean
     public ChatModelObservationConvention chatModelObservationConvention(TraceProperties traceProperties,
                                                                          AttributeSanitizer sanitizer,
-                                                                         ObjectMapper objectMapper) {
-        log.info("[obs-convention] 已加载自定义 ChatModelObservationConvention（含 content 补发），includeContent={}",
-                traceProperties.getChatObservation().isIncludeContent());
+                                                                         ObjectMapper objectMapper,
+                                                                         TraceBackendAssembler backendAssembler) {
+        TraceBackendCapabilities capabilities = backendAssembler.assemble().capabilities();
+        // 语义命名编码 = 后端不展示自定义属性（单一事实源推导，评审 13.2.2），
+        // 可被 span-naming.semantic-encoding 覆盖（与 SpanNamingStrategy 同源，S5）
+        TriState semanticEncoding = traceProperties.getSpanNaming().semanticEncodingMode();
+        boolean encodeCaller = semanticEncoding.resolve(!capabilities.supportsSpanAttributes());
+        // content 补发 = include-content（auto 跟后端能力）解析
+        TriState includeContentMode = traceProperties.getChatObservation().includeContentMode();
+        boolean supplementContent = includeContentMode.resolve(capabilities.contentSupplementRequired());
+        log.info("[obs-convention] 已加载自定义 ChatModelObservationConvention "
+                        + "(后端能力: supportsSpanAttributes={}, contentSupplement={}; "
+                        + "span-naming.semantic-encoding={}, include-content={})",
+                capabilities.supportsSpanAttributes(), capabilities.contentSupplementRequired(),
+                traceProperties.getSpanNaming().getSemanticEncoding(),
+                traceProperties.getChatObservation().getIncludeContent());
         return new DefaultChatModelObservationConvention() {
             @Override
             public String getContextualName(ChatModelObservationContext context) {
                 String base = super.getContextualName(context); // 默认 "chat <model>"
-                String caller = CALLER.get();
-                if (caller == null || caller.isBlank()) {
+                // 铁律（评审 13.3.1）：条件在本类内部判断，业务代码的 mark() 调用无条件保留
+                if (!encodeCaller) {
+                    return base; // 支持属性的后端：语义经 attributes 展示，不加前缀
+                }
+                CallerType caller = CALLER.get();
+                if (caller == null) {
                     return base;
                 }
                 String task = TASK.get();
                 if (task == null || task.isBlank()) {
-                    return caller + "-" + base; // "subagent-chat <model>"
+                    return caller.id() + "-" + base; // "subagent-chat <model>"
                 }
-                return caller + "-" + task + "-" + base; // "subagent-exec-query-weather-chat <model>"
+                return caller.id() + "-" + task + "-" + base; // "subagent-exec-query-weather-chat <model>"
             }
 
             @Override
             public KeyValues getHighCardinalityKeyValues(ChatModelObservationContext context) {
                 KeyValues keyValues = super.getHighCardinalityKeyValues(context);
-                if (!traceProperties.getChatObservation().isIncludeContent()) {
-                    log.info("[obs-convention] includeContent=false，跳过 content 补发");
+                if (!supplementContent) {
+                    log.info("[obs-convention] content 补发关闭（能力或用户开关），跳过");
                     return keyValues;
                 }
                 String requestContent = ChatContentSerializer.toRequestContentJson(

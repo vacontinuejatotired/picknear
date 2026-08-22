@@ -35,7 +35,7 @@ public class SubTaskProperties {
     /** 单次执行的总工具调用数上限（预算硬顶，超限强制收尾；防死循环，不抑制具体调用） */
     private int maxTotalCalls = 10;
 
-    /** 工具调用循环策略：serial=按轮逐个调用（现状，默认）；batch=批量+并行（见 SubAgentToolLoop 实现） */
+    /** 工具调用循环策略：serial=按轮逐个调用（现状，默认）；batch=批量+并行；hybrid=混合DAG */
     private String toolLoop = "serial";
 
     /** BatchToolLoop 用：轮内多个工具 cb.call 并发执行 */

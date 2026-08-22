@@ -1,6 +1,7 @@
 package com.hmdp.agent.subagent;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +41,7 @@ public class ToolResultCompressor {
         if (raw == null) return "（空结果）";
         if (raw.length() <= limit) return raw;
         // 打 subagent-compress 标记（携带工具名）：Langfuse generation 名 = subagent-compress-{tool}-chat <model>
-        ChatModelObservationConventionConfig.mark("subagent-compress", toolName);
+        ChatModelObservationConventionConfig.mark(CallerType.SUBAGENT_COMPRESS, toolName);
         try {
             String content = compressChatClient.prompt()
                     .system(SYSTEM_TEMPLATE.formatted(limit))

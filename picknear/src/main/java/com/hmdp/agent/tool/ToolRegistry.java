@@ -1,5 +1,6 @@
 package com.hmdp.agent.tool;
 
+import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import lombok.extern.slf4j.Slf4j;
@@ -91,27 +92,41 @@ public class ToolRegistry implements ApplicationContextAware {
         }
         this.allToolNames = names;
 
-        // 2. 业务元数据：扫描 @ToolMeta 注解的工具类（类级元数据应用到该类全部工具方法）
+        // 2. 业务元数据：扫描 @ToolMeta 注解的工具方法（方法级注解，与 @Tool 同标）
         Map<String, List<String>> keywords = new HashMap<>();
         Map<String, Set<String>> intents = new HashMap<>();
-        for (Object bean : applicationContext.getBeansWithAnnotation(ToolMeta.class).values()) {
+        for (Object bean : applicationContext.getBeansWithAnnotation(TargetTool.class).values()) {
             Class<?> userClass = ClassUtils.getUserClass(bean.getClass());
-            ToolMeta meta = userClass.getAnnotation(ToolMeta.class);
-            if (meta == null) {
-                continue;
-            }
-            List<String> kw = List.of(meta.keywords());
-            Set<String> intentSet = Set.of(meta.intents());
             for (ToolCallback cb : ToolCallbacks.from(bean)) {
                 String name = cb.getToolDefinition().name();
-                keywords.put(name, kw);
-                intents.put(name, intentSet);
-                log.debug("[ToolRegistry] 登记工具 [{}] keywords={} intents={}", name, kw, intentSet);
+                // 扫描类中所有方法，找到与工具名匹配的方法上的 @ToolMeta
+                try {
+                    for (java.lang.reflect.Method method : userClass.getMethods()) {
+                        ToolMeta meta = method.getAnnotation(ToolMeta.class);
+                        if (meta != null && method.getName().equals(extractMethodName(name))) {
+                            List<String> kw = List.of(meta.keywords());
+                            Set<String> intentSet = Set.of(meta.intents());
+                            keywords.put(name, kw);
+                            intents.put(name, intentSet);
+                            log.debug("[ToolRegistry] 登记工具 [{}] keywords={} intents={}", name, kw, intentSet);
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[ToolRegistry] 扫描工具元数据失败 tool={}", name, e);
+                }
             }
         }
         this.keywordsByTool = keywords;
         this.intentsByTool = intents;
         log.info("[ToolRegistry] 工具注册表构建完成：{} 个工具，{} 个带元数据",
                 allToolNames.size(), keywords.size());
+    }
+
+    /** 从工具名提取方法名（Spring AI 默认工具名=方法名） */
+    private String extractMethodName(String toolName) {
+        // 工具名可能带前缀，取最后一段
+        int lastDot = toolName.lastIndexOf('.');
+        return lastDot >= 0 ? toolName.substring(lastDot + 1) : toolName;
     }
 }

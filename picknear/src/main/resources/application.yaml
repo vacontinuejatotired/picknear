@@ -34,25 +34,32 @@ spring:
 management:
   otlp:
     tracing:
+      # 观测后端接入参数唯一事实源（导出去哪）：默认 Langfuse 云；切 Jaeger/SigNoz/Tempo 只改此处
+      # （endpoint/headers/凭据都在这里，行为层由 hmdp.ai-observability.backend 决定）
       # OTLP 端点必须带 /v1/traces（实测：OTel SDK 1.43 不自动追加，不带则 404）
       endpoint: ${LANGFUSE_BASE_URL}/api/public/otel/v1/traces
       headers:
         Authorization: Basic ${LANGFUSE_BASIC_AUTH}
-        x-langfuse-ingestion-version: "4"   # 实时摄取（v3 批量约 5s 延迟）
+        x-langfuse-ingestion-version: "4"   # Langfuse 专有头：实时摄取（v3 批量约 5s 延迟）
+      timeout: 15s                           # OTLP导出超时（Langfuse JP延迟约3-4s，留足余量）
   tracing:
     sampling:
       probability: 1.0               # 验证期全量；日常 0.1（架构文档 §6.6）
 
 hmdp:
   ai-observability:
+    backend:
+      type: langfuse                 # 观测后端：langfuse|jaeger|signoz|collector|console|noop（缺省 langfuse；接入参数走 management.otlp.tracing.*）
     trace-enabled: true              # 业务埋点总开关（M2 使用）
     trace-filter:
-      include-prefixes:              # 观测白名单：只放行这些前缀，其余 span 丢弃（省 Langfuse 配额）
+      include-prefixes:              # 观测白名单：backend 能力默认前缀 + 本清单追加（用户不可删除默认项）
         - agent.                     # M2 业务 span（agent.session/phase1/round/tool_call...）
         - spring.ai.                 # LLM client 层（spring.ai.chat.client）
         - gen_ai.                    # LLM model 层（gen_ai.client.operation）
     chat-observation:
-      include-content: true          # 把 LLM 请求/回复全文写入 gen_ai.request.content / gen_ai.response.content（Langfuse 显示 input/output）
+      include-content: true          # LLM 请求/回复全文写入 gen_ai.request/response.content（true|false|auto；auto=跟后端能力）
+    span-naming:
+      semantic-encoding: auto        # 语义后缀编码进 span 名：auto=跟后端能力；true/false 强制覆盖（调试/口径迁移）
   prompt-guard:
     block-tools:
       - deleteBlog
@@ -92,12 +99,14 @@ agent:
     compress-length: 80                       # 工具结果压缩摘要最大字符数（防上下文滚雪球）
   prompt:
     enabled: true                             # 提示词外置总开关（false → 全部走内置模板）
-    base-url: ${LANGFUSE_BASE_URL:}           # Langfuse 基础地址，空则不启用远程拉取
-    basic-auth: ${LANGFUSE_BASIC_AUTH:}       # Langfuse Basic 认证（裸 base64）
+    repository:
+      type: langfuse                          # langfuse（默认）| none（显式无远程，走内置模板）
+    base-url: ${LANGFUSE_BASE_URL:}           # 仓库实现读取（langfuse 时用）；空 = 无远程（Fail-Open）
+    basic-auth: ${LANGFUSE_BASIC_AUTH:}       # langfuse Basic 认证（裸 base64）
     default-label: production                 # 默认拉取 label
     cache-ttl: 30m                             # 成功文本 / 404 负缓存 TTL（启动预热后请求期基本全命中）
     failure-cache-ttl: 30s                    # 网络失败瞬时熔断 TTL
-    timeout: 2s                               # RestClient 建连/读超时
+    timeout: 5s                               # RestClient 建连/读超时（实测容器到 Langfuse JP 约 1.3s）
     tool-description-enabled: true            # 工具描述外置开关（false → 回退 @Tool 注解）
     seed-enabled: false                       # 种子/清缓存端点开关（生产编排后关闭）
 

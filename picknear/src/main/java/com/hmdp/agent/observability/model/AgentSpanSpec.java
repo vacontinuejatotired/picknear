@@ -3,10 +3,11 @@ package com.hmdp.agent.observability.model;
 /**
  * Agent 业务 span 类型定义（M2 埋点注册表）。
  * <p>
- * span 命名规则（M1.5 实测落地）：{@link #NAMESPACE}{type}[.{semantic}]
- * ——Langfuse 4.2.0 JP 云版 OTLP 转译不展示自定义 attributes，关键业务语义
- * 必须写进 span 名才能在其 UI 可见（如 {@code agent.tool_call.queryShop}、
- * {@code agent.guard.BLOCK.deleteBlog}）。类型统计仍按前缀匹配，不受语义后缀影响。
+ * span 命名规则：{@link #NAMESPACE}{type}[.{semantic}]（如 {@code agent.tool_call.queryShop}、
+ * {@code agent.guard.BLOCK.deleteBlog}）。
+ * <b>语义后缀是否拼入由命名策略按观测后端能力决定</b>（后端不展示自定义属性时编码，
+ * 展示属性时不编码、语义靠 AgentField 属性承载——观测后端解耦方案 S3/评审 13.3.2）。
+ * 类型统计按前缀匹配，不受语义后缀影响。
  * </p>
  */
 public enum AgentSpanSpec {

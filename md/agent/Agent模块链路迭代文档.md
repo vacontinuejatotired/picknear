@@ -7,27 +7,16 @@
 
 ## 迭代总览
 
-```
-Phase 0 ───→ Phase 1 ───→ Phase 2 ───→ Phase 3 ───→ Phase 4 ───→ Phase 5 ───→ Phase 6
-基础调用     Agent化      流式支持      权限校验      守卫架构      任务规划      两阶段架构
-                                                              └─ 输入处理(前置钩子)
-                                                              └─ 回复处理(后置链)
-     │
-     ▼ 后续迭代（Phase 7–13：执行智能体化 + 全链路观测治理）
-Phase 7 ───→ Phase 8 ───→ Phase 9 ───→ Phase 10 ───→ Phase 11 ───→ Phase 12 ───→ Phase 13
-子Agent执行   全链路可观测   历史会话      提示词外置     CONFIRM审批   MaaS迁移     规划工具路由
-     │
-     ▼ 最新迭代（Phase 14–15：规划/工具循环策略化；Phase 8 观测持续演进）
-Phase 14 ───→ Phase 15
-意图→工具组两级路由   子Agent工具循环策略化
-     │
-     ▼ 架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）
-Phase 16
-AiService拆编排层   legacy包归档   ObjectMapper统一
-     │
-     ▼ 架构整理（Phase 17：工具注册表单一来源）
-Phase 17
-@ToolMeta注解   ToolRegistry聚合   4处注册表收敛
+```mermaid
+flowchart TD
+    P0["Phase 0 基础调用"] --> P1["Phase 1 Agent化"] --> P2["Phase 2 流式支持"] --> P3["Phase 3 权限校验"] --> P4["Phase 4 守卫架构"] --> P5["Phase 5 任务规划"] --> P6["Phase 6 两阶段架构"]
+    P5 -->|"输入处理（前置钩子）"| H1["输入处理（前置钩子）"]
+    P5 -->|"回复处理（后置链）"| H2["回复处理（后置链）"]
+    P6 -->|"后续迭代（Phase 7–13：执行智能体化 + 全链路观测治理）"| P7["Phase 7 子Agent执行"]
+    P7 --> P8["Phase 8 全链路可观测"] --> P9["Phase 9 历史会话"] --> P10["Phase 10 提示词外置"] --> P11["Phase 11 CONFIRM审批"] --> P12["Phase 12 MaaS迁移"] --> P13["Phase 13 规划工具路由"]
+    P13 -->|"最新迭代（Phase 14–15：规划/工具循环策略化；Phase 8 观测持续演进）"| P14["Phase 14 意图→工具组两级路由"] --> P15["Phase 15 子Agent工具循环策略化"]
+    P15 -->|"架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）"| P16["Phase 16 AiService编排拆分 / legacy包归档 / ObjectMapper统一"]
+    P16 -->|"架构整理（Phase 17：工具注册表单一来源）"| P17["Phase 17 @ToolMeta注解 / ToolRegistry聚合 / 4处注册表收敛"]
 ```
 
 ---
@@ -38,8 +27,9 @@ Phase 17
 
 ### 架构
 
-```
-请求 → ChatController → AiServiceImpl → DashScope LLM → 回复 → 响应
+```mermaid
+flowchart LR
+    A[请求] --> B[ChatController] --> C[AiServiceImpl] --> D[DashScope LLM] --> E[回复] --> F[响应]
 ```
 
 ### 输入处理
@@ -74,24 +64,18 @@ Phase 17
 
 ### 架构
 
-```
-                      ┌─ 同步 ─→ JSON 响应
-请求 ─→ ChatController ┤
-                      └─ SSE  ─→ 伪流式推送
-                              │
-          ┌───────────────────┴───────────────────┐
-          │         AiServiceImpl                 │
-          │  chatWithToolcall()                   │
-          │  1. LLM 推理 → 决定工具               │
-          │  2. 调用 @Tool 方法                    │
-          │  3. LLM 聚合结果 → 回复                │
-          └───────────────────────────────────────┘
-                   │
-          ┌────────┴────────┐
-          │   ToolBeanCollector  │
-          │   扫描 @TargetTool   │
-          │   注册 ToolCallback  │
-          └─────────────────────┘
+```mermaid
+flowchart TD
+    A[请求] --> B[ChatController]
+    B -->|同步| C[JSON 响应]
+    B -->|SSE| D[伪流式推送]
+    B --> E["AiServiceImpl · chatWithToolcall()"]
+    E --> F["1. LLM 推理 → 决定工具"]
+    F --> G["2. 调用 @Tool 方法"]
+    G --> H["3. LLM 聚合结果 → 回复"]
+    E -.依赖.-> I["ToolBeanCollector"]
+    I --> J["扫描 @TargetTool"]
+    J --> K["注册 ToolCallback"]
 ```
 
 ### 输入处理
@@ -134,15 +118,13 @@ Phase 17
 
 ### 架构
 
-```
-请求 → ChatController
-         │
-         ├─ /string/send (Accept: text/event-stream)
-         │     └→ AiServiceImpl.chatStream()
-         │          └→ ChatClient.stream().content()
-         │               └→ Flux.subscribe(chunk → SseEmitter.send())
-         │
-         └─ /string/send (无 SSE) → JSON 同步响应
+```mermaid
+flowchart TD
+    A[请求] --> B[ChatController]
+    B -->|"/string/send · Accept: text/event-stream"| C["AiServiceImpl.chatStream"]
+    C --> D["ChatClient.stream().content"]
+    D --> E["Flux.subscribe（chunk → SseEmitter.send()）"]
+    B -->|"/string/send · 无 SSE"| F[JSON 同步响应]
 ```
 
 ### 输入处理
@@ -167,26 +149,18 @@ Phase 17
 
 ### 架构
 
-```
-工具调用请求
-     │
-     ▼
-ToolPermissionAspect (AOP @Around)
-     │
-     ├─ 提取 userId ← ToolContext
-     ├─ 获取 @RequiredDataPermission
-     │    ├─ action = DataAction.READ/WRITE
-     │    └─ target = 资源类型
-     │
-     ▼
-PermissionValidatorFactory
-     │
-     ├─ BlogPermissionValidator: 校验博客归属权
-     ├─ UserPermissionValidator: 校验用户身份
-     └─ (可扩展) 新增资源只需加实现类
-
-     ▼
- 放行 / 拒绝
+```mermaid
+flowchart TD
+    A[工具调用请求] --> B["ToolPermissionAspect（AOP @Around）"]
+    B --> C["提取 userId ← ToolContext"]
+    B --> D["获取 @RequiredDataPermission"]
+    D --> D1["action = DataAction.READ/WRITE"]
+    D --> D2["target = 资源类型"]
+    B --> E[PermissionValidatorFactory]
+    E --> F["BlogPermissionValidator：校验博客归属权"]
+    E --> G["UserPermissionValidator：校验用户身份"]
+    E --> H["（可扩展）新增资源只需加实现类"]
+    E --> I[放行 / 拒绝]
 ```
 
 ### 输入处理
@@ -221,32 +195,16 @@ PermissionValidatorFactory
 
 ### 架构
 
-```
-工具调用请求
-     │
-     ▼
-GuardedToolCallback.call()
-     │
-     ▼
-ToolGuardManager.evaluate()
-     │
-     ├─ Policy 1: HighRiskListPolicy
-     │    匹配高风险工具名(如 drop_table) → BLOCK
-     │
-     ├─ Policy 2: ConfirmToolPolicy
-     │    命中确认名单 → CONFIRM（需要用户确认）
-     │
-     ├─ Policy 3: PatternMatchPolicy
-     │    正则匹配参数中的恶意模式 → BLOCK
-     │
-     └─ Policy 4: RateLimitPolicy
-          Redis 滑动窗口限流 → ABSTAIN 或 BLOCK
-
-     ▼
- 投票汇总：ANY BLOCK → 拦截 | ANY CONFIRM → 确认 | 全 ABSTAIN → 放行
-     │
-     ▼
- 真实工具调用 / 拒绝
+```mermaid
+flowchart TD
+    A[工具调用请求] --> B[GuardedToolCallback.call]
+    B --> C[ToolGuardManager.evaluate]
+    C --> P1["Policy 1: HighRiskListPolicy — 匹配高风险工具名（如 drop_table）→ BLOCK"]
+    C --> P2["Policy 2: ConfirmToolPolicy — 命中确认名单 → CONFIRM（需要用户确认）"]
+    C --> P3["Policy 3: PatternMatchPolicy — 正则匹配参数中的恶意模式 → BLOCK"]
+    C --> P4["Policy 4: RateLimitPolicy — Redis 滑动窗口限流 → ABSTAIN 或 BLOCK"]
+    C --> V["投票汇总：ANY BLOCK → 拦截 | ANY CONFIRM → 确认 | 全 ABSTAIN → 放行"]
+    V --> R[真实工具调用 / 拒绝]
 ```
 
 ### 输入处理
@@ -290,38 +248,22 @@ ToolGuardManager.evaluate()
 
 ### 架构
 
-```
-请求 → ChatController
-         │
-         ▼
-    AiServiceImpl (Phase 1)
-         │ 纯文本 LLM 调用
-         │
-         ▼
-    AfterAiHookChain
-         │
-         ├─ TaskTriggerHook: 检测触发词
-         │   "统计"/"分析"/"对比"/"查询"/"搜索"/"推荐" 等
-         │
-         ├─ InjectionDetectHook: 提示注入检测
-         │
-         └─ SensitiveWordHook: 敏感词过滤
-              │
-              ▼
-         PLANNING 决策 → 进入 Phase 2
-              │
-              ▼
-         TaskPlanner
-              │
-         ┌────┴────┐
-         │  decompose  │ ← AI 分解任务 + Java 三层校验
-         │  execute    │ ← 串行调用 @Tool 方法
-         │  merge      │ ← LLM 聚合各工具结论
-         └────────────┘
-         (最多 5 轮迭代)
-              │
-              ▼
-         回复 → AiResponseRouter → SSE/JSON
+```mermaid
+flowchart TD
+    A[请求] --> B[ChatController]
+    B --> C["AiServiceImpl（Phase 1）· 纯文本 LLM 调用"]
+    C --> D[AfterAiHookChain]
+    D --> H1["TaskTriggerHook：检测触发词（统计/分析/对比/查询/搜索/推荐 等）"]
+    D --> H2["InjectionDetectHook：提示注入检测"]
+    D --> H3["SensitiveWordHook：敏感词过滤"]
+    D --> DEC["PLANNING 决策 → 进入 Phase 2"]
+    DEC --> T[TaskPlanner]
+    T --> T1["decompose ← AI 分解任务 + Java 三层校验"]
+    T --> T2["execute ← 串行调用 @Tool 方法"]
+    T --> T3["merge ← LLM 聚合各工具结论"]
+    T1 --> T2 --> T3
+    T -.最多 5 轮迭代.-> DEC
+    T3 --> R[回复] --> S[AiResponseRouter] --> O[SSE / JSON]
 ```
 
 ### 输入处理（前置钩子 - PromptHook）
@@ -389,35 +331,20 @@ ToolGuardManager.evaluate()
 
 ### 架构
 
-```
-请求
- │
- ▼
-PromptHookChain (前置处理)
- ├─ TaskTriggerHook: 判断是否需要规划
- ├─ InjectionDetectHook: 注入检测
- └─ SensitiveWordHook: 敏感词过滤
- │
- ▼
-AiServiceImpl.chatWithToolcall() ← Phase 1
- │  纯文本 LLM 调用（无 .tools()）
- │  3 次重试 + 异常兜底
- │
- ▼
-AfterAiHookChain (后置决策)
- │
- ├─ 无需规划 → 直接返回 Phase 1 回复
- │
- └─ 需要规划 → 进入 Phase 2
-      │
-      ▼
-     TaskPlanner (专用线程池 subtaskExecutor)
-      ├─ decompose (AI 规划 → Java 三层校验)
-      ├─ execute (TOOL_CALL / LLM_REASON)
-      └─ merge (LLM 聚合)
-      │
-      ▼
-     AiResponseRouter → SSE / JSON 响应
+```mermaid
+flowchart TD
+    A[请求] --> B["PromptHookChain（前置处理）"]
+    B --> B1["TaskTriggerHook：判断是否需要规划"]
+    B --> B2["InjectionDetectHook：注入检测"]
+    B --> B3["SensitiveWordHook：敏感词过滤"]
+    B --> C["AiServiceImpl.chatWithToolcall() ← Phase 1（纯文本 LLM 调用，无 .tools()；3 次重试 + 异常兜底）"]
+    C --> D["AfterAiHookChain（后置决策）"]
+    D -->|无需规划| E["直接返回 Phase 1 回复"]
+    D -->|需要规划| F["TaskPlanner（专用线程池 subtaskExecutor）"]
+    F --> F1["decompose（AI 规划 → Java 三层校验）"]
+    F --> F2["execute（TOOL_CALL / LLM_REASON）"]
+    F --> F3["merge（LLM 聚合）"]
+    F --> G["AiResponseRouter → SSE / JSON 响应"]
 ```
 
 ### 输入处理
@@ -445,22 +372,19 @@ AfterAiHookChain (后置决策)
 
 ### 架构
 
-```
-TaskPlanner 主循环（最多 5 轮）
-   decompose() → TOOL_CALL 任务列表
-      │
-      ├─ feature.subagent.enabled = true → 子 Agent 路径
-      │     SubTaskPlan(userInput / tasks / historySummary / userId / round)
-      │     SubTaskExecution(plan + SseSubAgentCallback + SubTaskProperties)
-      │     SubTaskAgent.execute()
-      │       ① filterCallbacks：按 plan.tasks 白名单过滤工具（防越权）
-      │       ② PromptService 渲染执行 prompt（系统提示词只渲染一次）
-      │       ③ subAgentChatClient 带工具调用（指数退避重试 + 总超时）
-      │       ④ 解析 ===DATA_SNAPSHOT=== JSON 快照（data 500 字截断）
-      │       ⑤ recordHistory → finalFailed 黑名单
-      │
-      └─ feature.subagent.enabled = false → 回退 TaskExecutor 串行直调
-            （手动追加 LLM_REASON + TaskQueue 串行 + merge 聚合）
+```mermaid
+flowchart TD
+    A["TaskPlanner 主循环（最多 5 轮）"] --> B["decompose() → TOOL_CALL 任务列表"]
+    B -->|"feature.subagent.enabled = true"| C["子 Agent 路径"]
+    C --> C1["SubTaskPlan（userInput / tasks / historySummary / userId / round）"]
+    C1 --> C2["SubTaskExecution（plan + SseSubAgentCallback + SubTaskProperties）"]
+    C2 --> C3["SubTaskAgent.execute()"]
+    C3 --> D1["① filterCallbacks：按 plan.tasks 白名单过滤工具（防越权）"]
+    D1 --> D2["② PromptService 渲染执行 prompt（系统提示词只渲染一次）"]
+    D2 --> D3["③ subAgentChatClient 带工具调用（指数退避重试 + 总超时）"]
+    D3 --> D4["④ 解析 ===DATA_SNAPSHOT=== JSON 快照（data 500 字截断）"]
+    D4 --> D5["⑤ recordHistory → finalFailed 黑名单"]
+    B -->|"feature.subagent.enabled = false"| E["回退 TaskExecutor 串行直调（手动追加 LLM_REASON + TaskQueue 串行 + merge 聚合）"]
 ```
 
 ### 输入处理
@@ -506,21 +430,14 @@ TaskPlanner 主循环（最多 5 轮）
 
 ### 架构
 
-```
-业务埋点（Controller / AiServiceImpl / TaskPlanner / GuardedToolCallback …）
-   │ AgentTracer.start(AgentSpanSpec, semantic)
-   ▼
-Micrometer Observation（agent.* / spring.ai.* / gen_ai.*）
-   │ micrometer-tracing-bridge-otel
-   ▼
-OTel span（父子关系创建时固化、属性 onStop 统一同步）
-   │ opentelemetry-exporter-otlp（OTLP /v1/traces）
-   ▼
-Langfuse 云（Basic 认证 + x-langfuse-ingestion-version:4 实时摄取）
-   ▲
-   │ 白名单 trace-filter：只放行 agent./spring.ai./gen_ai.（省配额）
-   │ 跨线程：SpanContext/ChatContext 显式传播根 span，异步入口 resume()
-   │ 收敛：ObservedSseEmitter —— 五条路径全部 → root.end()
+```mermaid
+flowchart TD
+    A["业务埋点（Controller / AiServiceImpl / TaskPlanner / GuardedToolCallback …）"] -->|"AgentTracer.start(AgentSpanSpec, semantic)"| B["Micrometer Observation（agent.* / spring.ai.* / gen_ai.*）"]
+    B -->|"micrometer-tracing-bridge-otel"| C["OTel span（父子关系创建时固化、属性 onStop 统一同步）"]
+    C -->|"opentelemetry-exporter-otlp（OTLP /v1/traces）"| D["Langfuse 云（Basic 认证 + x-langfuse-ingestion-version:4 实时摄取）"]
+    D -.-> G1["白名单 trace-filter：只放行 agent./spring.ai./gen_ai.（省配额）"]
+    D -.-> G2["跨线程：SpanContext/ChatContext 显式传播根 span，异步入口 resume()"]
+    D -.-> G3["收敛：ObservedSseEmitter —— 五条路径全部 → root.end()"]
 ```
 
 ### 输入处理
@@ -587,16 +504,15 @@ Langfuse 云（Basic 认证 + x-langfuse-ingestion-version:4 实时摄取）
 
 ### 架构
 
-```
-发送链路  POST /agent/string/send（conversationId 首次 UUID 生成）
-   │ ChatContext(userId=UserHolder / conversationId / originalContent)
-   ▼
-AiServiceImpl（JSON/SSE）→ Hook 链 → LLM
-   │ AfterAiHook 决策：PASS 完整回复 / REPLACE 替换文本 / PLANNING 交 TaskPlanner / BLOCK 跳过
-   ▼
-AgentHistoryService.recordTurn（best-effort）→ agent_conversation / agent_message
-   │
-查询链路  GET /agent/conversations、GET /agent/conversations/{id}/messages → HistoryController
+```mermaid
+flowchart LR
+    subgraph 发送链路
+        A["POST /agent/string/send（conversationId 首次 UUID 生成）"] -->|"ChatContext（userId=UserHolder / conversationId / originalContent）"| B["AiServiceImpl（JSON/SSE）→ Hook 链 → LLM"]
+        B -->|"AfterAiHook 决策：PASS 完整回复 / REPLACE 替换文本 / PLANNING 交 TaskPlanner / BLOCK 跳过"| C["AgentHistoryService.recordTurn（best-effort）→ agent_conversation / agent_message"]
+    end
+    subgraph 查询链路
+        D["GET /agent/conversations、GET /agent/conversations/{id}/messages"] --> E[HistoryController]
+    end
 ```
 
 ### 输入处理
@@ -636,20 +552,17 @@ AgentHistoryService.recordTurn（best-effort）→ agent_conversation / agent_me
 
 ### 架构
 
-```
-render(KEY, vars) / renderTool(toolKey, vars)
-   │ 调用点：AiServiceImpl / TaskPlanner / SubTaskAgent / TaskExecutor / ExternalizedToolDefinitionProvider
-   ▼
-DefaultPromptService（编排 + 埋 agent.prompt.{key} span）
-   ├─ 未启用 / 未配置（base-url|basic-auth 空）—— Fail-Open
-   │     └→ BuiltinPromptRepository（classpath:prompts/{key}.txt 首读后常驻兜底）
-   └─ 启用 → LangfusePromptRepository.fetch(key)
-        ├─ contentCache 命中（成功文本 / 404 负缓存，TTL 30m）
-        ├─ failureCache 命中（30s 熔断）→ empty
-        └─ 未命中 → GET /api/public/prompts?name=key&label=production
-             2xx→contentCache / 4xx→负缓存 / 5xx·超时→failureCache
-   ▼
-PromptRenderer.render（{{var}} 替换，永不抛）→ ChatClient / 工具 schema 覆盖
+```mermaid
+flowchart TD
+    A["render(KEY, vars) / renderTool(toolKey, vars)"] --> B["DefaultPromptService（编排 + 埋 agent.prompt.{key} span）"]
+    B -->|"未启用 / 未配置（base-url/basic-auth 空）—— Fail-Open"| B1["BuiltinPromptRepository（classpath:prompts/{key}.txt 首读后常驻兜底）"]
+    B -->|"启用"| C["LangfusePromptRepository.fetch(key)"]
+    C --> C1["contentCache 命中（成功文本 / 404 负缓存，TTL 30m）"]
+    C --> C2["failureCache 命中（30s 熔断）→ empty"]
+    C --> C3["未命中 → GET /api/public/prompts?name=key&label=production"]
+    C3 --> C4["2xx → contentCache / 4xx → 负缓存 / 5xx·超时 → failureCache"]
+    B1 --> R["PromptRenderer.render（{{var}} 替换，永不抛）→ ChatClient / 工具 schema 覆盖"]
+    C --> R
 ```
 
 ### 输入处理
@@ -695,27 +608,24 @@ PromptRenderer.render（{{var}} 替换，永不抛）→ ChatClient / 工具 sch
 
 ### 架构
 
-```
-工具调用 → GuardedToolCallback.call()
-   ├─ ALLOW → delegate.call()
-   ├─ BLOCK → 错误字符串
-   └─ CONFIRM → approvalEnabled？
-        ├─ 是 → throw ConfirmRequiredException（携带 ToolInvocationContext）
-        └─ 否 → 确认提示字符串当工具结果喂回 LLM（旧行为）
-             │
-             ▼
-        SubTaskAgent / TaskExecutor 最前 catch{ throw e; }（不重试）
-             ▼
-        TaskPlanner round 外层：① 建 TaskSnapshot ② ApprovalService 建审批(pending, TTL)
-        ③ taskScheduler 过期 + @Scheduled sweeper 兜底 ④ 推 type:confirm 事件（流中最后 data，EOF 停流）
-        ⑤ completeTurn 识别暂停态：跳过尾文本与历史落库
-             │
-用户确认 POST /agent/confirm（Accept: text/event-stream → SSE 续流）
-   → 原子 CAS pending→approved（防双击/sweeper 竞态）
-   → 新 ObservedSseEmitter + TaskSnapshot.fromApproval + resumeFromSnapshot
-       ① callBypass 直调待审批工具（已批准不再二次投票）
-       ② 预置 history = completedTools ∪ {待审批工具}（全 COMPLETED）
-       ③ 续接 partialResponse + 工具结果后再进规划循环（防二次审批死循环）
+```mermaid
+flowchart TD
+    A["工具调用"] --> B[GuardedToolCallback.call]
+    B -->|ALLOW| C[delegate.call]
+    B -->|BLOCK| D[错误字符串]
+    B -->|CONFIRM| E{approvalEnabled？}
+    E -->|否| F["确认提示字符串当工具结果喂回 LLM（旧行为）"]
+    E -->|是| G["throw ConfirmRequiredException（携带 ToolInvocationContext）"]
+    G --> H["SubTaskAgent / TaskExecutor 最前 catch{ throw e; }（不重试）"]
+    H --> I["TaskPlanner round 外层：① 建 TaskSnapshot ② ApprovalService 建审批(pending, TTL)"]
+    I --> I2["③ taskScheduler 过期 + @Scheduled sweeper 兜底 ④ 推 type:confirm 事件（流中最后 data，EOF 停流）"]
+    I2 --> I3["⑤ completeTurn 识别暂停态：跳过尾文本与历史落库"]
+    I3 --> J["用户确认 POST /agent/confirm（Accept: text/event-stream → SSE 续流）"]
+    J --> K["原子 CAS pending→approved（防双击/sweeper 竞态）"]
+    K --> L["新 ObservedSseEmitter + TaskSnapshot.fromApproval + resumeFromSnapshot"]
+    L --> M1["① callBypass 直调待审批工具（已批准不再二次投票）"]
+    M1 --> M2["② 预置 history = completedTools ∪ {待审批工具}（全 COMPLETED）"]
+    M2 --> M3["③ 续接 partialResponse + 工具结果后再进规划循环（防二次审批死循环）"]
 ```
 
 ### 输入处理
@@ -758,21 +668,19 @@ PromptRenderer.render（{{var}} 替换，永不抛）→ ChatClient / 工具 sch
 
 ### 架构
 
-```
-ChatClient（OpenAiChatModel ← OpenAiHttpConfig 连接池）
-   │ base-url=…/compatible-mode，SDK 自动拼 /v1/chat/completions（OpenAI 请求体）
-   ▼
-MaaS 兼容端点 ws-…maas.aliyuncs.com/compatible-mode/v1/chat/completions
-   └─ options.model = qwen-plus-2025-07-28
-
-ToolCallback[]（GuardedToolCallback 透明包裹）
-   ├─ 按需访问器（规划/过滤/校验阶段，只读注解、零外置拉取）
-   │   rawName / rawDescription / getRawInputSchema
-   │   └→ delegate.getToolDefinition()（@Tool/@ToolParam 原始定义）
-   │       使用者：TaskPlanner 目录+校验、SubTaskAgent 过滤、ToolRouter 紧凑目录
-   └─ getToolDefinition()（执行阶段，按需外置覆盖）
-        └→ ToolDefinitionProvider.resolve(delegate)
-             └→ ExternalizedToolDefinitionProvider（Langfuse→内置→注解，Caffeine 缓存）
+```mermaid
+flowchart TD
+    subgraph 模型调用
+        A["ChatClient（OpenAiChatModel ← OpenAiHttpConfig 连接池）"] -->|"base-url=…/compatible-mode，SDK 自动拼 /v1/chat/completions（OpenAI 请求体）"| B["MaaS 兼容端点 ws-…maas.aliyuncs.com/compatible-mode/v1/chat/completions（options.model = qwen-plus-2025-07-28）"]
+    end
+    subgraph 工具定义
+        C["ToolCallback[]（GuardedToolCallback 透明包裹）"]
+        C -->|"按需访问器（规划/过滤/校验阶段，只读注解、零外置拉取）"| D["rawName / rawDescription / getRawInputSchema"]
+        D --> D2["delegate.getToolDefinition()（@Tool/@ToolParam 原始定义）"]
+        D2 --> U["使用者：TaskPlanner 目录+校验、SubTaskAgent 过滤、ToolRouter 紧凑目录"]
+        C -->|"getToolDefinition()（执行阶段，按需外置覆盖）"| E["ToolDefinitionProvider.resolve(delegate)"]
+        E --> E2["ExternalizedToolDefinitionProvider（Langfuse→内置→注解，Caffeine 缓存）"]
+    end
 ```
 
 ### 输入处理
@@ -815,24 +723,22 @@ ToolCallback[]（GuardedToolCallback 透明包裹）
 
 ### 架构
 
-```
-askAiForPlan（编排）
-   │ compact = feature.tool-routing.enabled
-   ▼
-ToolRouter.buildCatalog(compact, cbs, history)
-   ├─ compact=true → CompactCatalogBuilder
-   │     `- 工具名: 首句标签（参数：city, title）`
-   │       OVERRIDES 优先（publishTestBlog 补「发博客/写博客/发布」触发词）
-   │       首句 = 描述 split("。",2)[0] 压空白；空描述 →（无描述）
-   │       参数名从 rawInputSchema properties key 解析（防 LLM 猜错 key）
-   │       超 maxTagLength 截断加 …；跳过 history 已完成/终失败工具
-   └─ compact=false → 全量目录（名字 + 完整注解描述，原 askAiForPlan 逻辑）
-   ▼
-plannerCall → 规划 LLM
-   ▼
-isUncertain(result)？→ 含 __UNCERTAIN__ → 全量目录重跑一次（有界，每轮最多一次）
-   ▼
-validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不存在」）
+```mermaid
+flowchart TD
+    A["askAiForPlan（编排）"] -->|"compact = feature.tool-routing.enabled"| B["ToolRouter.buildCatalog(compact, cbs, history)"]
+    B -->|"compact = true"| C[CompactCatalogBuilder]
+    C --> C1["工具名: 首句标签（参数：city, title）"]
+    C1 --> C2["OVERRIDES 优先（publishTestBlog 补「发博客/写博客/发布」触发词）"]
+    C2 --> C3["首句 = 描述 split(。2)[0] 压空白；空描述 →（无描述）"]
+    C3 --> C4["参数名从 rawInputSchema properties key 解析（防 LLM 猜错 key）"]
+    C4 --> C5["超 maxTagLength 截断加 …；跳过 history 已完成/终失败工具"]
+    B -->|"compact = false"| D["全量目录（名字 + 完整注解描述，原 askAiForPlan 逻辑）"]
+    C --> P["plannerCall → 规划 LLM"]
+    D --> P
+    P --> Q{"isUncertain(result)？含 __UNCERTAIN__"}
+    Q -->|是| R["全量目录重跑一次（有界，每轮最多一次）"]
+    R --> P
+    Q -->|否| V["validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不存在」）"]
 ```
 
 ### 输入处理
@@ -872,21 +778,18 @@ validatePlan（callbackIndex 保持全量，防子集外工具误判「工具不
 
 ### 架构
 
-```
-askAiForPlan（TaskPlanner 只做编排，decompose 细节全部下沉）
-   │ PlanRouter 策略（DI 由 feature.tool-routing.enabled 决定，无布尔透传）
-   ▼
-┌────────────────────────────────┐   ┌──────────────────────────────────┐
-│ TreePlanRouter（默认 · 两级路由） │   │ LegacyPlanRouter（enabled=false）  │
-│ ① ToolIntentTree.matchNodes    │   │  紧凑目录 + __UNCERTAIN__ 全量重跑  │
-│ ② TreeCatalogBuilder 剪枝目录   │   │  （= Phase 13 行为，零差异兜底）    │
-│ ③ 规划 LLM 单次两段式           │   └──────────────────────────────────┘
-│    {intents:[...],plan:[...]}  │
-│ ④ PlanParser 解析               │
-│ ⑤ PlanValidator 校验            │ ← 存在/历史/意图树归属/self 占位符
-└────────────────────────────────┘
-   ▼
-SubTask 列表（TOOL_CALL）→ execute
+```mermaid
+flowchart TD
+    A["askAiForPlan（TaskPlanner 只做编排，decompose 细节全部下沉）"] -->|"PlanRouter 策略（DI 由 feature.tool-routing.enabled 决定，无布尔透传）"| B[PlanRouter]
+    B -->|"enabled = true（默认）"| T["TreePlanRouter（两级路由）"]
+    T --> T1["① ToolIntentTree.matchNodes"]
+    T1 --> T2["② TreeCatalogBuilder 剪枝目录"]
+    T2 --> T3["③ 规划 LLM 单次两段式 {intents:[...], plan:[...]}"]
+    T3 --> T4["④ PlanParser 解析"]
+    T4 --> T5["⑤ PlanValidator 校验 ← 存在/历史/意图树归属/self 占位符"]
+    B -->|"enabled = false"| L["LegacyPlanRouter（紧凑目录 + __UNCERTAIN__ 全量重跑 = Phase 13 行为，零差异兜底）"]
+    T5 --> S["SubTask 列表（TOOL_CALL）→ execute"]
+    L --> S
 ```
 
 ### 输入处理
@@ -938,25 +841,19 @@ SubTask 列表（TOOL_CALL）→ execute
 
 ### 架构
 
-```
-SubTaskAgent.execute()
-   │ @Resource 注入 SubAgentToolLoop（@ConditionalOnProperty agent.subtask.tool-loop）
-   ▼
-┌───────────────────────────────────────────────┐
-│ AbstractToolLoop（模板方法 · 循环骨架）            │
-│   for round: callModel → 无工具调用返回文本        │
-│     → executeRound(钩子) → 按剩余任务重渲染       │
-│     → 预算检查 → 触顶强制无工具总结               │
-│   预算: maxTotalCalls=10 硬顶 / maxToolRounds=6  │
-└──────────────────┬────────────────────────────┘
-                   │ 本轮怎么执行工具（钩子）
-        ┌──────────┴──────────┐
-        ▼                     ▼
- SerialToolLoop           BatchToolLoop
-（serial 默认 · 零差异）     （batch · 一轮多调用+并行）
- 逐工具 call→压缩→下一个      ① cb.call 并发（parallelTools）
-                           ② 长结果压缩并发（parallelCompress N×4s→~4s）
-                           ③ 串行组装响应
+```mermaid
+flowchart TD
+    A["SubTaskAgent.execute()"] -->|"@Resource 注入 SubAgentToolLoop（@ConditionalOnProperty agent.subtask.tool-loop）"| B["AbstractToolLoop（模板方法 · 循环骨架）"]
+    B --> B1["for round: callModel → 无工具调用返回文本"]
+    B1 --> B2["executeRound(钩子) → 按剩余任务重渲染"]
+    B2 --> B3["预算检查（maxTotalCalls=10 硬顶 / maxToolRounds=6）→ 触顶强制无工具总结"]
+    B3 --> B1
+    B -->|"本轮怎么执行工具（钩子）"| C{工具循环策略}
+    C -->|"serial · 默认零差异"| D["SerialToolLoop：逐工具 call→压缩→下一个"]
+    C -->|"batch · 一轮多调用+并行"| E[BatchToolLoop]
+    E --> E1["① cb.call 并发（parallelTools）"]
+    E1 --> E2["② 长结果压缩并发（parallelCompress N×4s→~4s）"]
+    E2 --> E3["③ 串行组装响应"]
 ```
 
 ### 输入处理
@@ -1005,10 +902,11 @@ AiServiceImpl 长期承担"双模入口 + Hook 链 + 决策 + 流式重试 + 后
 
 ### 架构
 
-```
-AiServiceImpl（编排层，~200 行）
-├─ JSON 模式：PromptHookExecutor → ChatClient 同步调用 → HistoryRecorder
-└─ SSE 模式：PromptHookExecutor →（异步 resume 根 span）→ StreamingChatInvoker → SseResponseProcessor
+```mermaid
+flowchart TD
+    A["AiServiceImpl（编排层，~200 行）"]
+    A -->|JSON 模式| J1[PromptHookExecutor] --> J2[ChatClient 同步调用] --> J3[HistoryRecorder]
+    A -->|SSE 模式| S1[PromptHookExecutor] --> S2["异步 resume 根 span"] --> S3[StreamingChatInvoker] --> S4[SseResponseProcessor]
 ```
 
 | 新组件 | 职责 | 拆自 |
@@ -1055,13 +953,12 @@ AiServiceImpl（编排层，~200 行）
 
 ### 方案：注解即事实源
 
-```
-@ToolMeta(keywords={"触发词"}, intents={"节点id"})   ← 唯一登记点（标在 @Tool 方法上）
-        ↓ 启动扫描
-ToolRegistry（懒构建）── 提供 allToolNames() / keywordsOf() / intentsOf()
-        ↓ 消费方注入查询
-CompactCatalogBuilder（关键词过滤） / ToolIntentTree（节点归属，运行时聚合）
-PromptSeeder（工具模板键清单，自动纳入新工具）
+```mermaid
+flowchart TD
+    A["@ToolMeta(keywords={触发词}, intents={节点id}) ← 唯一登记点（标在 @Tool 方法上）"] -->|启动扫描| B["ToolRegistry（懒构建）· 提供 allToolNames() / keywordsOf() / intentsOf()"]
+    B -->|"消费方注入查询"| D1["CompactCatalogBuilder（关键词过滤）"]
+    B -->|"消费方注入查询"| D2["ToolIntentTree（节点归属，运行时聚合）"]
+    B -->|"消费方注入查询"| D3["PromptSeeder（工具模板键清单，自动纳入新工具）"]
 ```
 
 ### 核心新增
@@ -1093,15 +990,17 @@ GuardedToolCallback 从 ToolContext 读，单例字段"看似在传、实际没�
 
 ### 方案：ThreadLocal 同步段 + TaskDecorator 异步边界
 
-```
-请求入口（ChatController.chat / confirm）
-    AgentContext ctx = AgentContext.builder()...build();
-    AgentContextHolder.set(ctx);        ← 同步段读取
-    ... 业务调用 ...
-    finally { AgentContextHolder.clear(); }
-
-异步边界（CompletableFuture.runAsync(..., aiTaskExecutor / subtaskExecutor)）
-    AgentContextPropagator（TaskDecorator）自动：捕获 → 执行前 set → finally remove
+```mermaid
+flowchart TD
+    subgraph "请求入口（ChatController.chat / confirm）"
+        A1["AgentContext ctx = AgentContext.builder()...build();"]
+        A1 --> A2["AgentContextHolder.set(ctx) ← 同步段读取"]
+        A2 --> A3["... 业务调用 ..."]
+        A3 --> A4["finally { AgentContextHolder.clear(); }"]
+    end
+    subgraph "异步边界（CompletableFuture.runAsync(..., aiTaskExecutor / subtaskExecutor)）"
+        B["AgentContextPropagator（TaskDecorator）自动：捕获 → 执行前 set → finally remove"]
+    end
 ```
 
 ### 核心新增
@@ -1142,12 +1041,13 @@ TaskPlanner 594 行、14 个 @Resource，混杂 6 类职责：异步入口 + 主
 
 ### 拆分设计（3 步，组件依赖单向无循环）
 
-```
-TaskPlanner（门面 158 行）—— 异步入口 ×2 / resumeFromSnapshot / completeTurn / resumePlan 编排
-├── PlanLoopExecutor（~190）—— 主循环：decompose → 子Agent/回退执行 → 聚合（catch 委托 pause）
-├── ConfirmFlowManager（~140）—— CONFIRM 中间态：pause（快照+审批+事件）/ 恢复执行 / 防二次审批
-├── TaskReportHelper（~60）—— 历史摘要 / recordHistory / 回退聚合（纯逻辑）
-└── AgentContextResolver（~60）—— 4 个 resolve helper（静态工具）
+```mermaid
+flowchart TD
+    A["TaskPlanner（门面 158 行）—— 异步入口 ×2 / resumeFromSnapshot / completeTurn / resumePlan 编排"]
+    A --> B["PlanLoopExecutor（~190）—— 主循环：decompose → 子Agent/回退执行 → 聚合（catch 委托 pause）"]
+    A --> C["ConfirmFlowManager（~140）—— CONFIRM 中间态：pause（快照+审批+事件）/ 恢复执行 / 防二次审批"]
+    A --> D["TaskReportHelper（~60）—— 历史摘要 / recordHistory / 回退聚合（纯逻辑）"]
+    A --> E["AgentContextResolver（~60）—— 4 个 resolve helper（静态工具）"]
 ```
 
 关键决策：
@@ -1173,11 +1073,12 @@ ChatController 281 行，chat() 与 confirm() 两个 SSE 分支各手写一份�
 
 ### 方案
 
-```
-ChatController（219 行）—— 只留 HTTP 端点 + 双模分发（isSse）+ AgentContext 生命周期
-└── SseSessionFactory（stream 包，新）—— SSE 会话装配单一来源
-      open(conversationId, userId) → ChatSseSession(root, emitter)   ← 常量/根span/emitter 收敛
-      sendConversationId(emitter, cid)                                ← meta 推送收敛
+```mermaid
+flowchart TD
+    A["ChatController（219 行）—— 只留 HTTP 端点 + 双模分发（isSse）+ AgentContext 生命周期"]
+    A --> B["SseSessionFactory（stream 包，新）—— SSE 会话装配单一来源"]
+    B --> C["open(conversationId, userId) → ChatSseSession(root, emitter) ← 常量/根span/emitter 收敛"]
+    B --> D["sendConversationId(emitter, cid) ← meta 推送收敛"]
 ```
 
 - 三回调注册保留在 Controller（chat/confirm 日志文案不同）
@@ -1198,10 +1099,11 @@ SubTaskAgent 307 行，execute() 编排里混杂 65 行重试编排（指数退�
 
 ### 方案
 
-```
-SubTaskAgent（167 行）—— 只留 execute() 编排 + filterCallbacks
-├── SubAgentRetryRunner（新，~75 行）—— executeWithRetry：退避/超时/CONFIRM 原样透传/错误注入
-└── SubTaskResultParser（新，~80 行）—— parse：快照提取/JSON 解析/data 截断/摘要裁剪
+```mermaid
+flowchart TD
+    A["SubTaskAgent（167 行）—— 只留 execute() 编排 + filterCallbacks"]
+    A --> B["SubAgentRetryRunner（新，~75 行）—— executeWithRetry：退避/超时/CONFIRM 原样透传/错误注入"]
+    A --> C["SubTaskResultParser（新，~80 行）—— parse：快照提取/JSON 解析/data 截断/摘要裁剪"]
 ```
 
 - 行为零变化：CONFIRM 透传语义、降级兜底、截断阈值（RAW_DATA_MAX_LENGTH）均原样搬迁
@@ -1217,10 +1119,11 @@ PlanLoopExecutor（237 行）主循环体里内联两个 60-70 行的执行分�
 
 ### 方案
 
-```
-PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开关选路径
-├── SubAgentRoundExecutor（新，~60 行）—— 一轮子 Agent 执行（观测 agent.subagent 整段）
-└── FallbackRoundExecutor（新，~75 行）—— 一轮回退执行（TASK_TIMEOUT 常量随迁）
+```mermaid
+flowchart TD
+    A["PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开关选路径"]
+    A --> B["SubAgentRoundExecutor（新，~60 行）—— 一轮子 Agent 执行（观测 agent.subagent 整段）"]
+    A --> C["FallbackRoundExecutor（新，~75 行）—— 一轮回退执行（TASK_TIMEOUT 常量随迁）"]
 ```
 
 - 主循环 if/else 收敛为两行委托，feature 开关选择更直观
@@ -1237,51 +1140,25 @@ PlanLoopExecutor（147 行）—— 循环骨架 + decompose + 按 feature 开�
 
 ## 模块关系总图
 
-```
-                           ┌──────────────────────────┐
-                           │      ChatController       │
-                           │ /agent/string/send ·confirm│
-                           │ ·reject ·conversations    │
-                           └───────────┬──────────────┘
-                                       │
-                          ┌────────────┴────────────┐
-                          │    PromptHookChain       │ ← 前置处理
-                          │ (注入检测/敏感词/TaskTrigger)│
-                          └────────────┬────────────┘
-                                       │
-                          ┌────────────┴────────────┐
-                          │   AiServiceImpl Phase 1  │ ← 纯文本 LLM（3次重试）
-                          │   PromptService.render   │ ← 提示词外置(Langfuse→内置)
-                          └────────────┬────────────┘
-                                       │
-                          ┌────────────┴────────────┐
-                          │    AfterAiHookChain      │ ← 后置决策
-                          └──────┬──────────┬───────┘
-                     无需规划     │          │ 需要规划
-                          │          │
-                    ┌─────┴─────┐  ┌─────────┴─────────┐
-                    │ 直接返回   │  │    TaskPlanner     │
-                    └───────────┘  │  (专用线程池)       │
-                                   │ askAiForPlan       │ ← PlanRouter 两级路由(意图树/legacy兜底)
-                                   │ decompose/validate │ ← callbackIndex 全量校验 + 意图树归属
-                                   │ execute            │ ← SubTaskAgent(SubAgentToolLoop Serial/Batch)
-                                   │ CONFIRM 暂停/续流   │ ← agent_approval 审批流
-                                   └─────────┬─────────┘
-                                             │ (最多 5 轮)
-                                             ▼
-                          ┌──────────────────────────┐
-                          │     AiResponseRouter      │ ← 回复分发
-                          │   SSE 流 / JSON 同步      │
-                          │   历史会话落库 recordTurn  │
-                          └──────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ 观测横切面：AgentTracer → OTel → Langfuse 云                 │
-│   ObservedSseEmitter 收敛会话根 span（五路径 → root.end）      │
-├─────────────────────────────────────────────────────────────┤
-│ 安全横切面：ToolPermissionAspect(数据权限)                    │
-│   GuardedToolCallback → ToolGuardManager(守卫投票 + CONFIRM) │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    C["ChatController（/agent/string/send · confirm · reject · conversations）"] --> P["PromptHookChain（前置处理：注入检测 / 敏感词 / TaskTrigger）"]
+    P --> A["AiServiceImpl Phase 1（纯文本 LLM，3 次重试）"]
+    A --> PR["PromptService.render（提示词外置 Langfuse→内置）"]
+    A --> H["AfterAiHookChain（后置决策）"]
+    H -->|无需规划| D[直接返回]
+    H -->|需要规划| T["TaskPlanner（专用线程池）"]
+    T --> T1["askAiForPlan ← PlanRouter 两级路由（意图树 / legacy 兜底）"]
+    T1 --> T2["decompose / validate ← callbackIndex 全量校验 + 意图树归属"]
+    T2 --> T3["execute ← SubTaskAgent（SubAgentToolLoop Serial/Batch）"]
+    T --> T4["CONFIRM 暂停/续流 ← agent_approval 审批流"]
+    T3 -->|"（最多 5 轮收敛）"| OUT["AiResponseRouter（SSE 流 / JSON 同步 · 历史会话落库 recordTurn）"]
+    T4 --> OUT
+    OBS["观测横切面：AgentTracer → OTel → Langfuse 云（ObservedSseEmitter 收敛会话根 span，五路径 → root.end）"]
+    SEC["安全横切面：ToolPermissionAspect（数据权限）/ GuardedToolCallback → ToolGuardManager（守卫投票 + CONFIRM）"]
+    A -.-> OBS
+    T -.-> OBS
+    T -.-> SEC
 ```
 
 ---

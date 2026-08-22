@@ -37,7 +37,7 @@ public class BlogPublishService {
 
     @Resource
     private BlogMapper blogMapper;
-    @Resource
+    @Resource(name = "hmdpCacheManager")
     private CacheManager cacheManager;
     @Resource
     private FeedPushService feedPushService;

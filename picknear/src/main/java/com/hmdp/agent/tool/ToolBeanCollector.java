@@ -5,7 +5,6 @@ import com.hmdp.agent.config.PromptGuardProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolGuardManager;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.observability.support.AttributeSanitizer;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.model.ChatModel;
@@ -52,30 +51,27 @@ public class ToolBeanCollector implements ApplicationContextAware {
     private AgentTracer agentTracer;
     private final PromptGuardProperties promptGuardProperties;
     private ToolDefinitionProvider toolDefinitionProvider;
-    /** 实际运行的模型名（从 ChatModel 默认配置解析，编码进 guard span 名） */
+    /** 实际运行的模型名（guard 原始语义与 MODEL_NAME 属性用；参数脱敏已下沉 SpanNameEncoder） */
     private final String modelName;
-    /** 参数脱敏器（guard span 名参数摘要写入前统一出口） */
-    private final AttributeSanitizer sanitizer;
 
     public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer,
                              PromptGuardProperties promptGuardProperties,
                              ToolDefinitionProvider toolDefinitionProvider) {
-        this(guardManager, agentTracer, promptGuardProperties, toolDefinitionProvider, null, null);
+        this(guardManager, agentTracer, promptGuardProperties, toolDefinitionProvider, null);
     }
 
-    /** 主构造：注入 ChatModel 解析实际模型名，用于 guard span 名编码（Langfuse 不展示自定义属性）。
+    /** 主构造：注入 ChatModel 解析实际模型名（guard span 语义用）。
      *  @Autowired 显式标记：本类有多个构造器（4 参便捷版仅测试用），Spring 需以此为准装配。 */
     @Autowired
     public ToolBeanCollector(ToolGuardManager guardManager, AgentTracer agentTracer,
                              PromptGuardProperties promptGuardProperties,
                              ToolDefinitionProvider toolDefinitionProvider,
-                             ChatModel chatModel, AttributeSanitizer sanitizer) {
+                             ChatModel chatModel) {
         this.guardManager = guardManager;
         this.agentTracer = agentTracer;
         this.promptGuardProperties = promptGuardProperties;
         this.toolDefinitionProvider = toolDefinitionProvider;
         this.modelName = resolveModelName(chatModel);
-        this.sanitizer = sanitizer;
     }
 
     /** 从 ChatModel 默认配置解析实际模型名；拿不到返回 null（guard span 名省略模型段，Fail-Open） */
@@ -117,7 +113,7 @@ public class ToolBeanCollector implements ApplicationContextAware {
                             promptGuardProperties.getApproval().isEnabled(),
                             toolDefinitionProvider,
                             promptGuardProperties.getToolResult().getMaxChars(),
-                            modelName, sanitizer
+                            modelName
                     );
                     collected.add(guarded);
                     log.info("注册工具 [{}] -> GuardedToolCallback",

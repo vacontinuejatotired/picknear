@@ -1,6 +1,7 @@
 package com.hmdp.agent.service.impl;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.history.HistoryRecorder;
 import com.hmdp.agent.hook.PromptHookExecutor;
@@ -76,7 +77,7 @@ public class AiServiceImpl implements AiService {
         }
 
         // 4. 正常调用 LLM（系统提示词每次请求经 PromptService 注入，支持按用户个性化）
-        ChatModelObservationConventionConfig.mark("phase1");
+        ChatModelObservationConventionConfig.mark(CallerType.PHASE1);
         String result;
         try {
             result = chatClient.prompt()

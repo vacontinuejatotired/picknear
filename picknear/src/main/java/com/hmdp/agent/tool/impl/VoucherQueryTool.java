@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
+import com.hmdp.agent.dag.annotation.DependsOn;
 import com.hmdp.dto.Result;
 import com.hmdp.voucher.entity.Voucher;
 import com.hmdp.voucher.entity.VoucherOrder;
@@ -44,6 +45,7 @@ public class VoucherQueryTool {
             返回券ID/标题/面值/实付/类型/库存。店铺ID来自 queryShopById 或 queryShopsByType。
             """)
     @ToolMeta(keywords = {"优惠券", "有什么券", "领券", "抢券", "券"}, intents = {"shop", "voucher"})
+    @DependsOn(toolName = {"queryShopById", "queryShopsByType"})
     public List<VoucherBrief> queryVouchersByShop(
             @ToolParam(description = "店铺ID") Long shopId) {
         Result result = voucherService.queryVoucherOfShop(shopId);

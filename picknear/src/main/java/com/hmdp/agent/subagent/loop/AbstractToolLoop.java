@@ -1,6 +1,7 @@
 package com.hmdp.agent.subagent.loop;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
@@ -130,7 +131,7 @@ public abstract class AbstractToolLoop implements SubAgentToolLoop {
     /** 主循环规划调用：打 subagent-exec 标记（携带剩余任务工具名清单） */
     protected ChatResponse callModel(List<Message> history, List<ToolCallback> callbacks,
                                      Map<String, Object> toolContext, String taskLabel) {
-        ChatModelObservationConventionConfig.mark("subagent-exec", taskLabel);
+        ChatModelObservationConventionConfig.mark(CallerType.SUBAGENT_EXEC, taskLabel);
         try {
             return chatModel.call(new Prompt(history, buildOptions(callbacks, toolContext)));
         } finally {

@@ -2,7 +2,7 @@ package com.hmdp.agent.prompt.seed;
 
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.repo.BuiltinPromptRepository;
-import com.hmdp.agent.prompt.repo.LangfusePromptRepository;
+import com.hmdp.agent.prompt.repo.RemotePromptRepository;
 import com.hmdp.agent.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -23,10 +23,10 @@ import java.util.List;
 public class PromptSeeder {
 
     private final BuiltinPromptRepository builtin;
-    private final LangfusePromptRepository remote;
+    private final RemotePromptRepository remote;
     private final ToolRegistry toolRegistry;
 
-    public PromptSeeder(BuiltinPromptRepository builtin, LangfusePromptRepository remote,
+    public PromptSeeder(BuiltinPromptRepository builtin, RemotePromptRepository remote,
                         ToolRegistry toolRegistry) {
         this.builtin = builtin;
         this.remote = remote;

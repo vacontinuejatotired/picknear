@@ -10,6 +10,7 @@ import com.hmdp.user.service.IUserInfoService;
 import com.hmdp.user.service.IUserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 @Slf4j
 public class BatchLoadCache {
+    @Lazy
     @Resource
     private IUserService userService;
     @Resource

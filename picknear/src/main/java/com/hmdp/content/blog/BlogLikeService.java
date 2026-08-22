@@ -35,7 +35,7 @@ public class BlogLikeService {
     private BlogMapper blogMapper;
     @Resource
     private LockTemplate lockTemplate;
-    @Resource
+    @Resource(name = "hmdpCacheManager")
     private CacheManager cacheManager;
 
     /** 点赞/取消点赞（防并发重复由 Redis 锁保证） */

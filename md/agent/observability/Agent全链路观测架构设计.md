@@ -2,7 +2,7 @@
 
 > **版本**: v1.1（四视角对抗评审后修订）
 > **最后更新**: 2026-08-03
-> **技术栈**: Spring AI 1.1.2 内置观测（Micrometer Observation）+ OpenTelemetry GenAI 语义 + Langfuse 免费云（Hobby）
+> **技术栈**: Spring AI 1.1.2 内置观测（Micrometer Observation）+ OpenTelemetry GenAI 语义 + 观测后端可插拔（**当前默认 Langfuse 免费云 Hobby**，可插拔架构见 [观测后端解耦改造方案](./观测后端解耦改造方案.md)）
 > **对应代码路径**: `picknear/src/main/java/com/hmdp/agent/`（现有链路）、`agent/observability/`（规划新增）
 > **相关文档**: [Agent模块架构设计](../Agent模块架构设计.md), [Agent任务队列方案](../Agent任务队列方案.md), [Docker部署指南](../../ops/Docker部署指南.md)
 
@@ -40,7 +40,7 @@
 
 ### 1.2 核心定位
 
-**LLM 调用层观测用成熟方案（Spring AI 内置），业务语义层观测自研（AgentTracer 埋点），展示用 Langfuse 现成 UI。**
+**LLM 调用层观测用成熟方案（Spring AI 内置），业务语义层观测自研（AgentTracer 埋点），展示用观测后端现成 UI（当前默认 Langfuse，可插拔，见 §6.5 注记与 [观测后端解耦改造方案](./观测后端解耦改造方案.md)）。**
 
 > ⚠️ **默认路径提醒**：生产默认走 **SubTaskAgent** 路径（`feature.subagent.enabled=true`），`TaskExecutor` 仅回退路径使用（P5 重整后为回退路径组件，已去 `@Deprecated`，见《Agent模块架构设计》legacy 一节）。业务观测必须覆盖两条路径，缺一不可（见 5.1）。
 
@@ -317,7 +317,9 @@ for (ChatResponse r : prompt.stream().chatResponse().toIterable()) {
 
 **自研业务指标**（`AgentMetrics`）：Redis 实时计数器（Guard 命中按策略、工具调用/失败按工具、决策分布、token 累计）+ **@Scheduled 每日快照落 MySQL 单表 `ai_metric_daily`**（砍掉 v1.0 的 hourly 表与汇总任务——Langfuse 已有成本面板，避免重复建设）。注意：单实例部署约束（双实例会双写）；采样降为 0.1 后指标仍全量计数，口径差异需在查询时注明"指标全量用于监控，trace 抽样用于排查，职责不同"。
 
-### 6.5 Langfuse 接入（免费云 Hobby 档）
+### 6.5 观测后端接入（当前默认：Langfuse 免费云 Hobby 档）
+
+> **可插拔说明（2026-08-15）**：本节描述的是**默认后端 = Langfuse** 的接入细节。数据链路为标准 OTLP 协议、业务埋点层只依赖 Micrometer Observation，展示端可按 [观测后端解耦改造方案](./观测后端解耦改造方案.md) 切换为 Jaeger / SigNoz / Tempo / 自建 OTLP 后端（改 `management.otlp.tracing.endpoint` 与行为开关即可），本文档不随默认后端修改。以下配额/保留期/账号口径均指 Langfuse Hobby 档。
 
 **部署形态**：全部在 Langfuse 云上，**本地零组件、零成本**。免费档（Hobby）官方限制（以 langfuse.com 官方页为准，2026-08 核对）：
 

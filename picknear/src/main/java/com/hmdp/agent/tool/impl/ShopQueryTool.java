@@ -5,6 +5,7 @@ import java.util.List;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
+import com.hmdp.agent.dag.annotation.DependsOn;
 import com.hmdp.dto.Result;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.shop.entity.ShopType;
@@ -65,6 +66,7 @@ public class ShopQueryTool {
             返回该类型下前10家店（名称/商圈/人均/评分/销量）。类型ID来自 queryShopTypes。
             """)
     @ToolMeta(keywords = {"类型的店铺", "美食店", "酒店有哪些", "按类型", "找店", "店铺列表", "有哪些店"}, intents = {"shop"})
+    @DependsOn(toolName = {"queryShopTypes"})
     public List<ShopBrief> queryShopsByType(
             @ToolParam(description = "店铺类型ID（来自 queryShopTypes 的 id）") Long typeId,
             @ToolParam(description = "页码，从1开始，可选，默认1") Integer current) {

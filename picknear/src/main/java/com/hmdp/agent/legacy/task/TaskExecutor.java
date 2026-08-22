@@ -2,6 +2,7 @@ package com.hmdp.agent.legacy.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.observability.api.AgentSpan;
@@ -145,7 +146,7 @@ public class TaskExecutor {
                     .filter(t -> t.getType() == TaskType.TOOL_CALL)
                     .map(SubTask::getToolName).collect(Collectors.joining(",")));
             try {
-                ChatModelObservationConventionConfig.mark("llm-reason");
+                ChatModelObservationConventionConfig.mark(CallerType.LLM_REASON);
                 String conclusion;
                 try {
                     conclusion = chatClient.prompt()

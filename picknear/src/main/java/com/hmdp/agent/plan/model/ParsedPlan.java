@@ -13,5 +13,5 @@ public record ParsedPlan(List<String> declaredIntents, List<Map<String, Object>>
 
     public static ParsedPlan empty() {
         return new ParsedPlan(List.of(), List.of());
-    }
+    }  
 }

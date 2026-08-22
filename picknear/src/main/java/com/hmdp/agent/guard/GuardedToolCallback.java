@@ -4,7 +4,6 @@ import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.context.AgentContextHolder;
 import com.hmdp.agent.guard.model.ToolInvocationContext;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.observability.support.AttributeSanitizer;
 import com.hmdp.agent.tool.ToolCallExecutor;
 import com.hmdp.agent.tool.ToolDefinitionProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +41,7 @@ public class GuardedToolCallback implements ToolCallback {
                                String conversationId, Long userId, boolean returnDirect,
                                AgentTracer agentTracer) {
         this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer, true,
-                ToolCallback::getToolDefinition, 1200, null, null);
+                ToolCallback::getToolDefinition, 1200, null);
     }
 
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
@@ -50,21 +49,21 @@ public class GuardedToolCallback implements ToolCallback {
                                AgentTracer agentTracer, boolean approvalEnabled,
                                ToolDefinitionProvider toolDefinitionProvider, int maxResultChars) {
         this(delegate, guardManager, conversationId, userId, returnDirect, agentTracer, approvalEnabled,
-                toolDefinitionProvider, maxResultChars, null, null);
+                toolDefinitionProvider, maxResultChars, null);
     }
 
-    /** 主构造：额外携带实际模型名与参数脱敏器（ToolBeanCollector 组装时注入，用于 guard span 名编码） */
+    /** 主构造：额外携带实际模型名（guard 原始语义与 MODEL_NAME 属性用；参数脱敏已下沉 SpanNameEncoder） */
     public GuardedToolCallback(ToolCallback delegate, ToolGuardManager guardManager,
                                String conversationId, Long userId, boolean returnDirect,
                                AgentTracer agentTracer, boolean approvalEnabled,
                                ToolDefinitionProvider toolDefinitionProvider, int maxResultChars,
-                               String modelName, AttributeSanitizer sanitizer) {
+                               String modelName) {
         this.delegate = delegate;
         this.conversationId = conversationId;
         this.userId = userId;
         this.toolDefinitionProvider = toolDefinitionProvider;
         this.guardGate = new ToolGuardGate(guardManager, agentTracer, approvalEnabled, returnDirect,
-                modelName, sanitizer);
+                modelName);
         this.toolCallExecutor = new ToolCallExecutor(delegate, maxResultChars, returnDirect);
     }
 
