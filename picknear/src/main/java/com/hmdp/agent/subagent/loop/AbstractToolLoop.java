@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
  * </p>
  */
 @Slf4j
-public abstract class AbstractToolLoop implements SubAgentToolLoop {
+public abstract class AbstractToolLoop implements ToolExecutionStrategy {
 
     @Resource
     protected ChatModel chatModel;

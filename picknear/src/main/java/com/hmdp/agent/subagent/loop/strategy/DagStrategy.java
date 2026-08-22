@@ -1,0 +1,187 @@
+package com.hmdp.agent.subagent.loop.strategy;
+
+import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.dag.executor.*;
+import com.hmdp.agent.dag.plan.ExecutionPlan;
+import com.hmdp.agent.dag.plan.PlanGenerator;
+import com.hmdp.agent.dag.review.PlanReviewer;
+import com.hmdp.agent.model.ToolMetadata;
+import com.hmdp.agent.subagent.loop.AbstractToolLoop;
+import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
+import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.util.TextUtils;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+
+/**
+ * DAG 混合执行策略。
+ * <p>
+ * 结合并行和串行的优点：
+ * <ul>
+ *   <li>无依赖的工具：并行执行（提高效率）</li>
+ *   <li>有依赖的工具：串行执行（保证正确性）</li>
+ * </ul>
+ * 适用场景：工具之间存在明确的依赖关系（如先查天气，再基于天气规划行程）。
+ * </p>
+ *
+ * @see com.hmdp.agent.subagent.loop.ToolExecutionStrategy
+ */
+@Slf4j
+@Component
+@ConditionalOnProperty(name = "agent.subtask.tool-loop", havingValue = "hybrid")
+public class DagStrategy extends AbstractToolLoop {
+
+    @Resource
+    private PlanGenerator planGenerator;
+
+    @Resource
+    private PlanExecutor planExecutor;
+
+    @Resource
+    private ToolResultStore toolResultStore;
+
+    @Resource
+    private com.hmdp.agent.dag.strategy.ToolResultCompressor dagCompressor;
+
+    @Resource
+    private SubTaskProperties subTaskProperties;
+
+    @Resource
+    private ObjectProvider<PlanReviewer> planReviewerProvider;
+
+    @Resource
+    private com.hmdp.agent.dag.plan.GraphAnalyzer graphAnalyzer;
+
+    @Override
+    public String toolCallRule() {
+        return "根据依赖关系自动编排执行顺序，无依赖的工具并行执行";
+    }
+
+    @Override
+    protected ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+            Map<String, String> doneSummary, List<SubTask> remaining,
+            AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey) {
+
+        // 1. 解析 LLM 返回的工具调用
+        List<String> selectedTools = out.getToolCalls().stream()
+            .map(AssistantMessage.ToolCall::name)
+            .collect(Collectors.toList());
+
+        // 2. 审查（可选）
+        PlanReviewer planReviewer = planReviewerProvider.getIfAvailable();
+        if (planReviewer != null) {
+            PlanReviewer.ReviewResult review = planReviewer.review(selectedTools, ctx.plan().getUserInput());
+            if (!review.isApproved()) {
+                log.warn("规划审查未通过: {}", review.getReason());
+                if (review.getSuggestedTools() != null) {
+                    selectedTools = review.getSuggestedTools();
+                }
+            }
+        }
+
+        // 3. 生成执行计划
+        ExecutionPlan plan = planGenerator.plan(selectedTools);
+
+        if (!plan.isValid()) {
+            log.warn("执行计划无效: {}，降级到串行执行", plan.getInvalidReason());
+            return fallbackSerialExecution(out, doneSummary, remaining, callCounter);
+        }
+
+        // 4. 构建工具调用器
+        Map<String, ToolInvoker> tools = buildToolInvokers(out.getToolCalls(), ctx);
+
+        // 5. 清空上次执行结果
+        toolResultStore.clearAll();
+
+        // 6. 执行 DAG
+        DagExecutionResult result = planExecutor.execute(plan, tools);
+
+        // 7. 转换为 ToolResponseMessage
+        return buildToolResponse(out.getToolCalls(), result, doneSummary, remaining, callCounter);
+    }
+
+    private ToolResponseMessage fallbackSerialExecution(AssistantMessage out,
+            Map<String, String> doneSummary, List<SubTask> remaining, AtomicInteger callCounter) {
+        log.warn("降级到串行执行");
+        List<ToolResponse> responses = new ArrayList<>();
+        for (AssistantMessage.ToolCall tc : out.getToolCalls()) {
+            responses.add(new ToolResponse(tc.id(), tc.name(), "错误：执行计划无效，已降级"));
+            callCounter.incrementAndGet();
+            removeExecuted(remaining, tc.name());
+        }
+        return ToolResponseMessage.builder().responses(responses).build();
+    }
+
+    private Map<String, ToolInvoker> buildToolInvokers(
+            List<AssistantMessage.ToolCall> toolCalls, SubAgentToolLoopContext ctx) {
+
+        Map<String, ToolInvoker> invokers = new HashMap<>();
+        ToolContext toolCtx = new ToolContext(ctx.toolContext() == null ? Map.of() : ctx.toolContext());
+
+        for (AssistantMessage.ToolCall tc : toolCalls) {
+            ToolCallback cb = findByName(ctx.callbacks(), tc.name());
+            if (cb != null) {
+                ToolMetadata meta = graphAnalyzer.getMetadata(tc.name());
+                invokers.put(tc.name(), new ToolInvoker() {
+                    @Override
+                    public Object invoke() throws Exception {
+                        return cb.call(tc.arguments(), toolCtx);
+                    }
+
+                    @Override
+                    public Class<?> getReturnType() {
+                        return meta != null ? meta.getReturnType() : Object.class;
+                    }
+                });
+            }
+        }
+
+        return invokers;
+    }
+
+    private ToolResponseMessage buildToolResponse(
+            List<AssistantMessage.ToolCall> toolCalls,
+            DagExecutionResult result,
+            Map<String, String> doneSummary,
+            List<SubTask> remaining,
+            AtomicInteger callCounter) {
+
+        int compressLength = subTaskProperties.getCompressLength();
+        List<ToolResponse> responses = new ArrayList<>();
+
+        for (AssistantMessage.ToolCall tc : toolCalls) {
+            Object rawResult = result.getResults().get(tc.name());
+            String compact;
+
+            if (rawResult == null) {
+                String reason = result.getFailedReasons() != null
+                    ? result.getFailedReasons().get(tc.name())
+                    : "工具执行失败";
+                compact = "错误：" + reason;
+            } else {
+                String rawStr = rawResult.toString();
+                compact = dagCompressor.compress(rawStr, tc.name(), compressLength);
+            }
+
+            responses.add(new ToolResponse(tc.id(), tc.name(), compact));
+            doneSummary.put(tc.name(), TextUtils.truncate(compact, 50));
+            callCounter.incrementAndGet();
+            removeExecuted(remaining, tc.name());
+        }
+
+        return ToolResponseMessage.builder().responses(responses).build();
+    }
+}
