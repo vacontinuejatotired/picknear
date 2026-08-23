@@ -2,8 +2,8 @@ package com.hmdp.agent.execution;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hmdp.agent.subagent.model.SubTaskResult;
-import com.hmdp.agent.subagent.prompt.SubAgentPromptTemplate;
+import com.hmdp.agent.execution.model.ExecutionOutput;
+import com.hmdp.agent.prompt.builder.TemplateConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +29,7 @@ public class ResultParser {
         this.objectMapper = objectMapper;
     }
 
-    public SubTaskResult parse(String content, long startMs) {
+    public ExecutionOutput parse(String content, long startMs) {
         long elapsed = System.currentTimeMillis() - startMs;
 
         String snapshotStr = extractSnapshot(content);
@@ -52,8 +52,8 @@ public class ResultParser {
                                     Objects.toString(detail.get("message"), "未知错误"));
                         }
                         Object data = detail.get("data");
-                        if (data instanceof String s && s.length() > SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH) {
-                            data = s.substring(0, SubAgentPromptTemplate.RAW_DATA_MAX_LENGTH) + "...(截断)";
+                        if (data instanceof String s && s.length() > TemplateConstants.RAW_DATA_MAX_LENGTH) {
+                            data = s.substring(0, TemplateConstants.RAW_DATA_MAX_LENGTH) + "...(截断)";
                         }
                         rawResults.put(entry.getKey(), data != null ? data : detail);
                     } else {
@@ -68,10 +68,10 @@ public class ResultParser {
         }
 
         String summary = snapshotStr != null
-                ? content.substring(0, content.indexOf(SubAgentPromptTemplate.SNAPSHOT_BEGIN)).trim()
+                ? content.substring(0, content.indexOf(TemplateConstants.SNAPSHOT_BEGIN)).trim()
                 : content;
 
-        return SubTaskResult.builder()
+        return ExecutionOutput.builder()
                 .summary(summary)
                 .rawResults(rawResults.isEmpty() ? null : rawResults)
                 .errors(errors.isEmpty() ? null : errors)
@@ -83,10 +83,10 @@ public class ResultParser {
 
     private String extractSnapshot(String content) {
         if (content == null) return null;
-        int startIdx = content.indexOf(SubAgentPromptTemplate.SNAPSHOT_BEGIN);
+        int startIdx = content.indexOf(TemplateConstants.SNAPSHOT_BEGIN);
         if (startIdx < 0) return null;
-        startIdx += SubAgentPromptTemplate.SNAPSHOT_BEGIN.length();
-        int endIdx = content.indexOf(SubAgentPromptTemplate.SNAPSHOT_END, startIdx);
+        startIdx += TemplateConstants.SNAPSHOT_BEGIN.length();
+        int endIdx = content.indexOf(TemplateConstants.SNAPSHOT_END, startIdx);
         if (endIdx < 0) return null;
         return content.substring(startIdx, endIdx).trim();
     }

@@ -6,10 +6,10 @@ import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
-import com.hmdp.agent.subagent.model.SubTaskExecution;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
-import com.hmdp.agent.subagent.model.SubTaskResult;
-import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
+import com.hmdp.agent.execution.model.ExecutionInput;
+import com.hmdp.agent.execution.model.ExecutionOutput;
+import com.hmdp.agent.execution.model.ExecutionSession;
+import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -54,7 +54,7 @@ public class ToolExecutionFacade {
     @Resource
     private RetryRunner retryRunner;
 
-    public SubTaskResult execute(SubTaskExecution execution) {
+    public ExecutionOutput execute(ExecutionSession session) {
         long start = System.currentTimeMillis();
         var plan = execution.getPlan();
         var tasks = plan.getTasks();
@@ -75,7 +75,7 @@ public class ToolExecutionFacade {
             log.warn("[SubAgent] 无可用的 ToolCallback [round={}, requested={}]",
                     plan.getRound(), toolNames);
             if (callback != null) callback.onError("无可用的工具");
-            return SubTaskResult.builder()
+            return ExecutionOutput.builder()
                     .summary(plan.getCurrentResponse())
                     .allSuccess(false)
                     .errors(Map.of("subAgent", "无可用的工具"))
@@ -86,7 +86,7 @@ public class ToolExecutionFacade {
         if (callback != null) callback.onExecuteStart(tasks.size());
 
         String toolCallRule = toolLoop.toolCallRule();
-        Map<String, String> execVars = new LinkedHashMap<>(SubAgentPromptBuilder.buildVariables(plan));
+        Map<String, String> execVars = new LinkedHashMap<>(ExecutionPromptBuilder.buildVariables(plan));
         execVars.put("toolCallRule", toolCallRule);
         String prompt = promptService.render(PromptKeys.SUBAGENT_EXECUTION, execVars);
         Map<String, String> sysVars = new HashMap<>();
@@ -107,7 +107,7 @@ public class ToolExecutionFacade {
             log.warn("[SubAgent] 执行失败（重试耗尽或超时） [round={}, elapsed={}ms]",
                     plan.getRound(), elapsed);
             if (callback != null) callback.onError("服务暂时不可用");
-            return SubTaskResult.builder()
+            return ExecutionOutput.builder()
                     .summary("⚠️ 服务暂时不可用，请稍后重试。")
                     .allSuccess(false)
                     .errors(Map.of("subAgent", "重试耗尽"))
@@ -115,7 +115,7 @@ public class ToolExecutionFacade {
                     .build();
         }
 
-        SubTaskResult result = resultParser.parse(content, start);
+        ExecutionOutput result = resultParser.parse(content, start);
 
         if (callback != null) callback.onMergeStart();
 

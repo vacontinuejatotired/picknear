@@ -4,7 +4,7 @@ import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
 import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
+import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.prompt.PromptService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -33,7 +33,7 @@ public class RetryRunner {
         this.promptService = promptService;
     }
 
-    public String executeWithRetry(String systemText, String prompt, SubTaskPlan plan,
+    public String executeWithRetry(String systemText, String prompt, ExecutionInput plan,
                                    ToolCallback[] callbacks,
                                    SubTaskProperties props, long roundStartMs,
                                    Long userId, String conversationId) {

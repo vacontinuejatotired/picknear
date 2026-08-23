@@ -5,12 +5,12 @@ import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
-import com.hmdp.agent.orchestration.support.ReportAggregator;
+import com.hmdp.agent.orchestration.support.HistoryAggregator;
 import com.hmdp.agent.execution.ToolExecutionFacade;
 import com.hmdp.agent.subagent.callback.SseSubAgentCallback;
-import com.hmdp.agent.subagent.model.SubTaskExecution;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
-import com.hmdp.agent.subagent.model.SubTaskResult;
+import com.hmdp.agent.execution.model.ExecutionInput;
+import com.hmdp.agent.execution.model.ExecutionOutput;
+import com.hmdp.agent.execution.model.ExecutionSession;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.TaskReport;
 import jakarta.annotation.Resource;
@@ -40,7 +40,7 @@ public class RoundExecutionProxy {
     private AgentTracer agentTracer;
 
     @Resource
-    private ReportAggregator reportAggregator;
+    private HistoryAggregator historyAggregator;
 
     /**
      * 执行一轮子 Agent 路径。
@@ -51,7 +51,7 @@ public class RoundExecutionProxy {
                                TaskReport history, int round, Long userId, String conversationId,
                                SseEmitter emitter) {
         try (AgentSpan subagentSpan = agentTracer.start(AgentSpanSpec.SUBAGENT, null)) {
-            SubTaskPlan plan = SubTaskPlan.builder()
+            ExecutionInput plan = ExecutionInput.builder()
                     .userInput(input)
                     .currentResponse(currentResponse)
                     .tasks(tasks)
@@ -61,14 +61,14 @@ public class RoundExecutionProxy {
                     .round(round)
                     .build();
 
-            SubTaskExecution execution = SubTaskExecution.builder()
+            ExecutionSession session = ExecutionSession.builder()
                     .plan(plan)
                     .callback(new SseSubAgentCallback(emitter))
                     .properties(subTaskProperties)
                     .startTimeMs(System.currentTimeMillis())
                     .build();
 
-            SubTaskResult result = toolExecutionFacade.execute(execution);
+            ExecutionOutput result = toolExecutionFacade.execute(session);
 
             subagentSpan.set(AgentField.TOOL_COUNT, String.valueOf(result.getRawResults() != null
                     ? result.getRawResults().size() : 0));

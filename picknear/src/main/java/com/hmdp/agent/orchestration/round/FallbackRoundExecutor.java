@@ -3,7 +3,7 @@ package com.hmdp.agent.orchestration.round;
 import com.hmdp.agent.legacy.task.TaskExecutor;
 import com.hmdp.agent.legacy.task.TaskQueue;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.orchestration.support.ReportAggregator;
+import com.hmdp.agent.orchestration.support.HistoryAggregator;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.SubTaskStatus;
@@ -47,7 +47,7 @@ public class FallbackRoundExecutor {
     private AgentTracer agentTracer;
 
     @Resource
-    private ReportAggregator reportAggregator;
+    private HistoryAggregator historyAggregator;
 
     /**
      * 执行一轮回退路径。

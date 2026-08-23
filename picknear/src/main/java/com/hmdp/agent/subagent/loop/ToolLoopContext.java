@@ -2,7 +2,7 @@ package com.hmdp.agent.subagent.loop;
 
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.prompt.PromptService;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
+import com.hmdp.agent.execution.model.ExecutionInput;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.List;
@@ -23,7 +23,7 @@ public record ToolLoopContext(
         List<ToolCallback> callbacks,
         String systemText,
         String initialPrompt,
-        SubTaskPlan plan,
+        ExecutionInput plan,
         PromptService promptService,
         Map<String, Object> toolContext,
         SubTaskProperties props) {

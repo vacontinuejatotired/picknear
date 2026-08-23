@@ -6,8 +6,8 @@ import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.subagent.ToolResultCompressor;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
-import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
+import com.hmdp.agent.execution.model.ExecutionInput;
+import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
@@ -114,7 +114,7 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
     /** 用更新后的计划重渲染执行 prompt（历史摘要 + 剩余任务 + 本策略 toolCallRule） */
     protected String renderExecution(SubAgentToolLoopContext ctx, List<SubTask> remaining,
                                      Map<String, String> doneSummary) {
-        SubTaskPlan updated = SubTaskPlan.builder()
+        ExecutionInput updated = ExecutionInput.builder()
                 .userInput(ctx.plan().getUserInput())
                 .currentResponse(ctx.plan().getCurrentResponse())
                 .tasks(remaining)
@@ -123,7 +123,7 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
                 .conversationId(ctx.plan().getConversationId())
                 .round(ctx.plan().getRound())
                 .build();
-        Map<String, String> vars = new LinkedHashMap<>(SubAgentPromptBuilder.buildVariables(updated));
+        Map<String, String> vars = new LinkedHashMap<>(ExecutionPromptBuilder.buildVariables(updated));
         vars.put("toolCallRule", toolCallRule());
         return ctx.promptService().render(PromptKeys.SUBAGENT_EXECUTION, vars);
     }

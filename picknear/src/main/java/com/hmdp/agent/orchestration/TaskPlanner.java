@@ -5,7 +5,7 @@ import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.orchestration.confirm.ConfirmFlowManager;
 import com.hmdp.agent.orchestration.support.AgentContextResolver;
-import com.hmdp.agent.orchestration.support.ReportAggregator;
+import com.hmdp.agent.orchestration.support.HistoryAggregator;
 import com.hmdp.agent.service.AgentHistoryService;
 import com.hmdp.agent.plan.model.TaskReport;
 import com.hmdp.agent.task.model.TaskSnapshot;
@@ -50,7 +50,7 @@ public class TaskPlanner {
     private ConfirmFlowManager confirmFlowManager;
 
     @Resource
-    private ReportAggregator reportAggregator;
+    private HistoryAggregator historyAggregator;
 
     @Resource
     private MultiRoundOrchestrator multiRoundOrchestrator;
