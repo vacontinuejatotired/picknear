@@ -1,6 +1,6 @@
 package com.hmdp.agent.subagent.model;
 
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.plan.model.SubTask;
 import lombok.Builder;
 import lombok.Data;
 

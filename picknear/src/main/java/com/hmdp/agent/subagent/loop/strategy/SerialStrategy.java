@@ -3,7 +3,7 @@ package com.hmdp.agent.subagent.loop.strategy;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
 import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;

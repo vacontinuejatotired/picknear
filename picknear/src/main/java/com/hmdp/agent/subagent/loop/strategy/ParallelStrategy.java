@@ -4,7 +4,7 @@ import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
 import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;

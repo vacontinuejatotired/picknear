@@ -7,7 +7,7 @@ import com.hmdp.agent.plan.model.ValidationOptions;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.routing.ToolIntentTree;
 import com.hmdp.agent.routing.TreeCatalogBuilder;
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.plan.model.SubTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

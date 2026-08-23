@@ -8,7 +8,7 @@ import com.hmdp.agent.dag.review.PlanReviewer;
 import com.hmdp.agent.model.ToolMetadata;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
 import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

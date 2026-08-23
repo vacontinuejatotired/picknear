@@ -4,7 +4,7 @@ import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.service.AgentHistoryService;
-import com.hmdp.agent.task.model.TaskReport;
+import com.hmdp.agent.plan.model.TaskReport;
 import com.hmdp.agent.task.model.TaskSnapshot;
 import com.hmdp.agent.util.SseUtils;
 import io.micrometer.observation.Observation;
