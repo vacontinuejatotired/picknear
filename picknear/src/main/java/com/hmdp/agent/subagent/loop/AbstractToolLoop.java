@@ -5,7 +5,7 @@ import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
-import com.hmdp.agent.subagent.ToolResultCompressor;
+import com.hmdp.agent.execution.ResultCompressor;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.plan.model.SubTask;
@@ -50,10 +50,10 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
     protected ChatModel chatModel;
 
     @Resource
-    protected ToolResultCompressor compressor;
+    protected ResultCompressor compressor;
 
     @Override
-    public String execute(SubAgentToolLoopContext ctx) {
+    public String execute(ToolLoopContext ctx) {
         SubTaskProperties props = ctx.props();
         int rounds = Math.max(1, props.getMaxToolRounds());
         List<SubTask> remaining = new ArrayList<>(ctx.plan().getTasks());
@@ -103,7 +103,7 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
     }
 
     /** 钩子：本策略如何执行本轮的工具调用（串行 vs 并发），返回本轮 ToolResponseMessage */
-    protected abstract ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+    protected abstract ToolResponseMessage executeRound(AssistantMessage out, ToolLoopContext ctx,
             Map<String, String> doneSummary, List<SubTask> remaining,
             AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey);
 
@@ -112,7 +112,7 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
     // ============================================================
 
     /** 用更新后的计划重渲染执行 prompt（历史摘要 + 剩余任务 + 本策略 toolCallRule） */
-    protected String renderExecution(SubAgentToolLoopContext ctx, List<SubTask> remaining,
+    protected String renderExecution(ToolLoopContext ctx, List<SubTask> remaining,
                                      Map<String, String> doneSummary) {
         ExecutionInput updated = ExecutionInput.builder()
                 .userInput(ctx.plan().getUserInput())

@@ -10,7 +10,7 @@ import com.hmdp.agent.observability.api.AgentSpan;
  * 解析优先级统一为：AgentContextHolder → 参数 ctx → 调用方 fallback。
  * </p>
  */
-public final class AgentContextResolver {
+public class AgentContextResolver {
 
     private AgentContextResolver() {
     }

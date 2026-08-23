@@ -90,7 +90,7 @@ public class FallbackRoundExecutor {
 
         log.info("========== [Round] 3) 聚合结论 ==========");
         SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_FALLBACK));
-        String merged = reportAggregator.merge(currentResponse, queue.getAllTasks());
+        String merged = historyAggregator.merge(currentResponse, queue.getAllTasks());
         SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING, SseEventConstants.TEXT_MERGING_DONE));
         return merged;
     }

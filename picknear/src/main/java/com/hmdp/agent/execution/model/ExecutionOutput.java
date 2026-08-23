@@ -2,6 +2,8 @@ package com.hmdp.agent.execution.model;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 import java.util.List;
 import java.util.Map;
@@ -15,6 +17,8 @@ import java.util.Map;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ExecutionOutput {
 
     /** 自然语言摘要（直接作为本轮 currentResponse，不含 JSON 快照） */

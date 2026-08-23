@@ -3,6 +3,8 @@ package com.hmdp.agent.execution.model;
 import com.hmdp.agent.plan.model.SubTask;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,8 @@ import java.util.Map;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ExecutionInput {
 
     /** 原始用户输入 */

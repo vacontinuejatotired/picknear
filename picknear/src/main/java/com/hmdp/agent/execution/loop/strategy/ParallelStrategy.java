@@ -3,7 +3,7 @@ package com.hmdp.agent.execution.loop.strategy;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
-import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
+import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import io.micrometer.observation.Observation;
@@ -56,7 +56,7 @@ public class ParallelStrategy extends AbstractToolLoop {
     }
 
     @Override
-    protected ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+    protected ToolResponseMessage executeRound(AssistantMessage out, ToolLoopContext ctx,
             Map<String, String> doneSummary, List<SubTask> remaining,
             AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey) {
         SubTaskProperties props = ctx.props();
@@ -114,7 +114,7 @@ public class ParallelStrategy extends AbstractToolLoop {
 
     private record Step1(String raw, Exception error, ConfirmRequiredException confirm) {}
 
-    private Step1 callPhase(AssistantMessage.ToolCall tc, SubAgentToolLoopContext ctx) {
+    private Step1 callPhase(AssistantMessage.ToolCall tc, ToolLoopContext ctx) {
         ToolCallback cb = findByName(ctx.callbacks(), tc.name());
         if (cb == null) {
             return new Step1(null, new RuntimeException("工具不可用"), null);

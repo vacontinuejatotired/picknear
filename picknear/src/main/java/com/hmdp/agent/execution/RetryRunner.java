@@ -3,7 +3,7 @@ package com.hmdp.agent.execution;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
-import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
+import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.prompt.PromptService;
 import lombok.extern.slf4j.Slf4j;
@@ -58,7 +58,7 @@ public class RetryRunner {
                 if (conversationId != null && !conversationId.isBlank()) {
                     toolCtx.put("conversationId", conversationId);
                 }
-                SubAgentToolLoopContext ctx = new SubAgentToolLoopContext(
+                ToolLoopContext ctx = new ToolLoopContext(
                         Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService,
                         toolCtx, props);
                 String content = toolLoop.execute(ctx);

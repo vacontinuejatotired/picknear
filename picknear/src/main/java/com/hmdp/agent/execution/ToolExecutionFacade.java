@@ -56,10 +56,10 @@ public class ToolExecutionFacade {
 
     public ExecutionOutput execute(ExecutionSession session) {
         long start = System.currentTimeMillis();
-        var plan = execution.getPlan();
+        var plan = session.getInput();
         var tasks = plan.getTasks();
-        var callback = execution.getCallback();
-        var props = execution.getProperties() != null ? execution.getProperties() : properties;
+        var callback = session.getCallback();
+        var props = session.getProperties() != null ? session.getProperties() : properties;
 
         List<String> toolNames = tasks.stream()
                 .map(t -> t.getToolName())

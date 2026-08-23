@@ -10,7 +10,7 @@ import com.hmdp.agent.plan.executionPlan.PlanGenerator;
 import com.hmdp.agent.plan.review.PlanReviewer;
 import com.hmdp.agent.plan.executionPlan.model.ToolMetadata;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
-import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
+import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
@@ -57,7 +57,7 @@ public class DagStrategy extends AbstractToolLoop {
     private ToolResultStore toolResultStore;
 
     @Resource
-    private com.hmdp.agent.dag.strategy.ToolResultCompressor dagCompressor;
+    private com.hmdp.agent.execution.strategy.ToolResultCompressor dagCompressor;
 
     @Resource
     private SubTaskProperties subTaskProperties;
@@ -66,7 +66,7 @@ public class DagStrategy extends AbstractToolLoop {
     private ObjectProvider<PlanReviewer> planReviewerProvider;
 
     @Resource
-    private com.hmdp.agent.dag.plan.GraphAnalyzer graphAnalyzer;
+    private com.hmdp.agent.plan.executionPlan.GraphAnalyzer graphAnalyzer;
 
     @Override
     public String toolCallRule() {
@@ -74,7 +74,7 @@ public class DagStrategy extends AbstractToolLoop {
     }
 
     @Override
-    protected ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+    protected ToolResponseMessage executeRound(AssistantMessage out, ToolLoopContext ctx,
             Map<String, String> doneSummary, List<SubTask> remaining,
             AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey) {
 
@@ -122,7 +122,7 @@ public class DagStrategy extends AbstractToolLoop {
     }
 
     private Map<String, ToolInvoker> buildToolInvokers(
-            List<AssistantMessage.ToolCall> toolCalls, SubAgentToolLoopContext ctx) {
+            List<AssistantMessage.ToolCall> toolCalls, ToolLoopContext ctx) {
 
         Map<String, ToolInvoker> invokers = new HashMap<>();
         ToolContext toolCtx = new ToolContext(ctx.toolContext() == null ? Map.of() : ctx.toolContext());

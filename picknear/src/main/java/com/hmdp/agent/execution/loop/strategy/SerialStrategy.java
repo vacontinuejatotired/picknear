@@ -2,7 +2,7 @@ package com.hmdp.agent.execution.loop.strategy;
 
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
-import com.hmdp.agent.subagent.loop.SubAgentToolLoopContext;
+import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +40,7 @@ public class SerialStrategy extends AbstractToolLoop {
     }
 
     @Override
-    protected ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+    protected ToolResponseMessage executeRound(AssistantMessage out, ToolLoopContext ctx,
             Map<String, String> doneSummary, List<SubTask> remaining,
             AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey) {
         int compressLength = ctx.props().getCompressLength();

@@ -55,14 +55,14 @@ public class RoundExecutionProxy {
                     .userInput(input)
                     .currentResponse(currentResponse)
                     .tasks(tasks)
-                    .historySummary(reportAggregator.buildHistorySummary(history))
+                    .historySummary(historyAggregator.buildHistorySummary(history))
                     .userId(userId)
                     .conversationId(conversationId)
                     .round(round)
                     .build();
 
             ExecutionSession session = ExecutionSession.builder()
-                    .plan(plan)
+                    .input(plan)
                     .callback(new SseSubAgentCallback(emitter))
                     .properties(subTaskProperties)
                     .startTimeMs(System.currentTimeMillis())
@@ -72,7 +72,7 @@ public class RoundExecutionProxy {
 
             subagentSpan.set(AgentField.TOOL_COUNT, String.valueOf(result.getRawResults() != null
                     ? result.getRawResults().size() : 0));
-            reportAggregator.recordHistory(history, result);
+            historyAggregator.recordHistory(history, result);
             return result.getSummary();
         }
     }

@@ -4,6 +4,8 @@ import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.subagent.callback.SubAgentProgressCallback;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 /**
  * 执行会话（原 SubTaskExecution）。
@@ -13,6 +15,8 @@ import lombok.Data;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ExecutionSession {
 
     /** 执行输入 */

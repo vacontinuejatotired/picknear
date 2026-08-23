@@ -14,7 +14,7 @@ package com.hmdp.agent.subagent.loop;
 public interface ToolExecutionStrategy {
 
     /** 完整驱动一次工具循环，返回最终回复文本（循环异常/无法生成时可返回 null） */
-    String execute(SubAgentToolLoopContext ctx);
+    String execute(ToolLoopContext ctx);
 
     /** 该策略的 prompt 规则文本（注入 {@code {{toolCallRule}}} 占位符） */
     String toolCallRule();
