@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ==============================================
+     Docker 构建专用 Maven settings
+     源自本机 D:\apache-maven-3.8.8-bin\apache-maven-3.8.8\conf\settings.xml
+     去掉 localRepository（容器内用默认 ~/.m2/repository）
+     镜像优先级：华为云 → 腾讯云 → 阿里云 → 中央仓回退
+     ============================================== -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <!-- 镜像配置 -->
+    <mirrors>
+        <!-- 1. 华为云镜像（实测最快最稳，首选：本 VM 到 aliyun 持续下载会冻结/断连） -->
+        <mirror>
+            <id>huaweicloud</id>
+            <mirrorOf>central</mirrorOf>
+            <name>Huawei Cloud</name>
+            <url>https://mirrors.huaweicloud.com/repository/maven/</url>
+            <!-- 本 VM 出站连接不稳（keep-alive 会被掐断），配置重试避免 Maven 挂死在死连接上 -->
+            <httpConfiguration>
+                <all>
+                    <connectionTimeout>30000</connectionTimeout>
+                    <readTimeout>60000</readTimeout>
+                    <retryEnabled>true</retryEnabled>
+                    <retryFailedCount>5</retryFailedCount>
+                </all>
+            </httpConfiguration>
+        </mirror>
+
+        <!-- 2. 腾讯云镜像（备用1，实测稳定） -->
+        <mirror>
+            <id>tencent</id>
+            <mirrorOf>central</mirrorOf>
+            <name>Tencent Cloud</name>
+            <url>https://mirrors.cloud.tencent.com/nexus/repository/maven-public/</url>
+        </mirror>
+
+        <!-- 3. 阿里云镜像（备用2：本 VM 网络下持续传输易被掐断，2026-08-12 实测 go-offline 冻结） -->
+        <mirror>
+            <id>aliyunmaven</id>
+            <mirrorOf>central</mirrorOf>
+            <name>Aliyun Maven</name>
+            <url>https://maven.aliyun.com/repository/public</url>
+        </mirror>
+
+        <!-- 4. 默认中央仓库（最后回退） -->
+        <mirror>
+            <id>central</id>
+            <mirrorOf>central</mirrorOf>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </mirror>
+
+        <!-- 5. 项目 pom.xml 声明了 spring-milestones 仓库（repo.spring.io，国外源）
+             → 改指国内镜像。项目只用正式版，release 都在中央仓有，可安全替换 -->
+        <mirror>
+            <id>spring-milestones-cn</id>
+            <mirrorOf>spring-milestones</mirrorOf>
+            <name>Spring Milestones (domestic)</name>
+            <url>https://mirrors.huaweicloud.com/repository/maven/</url>
+        </mirror>
+    </mirrors>
+
+    <!-- 配置JDK 17 -->
+    <profiles>
+        <profile>
+            <id>jdk-17</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+                <jdk>17</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <maven.compiler.release>17</maven.compiler.release>
+            </properties>
+        </profile>
+    </profiles>
+
+</settings>
