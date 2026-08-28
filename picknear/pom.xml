@@ -21,6 +21,11 @@
         <!-- JDK 版本 -->
         <java.version>17</java.version>
 
+        <!-- 编码统一 UTF-8 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
+
         <!-- Spring AI & OpenAI -->
         <spring-ai.version>1.1.2</spring-ai.version>
 
