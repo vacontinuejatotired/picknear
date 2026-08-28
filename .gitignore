@@ -1,10 +1,22 @@
-.idea/ApifoxUploaderProjectSetting.xml
-*.xml
-.idea/misc.xml
-.idea/jarRepositories.xml
-.idea/dataSources.xml
-.reasonix/
-
-# IDE directories
+# IDE
+.idea/
 .vscode/
 .trae/
+*.iml
+
+# Build
+target/
+build/
+*.class
+
+# Environment & secrets
+*.pem
+*.p12
+*.jks
+*.key
+
+# Data dumps
+langfuse-prompts-latest-*.json
+
+# Tools
+.reasonix/
