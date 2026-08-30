@@ -1,0 +1,455 @@
+# PickNear Agent — 基于 Spring AI 的企业级 LLM Agent 框架
+
+> **版本**: v2.1  
+> **技术栈**: Spring Boot 3.4.4 · Spring AI 1.1.2 · DashScope (通义千问) · Java 17  
+> **定位**: 在 Spring AI 基础上构建的**生产级** Agent 框架，面向企业 Java 团队
+
+---
+
+## 目录
+
+- [一句话概括](#一句话概括)
+- [核心特性](#核心特性)
+- [架构总览](#架构总览)
+- [与知名框架对比](#与知名框架对比)
+- [优点](#优点)
+- [缺点与局限](#缺点与局限)
+- [适用场景](#适用场景)
+- [技术栈](#技术栈)
+- [快速开始](#快速开始)
+- [配置说明](#配置说明)
+- [扩展指南](#扩展指南)
+- [文档索引](#文档索引)
+
+---
+
+## 一句话概括
+
+**在 Spring AI 之上，用两阶段规划 + 多层安全守卫 + 全链路可观测，把 LLM Agent 从"能跑"推到"能上线"。**
+
+---
+
+## 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **两阶段规划执行** | Phase 1 纯文本回复 → AfterAiHook 决策 → Phase 2 TaskPlanner 规划执行，避免工具重复执行 |
+| **多层安全守卫** | PromptHookChain 前置拦截 + ToolGuardManager 多策略投票 + @RequiredDataPermission AOP 数据权限 |
+| **SSE 真流式 + 阶段进度** | 直连 DashScopeChatModel.stream() 逐 token 推送，meta/progress/error 三类事件实时展示规划/合并/执行进度 |
+| **子任务规划与异步执行** | AI 规划 + Java 三层校验（JSON 语法 → 工具存在性 → 历史状态），SubTaskAgent 动态筛选工具独立执行 |
+| **CONFIRM 审批流** | 敏感工具调用前真暂停，agent_approval 表持久化快照，审批通过后从快照恢复执行 |
+| **全链路可观测** | Langfuse OTLP 集成，session → phase1 → plan → subagent → tool_call → guard 多层 span 同 traceId 串树 |
+| **提示词工程化** | Langfuse Prompt Management + 内置模板三级降级，运行期热改，工具描述外置 |
+| **多轮对话记忆** | JDBC 持久化 MessageWindowChatMemory，最近 10 轮上下文 |
+| **双模响应** | 同一端点同时支持 JSON 同步响应和 SSE 流式推送 |
+| **可插拔架构** | @TargetTool 自动扫描注册 + Guard 自动包装，新增工具只需加注解 |
+
+---
+
+## 架构总览
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         前端（Vue 3）                             │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ HTTP / SSE
+┌────────────────────────────▼─────────────────────────────────────┐
+│  ChatController（Accept 头协商 → JSON or SSE）                    │
+├────────────────────────────┬─────────────────────────────────────┤
+│  AiServiceImpl（编排层）    │                                     │
+│  ├─ PromptHookExecutor     │ ← Hook 链执行 + 决策                │
+│  │   ├─ InjectionDetectHook│   Prompt 注入检测                   │
+│  │   └─ SensitiveWordHook  │   敏感词脱敏                        │
+│  ├─ StreamingChatInvoker   │ ← 流式调用 + 3 次重试               │
+│  └─ SseResponseProcessor   │ ← AfterAiHook → 路由 → 历史落库     │
+├────────────────────────────┴─────────────────────────────────────┤
+│  AfterAiHookChain 决策                                           │
+│  └─ TaskTriggerHook → PLANNING?                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  TaskPlanner（两阶段规划执行）                                     │
+│  ├─ decompose() — AI 规划 + 三层校验                              │
+│  ├─ executeAll() — SubTaskAgent / TaskExecutor 串行/并行执行       │
+│  └─ merge() — LLM 聚合最终答案                                    │
+├──────────────────────────────────────────────────────────────────┤
+│  Guard 层（工具调用守卫）                                          │
+│  GuardedToolCallback → ToolGuardManager → 策略投票                 │
+│  ├─ HighRiskListPolicy · ConfirmToolPolicy                       │
+│  ├─ PatternMatchPolicy · RateLimitPolicy                         │
+│  └─ @RequiredDataPermission AOP 数据权限                          │
+├──────────────────────────────────────────────────────────────────┤
+│  Spring AI SDK + DashScope                                        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 与知名框架对比
+
+### 与 Spring AI 的关系
+
+本框架**基于** Spring AI 1.1.2 构建，不是替代品，而是在其之上补充了企业级能力：
+
+| 维度 | Spring AI 原生 | 本框架扩展 |
+|------|---------------|-----------|
+| 工具注册 | 手动 `.defaultToolCallbacks()` | `@TargetTool` 自动扫描 + Guard 自动包装 |
+| 安全防护 | 无 | 三层防护（Hook + Guard + Permission） |
+| 任务规划 | 无 | 两阶段 Plan-and-Execute + 三层校验 |
+| 可观测性 | Micrometer Observation | Langfuse OTLP 全链路追踪 |
+| 提示词管理 | 硬编码 | Langfuse 云 + 内置模板三级降级 |
+| 审批流 | 无 | CONFIRM 真暂停 + 快照恢复 |
+
+### 与 LangChain / LangChain4j 对比
+
+| 维度 | LangChain4j | 本框架 |
+|------|-------------|--------|
+| 定位 | 通用 LLM 应用开发框架 | 企业级 Java Agent 框架 |
+| 学习曲线 | 平缓（`@AiService` 注解即用） | 陡峭（多层架构需深入理解） |
+| 灵活性 | 高（链式可自由组合） | 中（固定两阶段架构） |
+| 安全防护 | 基础工具验证 | 多层防护体系（投票制 + AOP） |
+| 规划能力 | 简单路由 | AI 规划 + Java 三层校验 |
+| 社区生态 | 强（Python LangChain 衍生） | 弱（自定义框架） |
+| Spring 集成 | 独立框架 | 深度 Spring Boot 集成 |
+
+### 与 AutoGen（微软）/ CrewAI 对比
+
+| 维度 | AutoGen / CrewAI | 本框架 |
+|------|------------------|--------|
+| 核心理念 | 多代理协作（角色扮演） | 单代理深度规划（工程化） |
+| 语言生态 | Python | Java |
+| 多代理协作 | ✅ 原生支持 | ❌ 不支持（远期规划） |
+| 安全防护 | 基础验证 | 企业级多层防护 |
+| 适用场景 | 研究 / 原型 / 多代理实验 | 生产环境企业应用 |
+
+---
+
+## 优点
+
+### 1. 安全纵深做得扎实
+
+三层防护不是冗余，而是各有侧重：
+
+| 层 | 介入时机 | 判断依据 | 性能 |
+|----|---------|---------|------|
+| PromptHookChain | AI 调用前 | 注入特征、敏感词 | 微秒级 |
+| ToolGuardManager | 工具 call() 前 | 工具名、参数、频率 | 微秒级（Redis） |
+| @RequiredDataPermission | @Tool 方法前 | 数据归属权、用户身份 | 毫秒级（DB） |
+
+Guard 层是纯无状态的（YAML + Redis + 正则），零业务 Service 依赖，即使 AOP 失效，第一层守卫仍起作用。上线至今未发生工具越权操作。
+
+### 2. 两阶段架构避免了工具重复执行
+
+Phase 1 根本不注册工具，AI 只做纯文本回复。只有 AfterAiHook 判定需要 PLANNING 时才进入 Phase 2。这比"第一轮 AI 就带工具"的方案：
+- 工具不会重复执行
+- 不需要脆弱的关键词去重
+- 日志阶段清晰，便于排查
+
+### 3. 可观测性做到了生产级
+
+Langfuse OTLP 集成解决了 AI 链路最大的痛点——**多异步线程下 traceId 断链**。通过字节码分析 + 实测修复了两个根因（生命周期时序 + Reactor context 污染），全链路同 traceId 串树。观测白名单防止 Spring 定时任务把配额吃光。
+
+### 4. 提示词工程化，运行期可热改
+
+Langfuse Prompt Management 为事实源 + 内置模板兜底，改提示词不需要重编译重部署。三级 Fail-Open 降级保证 Langfuse 故障时功能不降级。工具描述也可外置，支持运行期热改。
+
+### 5. 企业级 Spring 生态深度集成
+
+不是独立框架，而是 Spring Boot 的一等公民。依赖注入、配置管理、事务管理、Actuator 监控全部原生集成。团队已有 Spring 技术栈的话，上手成本最低。
+
+---
+
+## 缺点与局限
+
+### 1. 两阶段架构引入固有延迟
+
+```
+用户提问 → Phase 1 LLM 调用（等待） → Hook 决策 → Phase 2 规划 LLM 调用（等待） → 执行 → 合并
+```
+
+**对于简单问题（如"你好"、"今天天气"），也要等 Phase 1 的 LLM 回复，然后再等决策。** 虽然不需要工具的简单问题不进入 Phase 2，但 Phase 1 的延迟是不可避免的。总延迟 = Phase 1 LLM 延迟 + Hook 决策 + （若 PLANNING）Phase 2 规划 + 执行 + 合并。
+
+### 2. 架构复杂度高，新人上手门槛大
+
+框架包含 10+ 个核心组件、3 套责任链、多层代理/守卫/权限。新开发者需要理解：
+
+- PromptHookChain / AfterAiHookChain 两套链的区别和执行规则
+- ToolGuardManager 的投票聚合逻辑
+- TaskPlanner 的 decompose → execute → merge 三阶段
+- SSE 事件协议（meta/progress/error）
+- Langfuse 观测体系（span 命名、白名单、串树）
+
+**调试一个工具调用可能需要追踪 5 个以上的类。** 这是企业级架构不可避免的代价。
+
+### 3. 不支持多代理协作
+
+当前是单代理深度规划模型（Plan-and-Execute），不支持：
+- 多个代理之间的对话协作
+- 角色扮演（Researcher / Writer / Analyst）
+- 代理间的实时消息传递
+
+这是与 AutoGen / CrewAI 最大的功能差距。远期路线图中有"多 Agent 编排"，但目前未实现。
+
+### 4. 不是 ReAct 模式
+
+当前采用的是 Plan-and-Execute（先规划后执行），而非 ReAct（推理-行动循环）。区别：
+
+| 维度 | Plan-and-Execute（本框架） | ReAct |
+|------|--------------------------|-------|
+| 流程 | 先规划完整计划，再批量执行 | 边推理边行动，每步观察后再决定下一步 |
+| 灵活性 | 计划固定，执行中不易调整 | 每步可根据中间结果动态调整 |
+| LLM 调用次数 | 少（规划一次 + 合并一次） | 多（每步一次推理） |
+| Token 消耗 | 低 | 高 |
+| 适用场景 | 步骤明确的任务 | 需要动态探索的任务 |
+
+**这意味着对于需要动态探索的复杂任务（如多轮搜索、条件分支），当前架构的适应性不如 ReAct。**
+
+### 5. 自建组件多，维护成本不可忽视
+
+以下组件都是自建的，没有社区支持：
+
+- TaskPlanner / MultiRoundOrchestrator
+- ToolGuardManager + 4 个 Policy
+- PromptHookChain + AfterAiHookChain
+- SSE 事件协议 + SseResponseProcessor
+- Langfuse 集成层
+- 提示词渲染 + 三级降级
+
+每个组件的 bug 修复、功能迭代、文档维护都需要自己做。相比直接用 LangChain4j 的开箱即用，维护成本明显更高。
+
+### 6. 测试覆盖有待提升
+
+多层架构的测试复杂度高：
+- 需要 Mock 多个层次的依赖
+- 异步/流式测试需要特殊处理（线程池替换、CountDownLatch）
+- 集成测试需要完整基础设施（Redis + MySQL + Langfuse）
+
+当前测试覆盖约 75%，核心链路已覆盖，但边缘场景和错误路径仍有缺口。
+
+### 7. SSE 回合不进 ChatMemory
+
+Spring AI 的 JDBC ChatMemory 不区分 JSON 和 SSE 模式，SSE 回合的历史记录走自建的 `agent_conversation` / `agent_message` 表。这意味着：
+- ChatMemory 中只有 JSON 模式的对话历史
+- SSE 模式的多轮上下文需要通过自建表重建
+- 两者的历史数据没有统一查询入口
+
+---
+
+## 适用场景
+
+### ✅ 适合
+
+| 场景 | 原因 |
+|------|------|
+| 企业级 Java 应用接入 AI 能力 | Spring 生态深度集成，安全防护完善 |
+| 需要严格工具调用控制的场景 | 三层防护 + 审批流 + 数据权限 |
+| 已有 Spring Boot 技术栈的团队 | 学习成本最低，复用现有基础设施 |
+| 需要生产级可观测性的场景 | Langfuse OTLP 全链路追踪 |
+| 提示词需要运行期热改的场景 | Langfuse Prompt Management 三级降级 |
+
+### ❌ 不适合
+
+| 场景 | 原因 |
+|------|------|
+| 快速原型 / PoC 验证 | 架构过重，开发速度慢 |
+| 多代理协作 / 角色扮演 | 不支持多 Agent 通信 |
+| 需要动态探索的复杂任务 | Plan-and-Execute 不如 ReAct 灵活 |
+| 轻量级 / 资源受限环境 | 需要 Redis + MySQL + Langfuse |
+| Python 团队 | Java 生态，Python 无法直接使用 |
+| 需要快速迭代的研究实验 | 自建组件多，维护成本高 |
+
+---
+
+## 技术栈
+
+| 组件 | 选型 | 版本 |
+|------|------|------|
+| 基础框架 | Spring Boot | 3.4.4 |
+| AI 框架 | Spring AI (OpenAI compatible) | 1.1.2 |
+| 底层模型 | DashScope 通义千问 | qwen-plus-2025-07-28 |
+| 对话记忆 | JDBC ChatMemory | MessageWindowChatMemory |
+| 缓存 | Caffeine + Redis | 3.1.8 / 3.40.0 |
+| 可观测性 | Micrometer + OTel + Langfuse | OTLP |
+| 数据库 | MySQL | 8.0.33 |
+| ORM | MyBatis-Plus | 3.5.12 |
+| SSE | Spring SseEmitter | 内置 |
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- JDK 17+
+- MySQL 8.0+
+- Redis 6+
+- DashScope API Key
+
+### 1. 克隆项目
+
+```bash
+git clone git@github.com:vacontinuejatotired/picknear.git
+cd picknear/picknear
+```
+
+### 2. 配置环境变量
+
+```bash
+# .env 文件（compose 同级，已被 .gitignore 忽略）
+DASHSCOPE_API_KEY=your-api-key
+LANGFUSE_BASE_URL=          # 留空则走内置模板
+LANGFUSE_BASIC_AUTH=        # 留空则不启用远程观测
+```
+
+### 3. 启动
+
+```bash
+# Docker Compose（推荐）
+docker compose up -d --build
+
+# 或本地启动
+mvn spring-boot:run
+```
+
+服务启动在 `http://localhost:8081`
+
+### 4. 调用示例
+
+```bash
+# JSON 同步模式
+curl -X POST http://localhost:8081/agent/string/send \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"content": "你好"}'
+
+# SSE 流式模式
+curl -N -X POST http://localhost:8081/agent/string/send \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"content": "统计一下店铺数量"}'
+```
+
+---
+
+## 配置说明
+
+### 核心配置
+
+```yaml
+spring:
+  ai:
+    openai:
+      api-key: ${DASHSCOPE_API_KEY}
+      base-url: https://ws-mhs2k50uiwwwvefx.cn-beijing.maas.aliyuncs.com/compatible-mode
+      chat:
+        options:
+          model: qwen-plus-2025-07-28
+
+agent:
+  subtask:
+    timeout: 30s                    # 子 Agent 单次 LLM 调用超时
+    total-timeout: 60s              # 整个 execute() 总超时
+    max-retries: 3                  # 最大重试次数
+    max-tool-rounds: 6              # 手动工具循环最大轮数
+    max-total-calls: 10             # 单次执行总工具调用数上限
+    tool-loop: batch                # serial / batch
+  prompt:
+    enabled: true
+    base-url: ${LANGFUSE_BASE_URL:}
+    cache-ttl: 30m
+    tool-description-enabled: true
+
+hmdp:
+  prompt-guard:
+    block-tools: [deleteBlog]
+    confirm-tools: [publishTestBlog]
+    rate-limit:
+      max-per-session: 30
+      window-seconds: 60
+    approval:
+      enabled: true
+      ttl-seconds: 300
+
+feature:
+  subagent:
+    enabled: true
+  tool-routing:
+    enabled: true
+```
+
+### 功能开关
+
+| 开关 | 默认 | 说明 |
+|------|------|------|
+| `feature.subagent.enabled` | `true` | 子 Agent 执行（false 退回 TaskExecutor 回退路径） |
+| `feature.tool-routing.enabled` | `true` | 意图→工具组两级路由（false 退回 legacy 紧凑目录） |
+| `hmdp.prompt-guard.approval.enabled` | `true` | CONFIRM 真暂停（false 退回提示字符串当工具结果） |
+| `agent.prompt.enabled` | `true` | 提示词外置（false 全部走内置模板） |
+
+---
+
+## 扩展指南
+
+### 添加一个新工具
+
+1. 新建类，标注 `@TargetTool`
+2. 方法上标注 `@Tool(description = "...")`
+3. 敏感操作加 `@RequiredDataPermission`
+4. 重启应用 → `ToolBeanCollector` 自动注册
+
+```java
+@TargetTool
+public class ShopQueryTool {
+
+    @Tool(description = "按类型查询店铺列表")
+    @RequiredDataPermission(resource = "shop", action = DataAction.READ)
+    public List<ShopVO> queryShopsByType(
+            @ToolParam(description = "店铺类型ID") Long typeId,
+            ToolContext toolContext) {
+        Long userId = (Long) toolContext.getToolContext().get("userId");
+        // ...
+    }
+}
+```
+
+### 添加一个 Guard 策略
+
+1. 实现 `ToolGuardPolicy` 接口
+2. 标注 `@Component`
+3. `ToolGuardManager` 自动收集
+
+```java
+@Component
+public class MyCustomPolicy implements ToolGuardPolicy {
+    @Override
+    public String policyName() { return "my-custom"; }
+
+    @Override
+    public Vote vote(ToolInvocationContext context) {
+        // ALLOW / BLOCK / CONFIRM / ABSTAIN
+        return Vote.ABSTAIN;
+    }
+}
+```
+
+---
+
+## 文档索引
+
+| 文档 | 路径 | 内容 |
+|------|------|------|
+| 架构设计 | `Agent模块架构设计.md` | 完整架构图、层叠结构、数据流、设计决策 |
+| 设计模式 | `Agent模块设计模式.md` | 11 种设计模式在框架中的应用 |
+| 简历亮点 | `Agent模块简历亮点.md` | 7 个技术难点攻克的工程叙事 |
+| 发展路线图 | `Agent模块发展路线图.md` | Phase 0-5 落地状态、遗留项 |
+| 观测架构 | `Agent全链路观测架构设计.md` | Langfuse OTLP 接入、span 串树、配额管理 |
+| DAG 规划 | `DAG规划执行器设计文档.md` | DAG 执行计划、依赖解析、并行执行 |
+| 子 Agent 执行 | `SubTaskAgent子Agent执行方案.md` | SubTaskAgent 循环、工具筛选、结果压缩 |
+| SSE 规范 | `SSE后端实现规范.md` | SSE 事件协议、ObservedSseEmitter |
+| 链路迭代 | `Agent模块链路迭代文档.md` | 从 v1 到 v3 的演进历史 |
+| 规划路由 | `规划工具路由设计.md` | 意图树、两级路由、目录构建 |
+
+---
+
+## License
+
+Internal use only.
