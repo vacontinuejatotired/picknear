@@ -38,9 +38,12 @@
 
 - 构建上下文 `picknear/`（Dockerfile + `docker/maven/settings.xml` 国内镜像源）
 - 构建后推送 ACR 两个标签：`picknear-app:{tag}` + `picknear-app:latest`
+- **必须关闭 provenance/sbom**（`build-image.yml` 已配）：ACR 个人版不支持 OCI attestation 附件，开启会报 `denied: unknown manifest class for application/vnd.oci.empty.v1+json`
 - ACR 登录凭据来自 GitHub Secrets：
   - `ALIYUN_ACR_USERNAME`：ACR 登录用户名（即阿里云账号名，见 `vm-docs/deploy-vm.sh` 的 `USER`）
   - `ALIYUN_ACR_PASSWORD`：ACR 访问凭证的固定密码（阿里云控制台 → 容器镜像服务 → 访问凭证）
+- **workflow_dispatch 触发前提**：workflow 文件必须存在于仓库默认分支（master），改动后需同步到 master（`git push github <tmp>:master`）
+- ✅ 2026-08-30 首次验证成功：`picknear-app:latest` 已推送（ACR 控制台可见）
 
 ## 4. 部署（有机器时）
 
