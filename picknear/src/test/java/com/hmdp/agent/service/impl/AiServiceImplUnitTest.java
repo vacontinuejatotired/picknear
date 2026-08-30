@@ -2,6 +2,7 @@ package com.hmdp.agent.service.impl;
 
 import com.hmdp.agent.hook.HookResult;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -21,7 +22,10 @@ import static org.mockito.Mockito.*;
  * AiServiceImpl — processHookResult 私有方法反射测试。
  * <p>
  * 链路 A/B 端到端已在 AiServiceImplE2ETest 覆盖，此处只补充私有方法。
+ * <p>
+ * 已禁用：主类演进后 processHookResult 私有方法已删除，测试逻辑过时。
  */
+@Disabled("processHookResult 已从 AiServiceImpl 删除，测试逻辑过时，待按主类现状重写")
 @ExtendWith(MockitoExtension.class)
 class AiServiceImplUnitTest {
 

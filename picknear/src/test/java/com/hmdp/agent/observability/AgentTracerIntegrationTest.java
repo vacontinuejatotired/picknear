@@ -107,8 +107,8 @@ class AgentTracerIntegrationTest {
         AgentSpan root = agentTracer.startSession("itest-conv-1", "1010");
         // 断链修复（2026-08-04）：走包装类，验证"不手动 root.end() 会话也必然结束"
         //（complete/completeWithError/容器回调/兜底 TTL 任一路径收敛结束根 span）
-        com.hmdp.agent.observability.api.ObservedSseEmitter emitter =
-                new com.hmdp.agent.observability.api.ObservedSseEmitter(60_000L, root, null, 0);
+        com.hmdp.agent.stream.ObservedSseEmitter emitter =
+                new com.hmdp.agent.stream.ObservedSseEmitter(60_000L, root, null, 0);
         // 诊断：startSession 后当前线程 scope 栈顶（应为 agent.session）
         var cur = observationRegistry.getCurrentObservation();
         System.out.println("[诊断] startSession 后栈顶: " + (cur == null ? "null" : cur.getContext().getName()));

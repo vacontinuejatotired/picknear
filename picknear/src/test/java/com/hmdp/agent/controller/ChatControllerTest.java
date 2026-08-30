@@ -1,12 +1,20 @@
 package com.hmdp.agent.controller;
 
+import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.service.AiService;
+import com.hmdp.agent.stream.ObservedSseEmitter;
+import com.hmdp.agent.stream.SseSessionFactory;
+import com.hmdp.utils.UserHolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
@@ -29,8 +37,31 @@ class ChatControllerTest {
     @Mock
     private com.hmdp.agent.observability.api.AgentTracer agentTracer;
 
+    @Mock
+    private com.hmdp.agent.service.ApprovalService approvalService;
+
+    @Mock
+    private com.hmdp.agent.orchestration.confirm.ConfirmResumeService confirmResumeService;
+
+    @Mock
+    private org.springframework.ai.chat.memory.ChatMemory chatMemory;
+
+    @Mock
+    private com.hmdp.agent.stream.SseSessionFactory sseSessionFactory;
+
     @InjectMocks
     private ChatController controller;
+
+    @BeforeEach
+    void setUp() {
+        UserHolder.saveUserId(1010L);
+        lenient().when(chatMemory.get(anyString())).thenReturn(java.util.List.of());
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserHolder.remove();
+    }
 
     @Test
     void should_return_json_when_no_accept_header() {
@@ -49,13 +80,15 @@ class ChatControllerTest {
 
     @Test
     void should_return_sse_when_accept_is_event_stream() {
-        try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class)) {
-            Object result = controller.chat("你好", "text/event-stream", null);
+        SseSessionFactory.ChatSseSession session =
+                new SseSessionFactory.ChatSseSession(mock(AgentSpan.class), mock(SseEmitter.class));
+        when(sseSessionFactory.open(anyString(), anyLong())).thenReturn(session);
 
-            assertThat(result).as("SSE 模式应返回 SseEmitter").isInstanceOf(SseEmitter.class);
-            SseEmitter emitter = (SseEmitter) result;
-            verify(aiService).chatWithToolcall(eq("你好"), anyString(), eq(emitter), any());
-        }
+        Object result = controller.chat("你好", "text/event-stream", null);
+
+        assertThat(result).as("SSE 模式应返回 SseEmitter").isInstanceOf(SseEmitter.class);
+        SseEmitter emitter = (SseEmitter) result;
+        verify(aiService).chatWithToolcall(eq("你好"), anyString(), eq(session.emitter()), any());
     }
 
     @Test
@@ -84,15 +117,20 @@ class ChatControllerTest {
 
     @Test
     void should_use_sse_timeout() {
-        try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class,
+        // 超时设置已收敛到 SseSessionFactory：ObservedSseEmitter 首参 = 30 分钟
+        try (MockedConstruction<ObservedSseEmitter> mocked = mockConstruction(ObservedSseEmitter.class,
                 (mock, context) -> {
                     long timeout = (long) context.arguments().get(0);
                     assertThat(timeout).as("SSE 超时应为 30 分钟（1800000ms）")
                             .isEqualTo(30 * 60 * 1000L);
                 })) {
-            controller.chat("你好", "text/event-stream", null);
+            SseSessionFactory factory = new SseSessionFactory();
+            ReflectionTestUtils.setField(factory, "agentTracer", agentTracer);
+            ReflectionTestUtils.setField(factory, "taskScheduler", mock(TaskScheduler.class));
 
-            assertThat(mocked.constructed()).as("SSE 构造了一次").hasSize(1);
+            factory.open("conv-1", 1010L);
+
+            assertThat(mocked.constructed()).as("SSE emitter 构造了一次").hasSize(1);
         }
     }
 }

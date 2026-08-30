@@ -21,7 +21,7 @@ class DagPropertiesTest {
         DagProperties props = new DagProperties();
 
         assertThat(props.getDefaultMaxRetries()).as("默认最大重试次数").isEqualTo(3);
-        assertThat(props.getDefaultRetryEnabled()).as("默认启用重试").isTrue();
+        assertThat(props.isDefaultRetryEnabled()).as("默认启用重试").isTrue();
         assertThat(props.getDefaultRetryBaseDelayMs()).as("默认重试延迟").isEqualTo(1000);
         assertThat(props.getLayerTimeoutSeconds()).as("默认层级超时").isEqualTo(30);
         assertThat(props.getToolTimeoutSeconds()).as("默认工具超时").isEqualTo(10);
