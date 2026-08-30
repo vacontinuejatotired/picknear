@@ -292,6 +292,6 @@ StatsQueryTool 提供测试用统计工具：
 | `agent/task/TaskExecutor.java` | 串行执行器 |
 | `agent/task/TaskPlanner.java` | 规划器（循环版） |
 | `agent/task/TaskSnapshot.java` | 任务快照（CONFIRM 续跑） |
-| `agent/util/SseUtils.java` | JSON 事件构建 + SSE 推送封装 |
+| `agent/stream/SseUtils.java` | JSON 事件构建 + SSE 推送封装 |
 | `agent/config/AgentConfig.java` | ChatClient（无默认工具）、线程池 |
 | `agent/service/impl/AiServiceImpl.java` | 两阶段编排入口 |

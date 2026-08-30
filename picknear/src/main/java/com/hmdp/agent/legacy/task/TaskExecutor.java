@@ -14,7 +14,7 @@ import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.SubTaskStatus;
 import com.hmdp.agent.plan.model.TaskType;
-import com.hmdp.agent.util.SseUtils;
+import com.hmdp.agent.stream.SseUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;

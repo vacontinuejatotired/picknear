@@ -428,7 +428,7 @@ micrometer-registry-prometheus   <!-- 缺它 /actuator/prometheus 404 -->
 | 文件 | 埋点位置 | Span | 关键属性 |
 |------|---------|------|---------|
 | `agent/controller/ChatController.java` | 入口 | `agent.session` | conversation.id、user.id |
-| `agent/observability/api/ObservedSseEmitter.java` | 三回调收敛点 | 根 span（agent.session）写 `finish` | finish(COMPLETE/TIMEOUT/ERROR) |
+| `agent/stream/ObservedSseEmitter.java` | 三回调收敛点 | 根 span（agent.session）写 `finish` | finish(COMPLETE/TIMEOUT/ERROR) |
 | `agent/service/impl/AiServiceImpl.java` | 同步模式（chatReturnStringResult）| session→prompt_hook→phase1 链 | 同 SSE 语义 |
 | `agent/service/impl/AiServiceImpl.java` | PromptHookChain 执行后 | `agent.prompt_hook` | hook.decision、hook.name |
 | `agent/service/impl/AiServiceImpl.java` | Phase1 循环（stream 消费完、hook 前结束） | `agent.phase1` | attempt、stream_len、status(FAILED) |

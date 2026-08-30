@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compile
+        working-directory: picknear
+        run: mvn compile -B -q
+
+      - name: Unit tests
+        working-directory: picknear
+        run: |
+          # 跳过需要 MySQL/Redis/RabbitMQ 的 @SpringBootTest 集成测试
+          mvn test -B \
+            -Dtest="\
+              !com.hmdp.TokenTest,\
+              !com.hmdp.agent.observability.AgentTracerIntegrationTest,\
+              !com.hmdp.agent.observability.LangfuseSmokeTest,\
+              !com.hmdp.PickNearApplicationTests" \
+            -DfailIfNoTests=false

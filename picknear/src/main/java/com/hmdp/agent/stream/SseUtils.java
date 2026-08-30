@@ -1,4 +1,4 @@
-package com.hmdp.agent.util;
+package com.hmdp.agent.stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;

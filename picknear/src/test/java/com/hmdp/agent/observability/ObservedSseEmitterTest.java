@@ -1,7 +1,7 @@
 package com.hmdp.agent.observability;
 
 import com.hmdp.agent.observability.api.AgentSpan;
-import com.hmdp.agent.observability.api.ObservedSseEmitter;
+import com.hmdp.agent.stream.ObservedSseEmitter;
 import com.hmdp.agent.observability.model.AgentField;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

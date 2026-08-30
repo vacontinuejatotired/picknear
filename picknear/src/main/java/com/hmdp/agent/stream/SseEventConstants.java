@@ -1,4 +1,4 @@
-package com.hmdp.agent.util;
+package com.hmdp.agent.stream;
 
 /**
  * SSE 事件常量统一收口。
