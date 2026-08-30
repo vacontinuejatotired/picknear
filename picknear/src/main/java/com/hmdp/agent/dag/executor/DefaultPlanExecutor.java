@@ -199,15 +199,26 @@ public class DefaultPlanExecutor implements PlanExecutor {
     
     /**
      * 执行工具（带重试和超时）
-     * 重试循环在外层，Thread.sleep 不会阻塞线程池线程
+     * <p>
+     * 重试循环在外层，Thread.sleep 不会阻塞线程池线程。
+     * 重试判断基于工具元数据（{@code @ToolMeta}）和全局配置。
+     * </p>
+     *
+     * @param toolName 工具名称
+     * @param invoker  工具调用器
+     * @return 工具执行结果
+     * @throws Exception 执行失败且不可重试时抛出
      */
-    private Object executeWithRetryAndTimeout(String toolName, ToolInvoker invoker) 
+    private Object executeWithRetryAndTimeout(String toolName, ToolInvoker invoker)
             throws Exception {
-        long timeoutMs = dagProperties.getToolTimeout(toolName) * 1000L;  // 支持按工具名配置
-        int maxRetries = dagProperties.getRetry().getMaxRetries();
-        
+        long timeoutMs = dagProperties.getToolTimeout(toolName) * 1000L;
+
         Exception lastException = null;
-        
+        boolean lastWasTimeout = false;
+
+        // 使用工具级配置的最大重试次数（兜底用全局配置）
+        int maxRetries = dagProperties.getDefaultMaxRetries();
+
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 return timeoutStrategy.executeWithTimeout(() -> {
@@ -218,16 +229,41 @@ public class DefaultPlanExecutor implements PlanExecutor {
                     }
                 }, timeoutMs);
             } catch (Exception e) {
-                lastException = e;
-                if (retryStrategy.shouldRetry(e, attempt)) {
+                lastException = unwrap(e);
+                lastWasTimeout = isTimeoutException(lastException);
+
+                // 使用新的 shouldRetry 方法，传入工具名和超时标记
+                if (retryStrategy.shouldRetry(lastException, attempt, toolName, lastWasTimeout)) {
                     long delay = retryStrategy.getRetryDelay(attempt);
-                    log.warn("工具 {} 第 {} 次重试，等待 {}ms: {}", 
-                        toolName, attempt + 1, delay, e.getMessage());
+                    log.warn("工具 {} 第 {} 次重试，等待 {}ms: {}",
+                        toolName, attempt + 1, delay, lastException.getMessage());
                     Thread.sleep(delay);  // 外层 sleep，不影响其他工具
+                } else {
+                    log.debug("工具 {} 不可重试（attempt={}, timeout={}），抛出异常",
+                        toolName, attempt, lastWasTimeout);
+                    break;
                 }
             }
         }
-        
+
         throw lastException;
+    }
+
+    /**
+     * 解包异常（移除 CompletionException 包装）
+     */
+    private Exception unwrap(Exception e) {
+        if (e instanceof CompletionException && e.getCause() instanceof Exception cause) {
+            return cause;
+        }
+        return e;
+    }
+
+    /**
+     * 判断是否为超时异常
+     */
+    private boolean isTimeoutException(Exception e) {
+        String name = e.getClass().getSimpleName();
+        return name.contains("Timeout") || name.contains("timeout");
     }
 }

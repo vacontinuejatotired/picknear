@@ -1,5 +1,6 @@
 package com.hmdp.agent.plan.executionPlan;
 
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.plan.executionPlan.annotation.DependsOn;
 import com.hmdp.agent.plan.executionPlan.annotation.FromTool;
 import com.hmdp.agent.plan.executionPlan.annotation.SequentialOnly;
@@ -88,6 +89,12 @@ public class GraphAnalyzer {
 
             SequentialOnly seqOnly = method.getAnnotation(SequentialOnly.class);
 
+            // 解析 @ToolMeta 注解（幂等性、重试配置）
+            ToolMeta toolMeta = method.getAnnotation(ToolMeta.class);
+            boolean idempotent = toolMeta != null ? toolMeta.idempotent() : true;
+            int maxRetries = toolMeta != null ? toolMeta.maxRetries() : -1;
+            int retryOnTimeout = toolMeta != null ? toolMeta.retryOnTimeout() : -1;
+
             ToolMetadata metadata = ToolMetadata.builder()
                 .name(toolName)
                 .method(method)
@@ -96,12 +103,15 @@ public class GraphAnalyzer {
                 .parameters(parameters)
                 .sequentialOnly(seqOnly != null)
                 .sequentialReason(seqOnly != null ? seqOnly.reason() : null)
+                .idempotent(idempotent)
+                .maxRetries(maxRetries)
+                .retryOnTimeout(retryOnTimeout)
                 .build();
 
             toolMetadataMap.put(toolName, metadata);
-            log.debug("注册工具: {} -> {}, 依赖: {}, 顺序执行: {}",
+            log.debug("注册工具: {} -> {}, 依赖: {}, 顺序执行: {}, 幂等: {}, 最大重试: {}",
                 toolName, method.getReturnType().getSimpleName(),
-                dependencies, seqOnly != null);
+                dependencies, seqOnly != null, idempotent, maxRetries);
         }
     }
 

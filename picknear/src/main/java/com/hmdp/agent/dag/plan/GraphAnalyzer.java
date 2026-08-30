@@ -1,5 +1,6 @@
 package com.hmdp.agent.dag.plan;
 
+import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.dag.annotation.DependsOn;
 import com.hmdp.agent.dag.annotation.FromTool;
 import com.hmdp.agent.dag.annotation.SequentialOnly;
@@ -89,24 +90,30 @@ public class GraphAnalyzer {
         for (Method method : clazz.getMethods()) {
             Tool toolAnnotation = method.getAnnotation(Tool.class);
             if (toolAnnotation == null) continue;
-            
+
             // 优先使用 @Tool 注解的 name 属性，否则使用方法名
-            String toolName = toolAnnotation.name().isEmpty() 
-                ? method.getName() 
+            String toolName = toolAnnotation.name().isEmpty()
+                ? method.getName()
                 : toolAnnotation.name();
-            
+
             // 获取依赖
             DependsOn dependsOn = method.getAnnotation(DependsOn.class);
-            List<String> dependencies = dependsOn != null 
-                ? Arrays.asList(dependsOn.toolName()) 
+            List<String> dependencies = dependsOn != null
+                ? Arrays.asList(dependsOn.toolName())
                 : List.of();
-            
+
             // 分析参数
             List<ParameterInfo> parameters = analyzeParameters(method, dependencies);
-            
+
             // 检查是否顺序执行
             SequentialOnly seqOnly = method.getAnnotation(SequentialOnly.class);
-            
+
+            // 解析 @ToolMeta 注解（幂等性、重试配置）
+            ToolMeta toolMeta = method.getAnnotation(ToolMeta.class);
+            boolean idempotent = toolMeta != null ? toolMeta.idempotent() : true;
+            int maxRetries = toolMeta != null ? toolMeta.maxRetries() : -1;
+            int retryOnTimeout = toolMeta != null ? toolMeta.retryOnTimeout() : -1;
+
             ToolMetadata metadata = ToolMetadata.builder()
                 .name(toolName)
                 .method(method)
@@ -115,12 +122,15 @@ public class GraphAnalyzer {
                 .parameters(parameters)
                 .sequentialOnly(seqOnly != null)
                 .sequentialReason(seqOnly != null ? seqOnly.reason() : null)
+                .idempotent(idempotent)
+                .maxRetries(maxRetries)
+                .retryOnTimeout(retryOnTimeout)
                 .build();
-            
+
             toolMetadataMap.put(toolName, metadata);
-            log.debug("注册工具: {} -> {}, 依赖: {}, 顺序执行: {}", 
-                toolName, method.getReturnType().getSimpleName(), 
-                dependencies, seqOnly != null);
+            log.debug("注册工具: {} -> {}, 依赖: {}, 顺序执行: {}, 幂等: {}, 最大重试: {}",
+                toolName, method.getReturnType().getSimpleName(),
+                dependencies, seqOnly != null, idempotent, maxRetries);
         }
     }
     
