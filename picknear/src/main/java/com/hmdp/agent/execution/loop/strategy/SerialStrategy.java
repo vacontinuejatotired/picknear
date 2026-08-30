@@ -60,7 +60,7 @@ public class SerialStrategy extends AbstractToolLoop {
                 lastCallKey.set(key);
             }
             try {
-                String raw = cb.call(tc.arguments(), toolCtx);
+                String raw = invokeToolAndRecord(tc.name(), () -> cb.call(tc.arguments(), toolCtx));
                 String compact = compressor.compress(raw, tc.name(), compressLength);
                 responses.add(new ToolResponse(tc.id(), tc.name(), compact));
                 doneSummary.put(tc.name(), TextUtils.truncate(compact, 50));

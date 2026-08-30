@@ -2,6 +2,7 @@ package com.hmdp.agent.execution;
 
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
+import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
 import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.execution.model.ExecutionInput;
@@ -36,7 +37,7 @@ public class RetryRunner {
     public String executeWithRetry(String systemText, String prompt, ExecutionInput plan,
                                    ToolCallback[] callbacks,
                                    SubTaskProperties props, long roundStartMs,
-                                   Long userId, String conversationId) {
+                                   Long userId, String conversationId, AgentSpan subagentSpan) {
         int maxRetries = props.getMaxRetries();
         Exception lastError = null;
         String currentPrompt = prompt;
@@ -60,7 +61,7 @@ public class RetryRunner {
                 }
                 ToolLoopContext ctx = new ToolLoopContext(
                         Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService,
-                        toolCtx, props);
+                        toolCtx, props, subagentSpan);
                 String content = toolLoop.execute(ctx);
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;

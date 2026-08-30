@@ -1,14 +1,17 @@
 package com.hmdp.agent.subagent.loop;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
+import com.hmdp.agent.execution.ToolExecutionRecorder;
 import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
+import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.execution.ResultCompressor;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.plan.model.SubTask;
+import com.hmdp.agent.plan.model.SubTaskStatus;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -52,8 +56,21 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
     @Resource
     protected ResultCompressor compressor;
 
+    @Resource
+    private ToolExecutionRecorder recorder;
+
     @Override
     public String execute(ToolLoopContext ctx) {
+        recorder.reset(ctx.subagentSpan());
+        try {
+            return doExecute(ctx);
+        } finally {
+            recorder.flush();
+            recorder.reset(null);
+        }
+    }
+
+    private String doExecute(ToolLoopContext ctx) {
         SubTaskProperties props = ctx.props();
         int rounds = Math.max(1, props.getMaxToolRounds());
         List<SubTask> remaining = new ArrayList<>(ctx.plan().getTasks());
@@ -79,7 +96,12 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
                 return out.getText();
             }
             history.add(assistantWithToolCalls(out));
-            history.add(executeRound(out, ctx, doneSummary, remaining, callCounter, dupCounter, lastCallKey));
+            try {
+                history.add(executeRound(out, ctx, doneSummary, remaining, callCounter, dupCounter, lastCallKey));
+            } finally {
+                // 轮末统一刷入工具状态（异常冒泡路径也保证写入）
+                recorder.flush();
+            }
             // 每轮用更新后的计划重渲染 user 消息：历史摘要反映已完成工具、任务列表缩到剩余
             if (!doneSummary.isEmpty()) {
                 history.set(1, new UserMessage(renderExecution(ctx, remaining, doneSummary)));
@@ -100,6 +122,23 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
         log.warn("[ToolLoop] 达最大轮数/调用数上限，强制总结收尾 [calls={}, dup={}]",
                 callCounter.get(), dupCounter.get());
         return finalOut != null ? finalOut.getText() : null;
+    }
+
+    /**
+     * 统一工具执行点（三策略共用）：执行前经 recorder 记录终态到 subagent span
+     * （评估数据补齐 §6.1）。CONFIRM 原样上抛不记录（执行未发生）。
+     */
+    protected <T> T invokeToolAndRecord(String toolName, Supplier<T> invoker) {
+        try {
+            T result = invoker.get();
+            recorder.record(toolName, SubTaskStatus.COMPLETED);
+            return result;
+        } catch (ConfirmRequiredException e) {
+            throw e;
+        } catch (Exception e) {
+            recorder.record(toolName, SubTaskStatus.FAILED);
+            throw e;
+        }
     }
 
     /** 钩子：本策略如何执行本轮的工具调用（串行 vs 并发），返回本轮 ToolResponseMessage */
