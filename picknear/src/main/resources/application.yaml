@@ -121,6 +121,13 @@ agent:
     timeout: 5s                               # RestClient 建连/读超时（实测容器到 Langfuse JP 约 1.3s）
     tool-description-enabled: true            # 工具描述外置开关（false → 回退 @Tool 注解）
     seed-enabled: false                       # 种子/清缓存端点开关（生产编排后关闭）
+  evaluation:
+    enabled: false                            # 评测总开关（评估器/触发功能启用后置 true）
+    judge-model:
+      provider: default                       # judge 模型来源：default=Langfuse 托管（免费额度，默认）；custom=自定义 OpenAI-compatible 端点
+      base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
+      api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
+      model: ${EVALUATION_LLM_MODEL:}         # provider=custom 时：模型名（如 qwen-plus-2025-07-28）
 
 feature:
   subagent:
