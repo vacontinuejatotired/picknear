@@ -13,6 +13,8 @@
 |------|------|----------|
 | v1.0 | 2026-08-30 | 初始版本：成熟方案调研 + 需求拆解 + 评估器设计 + 数据补齐方案 + 实施步骤 |
 | v1.1 | 2026-08-30 | 审查修订：§3.3 解耦边界结论；§6.1 重写（正确 API / 回填位置 / ToolExecutionRecorder 设计 / 编号规则）；§5.4 修正（round.{N}、取数实证标注）；§10 补 units 成本 |
+| v1.2 | 2026-08-30 | Phase 1 实证（B-2 定稿）：§5.5 真实 trace 取数验证（最终回答 / 工具结果 / 属性路径）；最终回答取数规则定稿 |
+| v1.3 | 2026-08-30 | §6.2 评测模型配置类（agent.evaluation.*）：judge 模型 yaml 可配置（default 免费额度 / custom 自定义端点混合路线） |
 
 ---
 
@@ -215,6 +217,40 @@ Agent 模块（两阶段规划 + 工具调用 + 多轮编排）上线后，**没
 - **B-3 回退路径分流**：`tool.{i}` 只在 subagent span；回退路径（`feature.subagent.enabled=false`）只有 `agent.tool_call` 的 `status`/`tool.result_summary`。执行质量 evaluator 需按 span 类型分流取数（subagent 读 `tool.{i}`，回退路径读 `agent.tool_call`）
 - **B-7 采样率对齐**：观测日常采样率 0.1（验证期 1.0）——"每日评估新增 trace"实际评估的是**已采样的 trace**。评估起步期建议评估窗口内临时提采样率，或明确评估对象 = 已采样 trace；临时提采样对 50k units 预算的影响在 Phase 1 实测
 
+### 5.5 Phase 1 实证结果（2026-08-30，B-2 定稿）
+
+用真实 trace（`35afa5d6e5a6d35e5d4d09e41c7726d7`，2026-08-18，用户请求"长沙天气以及我发表的博客"）展开完整 span 树验证：
+
+```
+agent.session（根：conversation.id / user.id / finish=COMPLETE / langfuse.* 平台别名）
+├─ agent.prompt_hook（hook.decision=PASS）
+├─ agent.phase1 → chat（用户输入 + Phase1 过渡回复"我来查一下…"）
+├─ agent.decision（decision=PLANNING）
+├─ agent.round.1（tool_count=2, plan_valid=true）
+│  ├─ agent.plan（validate_result=ai_plan, plan.tools="queryWeather,queryPublishedBlogs"）
+│  │  └─ planner-chat（两段式 JSON：intents + plan）→ planner-chat（第 2 轮空计划）
+│  └─ agent.subagent（tool_count=2）
+│     ├─ subagent-exec-query-weather,query-published-blogs-（TOOL_CALLS generation，
+│     │    request 含任务参数约束；spring.ai.model.request.tool.names=[queryWeather,queryPublishedBlogs]）
+│     ├─ agent.guard.ALLOW.query-weather / .query-published-blogs（tool.name / tool.arguments / guard.decision）
+│     ├─ subagent-compress-query-published-blogs-（压缩 generation，request 含工具原始结果全文）
+│     └─ subagent-exec-chat（最终 generation：response = 最终回答 + ===DATA_SNAPSHOT=== JSON）
+└─ agent.round.2（tool_count=0, plan_valid=false）→ agent.plan（validate_result=empty）→ 结束
+```
+
+**实证结论（评估取数规则定稿）**：
+
+| 结论 | 依据 |
+|------|------|
+| **最终回答** = `agent.subagent` 下**最后一条** `subagent-exec-*` generation 的 `gen_ai.response.content`（DATA_SNAPSHOT 前的自然语言部分）；无 subagent 的简单对话 = `agent.phase1` 下 chat generation。取数规则：**trace 内最后一条 GENERATION**（两种路径统一） | 用户实际看到的就是 subagent-exec-chat 的回复；phase1 的 chat 只是过渡语 |
+| **工具结果：不需要补 `tool.{i}.result`** | 最终 generation 的 `===DATA_SNAPSHOT===` JSON 已含每工具 status+data（500 字截断），judge 的"对照工具链判断完整性/准确性"输入从它提取即可；压缩 generation 的 request 还有工具原始结果全文兜底 |
+| **`tool.{i}.name/status` 回填仍保留** | 供规则/CODE evaluator 直接读属性（成功率/失败/重复统计），不必解析 generation 文本；本次回填代码已实现，待部署后生效 |
+| **属性取数路径** = `metadata.attributes.{field}`（OTLP attributes 落 Langfuse observation 的 metadata，前缀 `attributes.`） | 实测 `attributes.plan.tools`、`attributes.guard.decision` 等均在 metadata 下 |
+| **工具清单另一来源**：`subagent-exec-*` generation 的 `spring.ai.model.request.tool.names` | 与 plan.tools 互为印证 |
+| 空计划轮 `plan.tools` 为空串序列化为 `{}`，CODE evaluator 取数需判空 | round.2 实测 |
+
+> B-2 全部落定；评估器输入无需再补字段。`tool.{i}` 回填代码已 push（CI 绿），部署后即可在 agent.subagent span 看到。
+
 ---
 
 ## 六、数据补齐方案（项目侧唯一 Java 改动点）
@@ -301,6 +337,30 @@ public class ToolExecutionRecorder {
 #### 原则
 
 只补 trace、不落库自建表（评估在平台侧读 trace，不造轮子）；如后续有查询/报表硬需求再加表。
+
+### 6.2 评测模型配置类（`agent.evaluation.*`，2026-08-30 新增）
+
+项目侧评测配置单一入口 `config/EvaluationProperties.java`（`@ConfigurationProperties(prefix = "agent.evaluation")`），judge 模型支持 **yaml 一行切换**两种来源：
+
+```yaml
+agent:
+  evaluation:
+    enabled: false                            # 评测总开关（评估器/触发功能启用后置 true）
+    judge-model:
+      provider: default                       # judge 模型来源：default=Langfuse 托管（免费额度，默认）；custom=自定义 OpenAI-compatible 端点
+      base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
+      api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
+      model: ${EVALUATION_LLM_MODEL:}         # provider=custom 时：模型名（如 qwen-plus-2025-07-28）
+```
+
+**设计决策**：
+
+- **混合路线**：默认 `provider=default` 走 Langfuse 托管 judge（免费额度、零配置）先行验证；后续切自定义只需 yaml 填三键 + `provider=custom`，复用 DashScope 现有 API Key，**无需改代码**
+- **完整性判定**：`isCustomConfigured()` = provider=custom 且 base-url/api-key/model 三键非空（防半配置静默生效，风格对齐 `PromptProperties.isConfigured()`）
+- **总开关** `enabled=false` 默认关闭（评测功能未上线前不产生任何行为）
+- 测试：`config/EvaluationPropertiesTest.java`（纯 POJO：默认值 / 三键齐备 / 缺键 / 大小写不敏感）
+
+> 当前消费方为后续评估器配置与项目内触发（§3.3 薄门面）；本类先行落地作为配置骨架，评估器配置（Langfuse 云端）与 Java 消费方后续接入。
 
 ### 6.2 观测配置确认（无改动，仅核对）
 
