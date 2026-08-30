@@ -463,7 +463,7 @@ flowchart TD
 |------|------|
 | `observability/api/AgentTracer.java` | 观测门面（start/startSession/resume，埋点方唯一入口） |
 | `observability/api/AgentSpan.java` | 业务 span 句柄（attribute/status/end，AutoCloseable） |
-| `observability/api/ObservedSseEmitter.java` | SSE 生命周期与根 span 绑定（唯一收敛点） |
+| `stream/ObservedSseEmitter.java` | SSE 生命周期与根 span 绑定（唯一收敛点） |
 | `observability/core/SpanLifecycle.java` | Observation 生命周期封装（父子固化、start/openScope 顺序） |
 | `observability/model/AgentSpanSpec.java` | span 类型注册表（`agent.{type}[.{semantic}]` 命名） |
 | `observability/model/SpanContext.java` | 跨线程传播载体（rootSpan/conversationId/userId） |

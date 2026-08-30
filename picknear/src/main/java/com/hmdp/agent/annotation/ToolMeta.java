@@ -37,4 +37,46 @@ public @interface ToolMeta {
      * （如 {@code queryVouchersByShop} 同时属于 shop 与 voucher）。
      */
     String[] intents() default {};
+
+    // ==================== 异常重试相关 ====================
+
+    /**
+     * 操作是否幂等。
+     * <p>
+     * 幂等操作在异常时可以安全重试（如查询、幂等写入）；
+     * 非幂等操作不应重试（如余额扣减、订单创建、红包发送）。
+     * </p>
+     * <p>判断标准：如果操作执行了一半（成功但响应丢失），再执行一次是否安全？</p>
+     * <ul>
+     *   <li>安全 → idempotent = true（默认）</li>
+     *   <li>不安全 → idempotent = false</li>
+     * </ul>
+     *
+     * @see #maxRetries()
+     * @see #retryOnTimeout()
+     */
+    boolean idempotent() default true;
+
+    /**
+     * 工具级最大重试次数。
+     * <p>
+     * -1 表示使用全局配置（{@code agent.subtask.dag.default-max-retries}）；
+     * 0 表示禁止重试；
+     * 正数表示使用指定值。
+     * </p>
+     */
+    int maxRetries() default -1;
+
+    /**
+     * 超时时是否允许重试。
+     * <p>
+     * -1 表示跟随 idempotent 设置（幂等操作超时可重试，非幂等不可）；
+     * 0 表示超时也不重试（即使操作幂等）；
+     * 1 表示超时可重试（即使操作非幂等，慎用）。
+     * </p>
+     * <p>
+     * 注意：此属性优先级高于 idempotent，用于处理"操作可能已执行但不确定"的场景。
+     * </p>
+     */
+    int retryOnTimeout() default -1;
 }

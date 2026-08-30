@@ -1,8 +1,8 @@
 package com.hmdp.agent.response;
 
 import com.hmdp.agent.context.AgentContext;
-import com.hmdp.agent.task.TaskPlanner;
-import com.hmdp.agent.util.SseUtils;
+import com.hmdp.agent.orchestration.TaskPlanner;
+import com.hmdp.agent.stream.SseUtils;
 import com.hmdp.agent.hook.HookResult;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -70,7 +70,7 @@ public class AiResponseRouter {
                 }
                 case PLANNING -> {
                     log.info("路由: PLANNING → TaskPlanner");
-                    taskPlanner.planAndExecuteAsync(input, aiResponse, ctx, emitter);
+                    taskPlanner.submit(input, aiResponse, ctx, emitter);
                 }
                 default -> {
                     // PASS：内容已流式推送则跳过，前端 already 有逐 token 拼接的文本

@@ -5,10 +5,10 @@ import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
-import com.hmdp.agent.subagent.ToolResultCompressor;
-import com.hmdp.agent.subagent.model.SubTaskPlan;
-import com.hmdp.agent.subagent.prompt.SubAgentPromptBuilder;
-import com.hmdp.agent.task.model.SubTask;
+import com.hmdp.agent.execution.ResultCompressor;
+import com.hmdp.agent.execution.model.ExecutionInput;
+import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
+import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.util.TextUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -44,16 +44,16 @@ import java.util.stream.Collectors;
  * </p>
  */
 @Slf4j
-public abstract class AbstractToolLoop implements SubAgentToolLoop {
+public abstract class AbstractToolLoop implements ToolExecutionStrategy {
 
     @Resource
     protected ChatModel chatModel;
 
     @Resource
-    protected ToolResultCompressor compressor;
+    protected ResultCompressor compressor;
 
     @Override
-    public String execute(SubAgentToolLoopContext ctx) {
+    public String execute(ToolLoopContext ctx) {
         SubTaskProperties props = ctx.props();
         int rounds = Math.max(1, props.getMaxToolRounds());
         List<SubTask> remaining = new ArrayList<>(ctx.plan().getTasks());
@@ -103,7 +103,7 @@ public abstract class AbstractToolLoop implements SubAgentToolLoop {
     }
 
     /** 钩子：本策略如何执行本轮的工具调用（串行 vs 并发），返回本轮 ToolResponseMessage */
-    protected abstract ToolResponseMessage executeRound(AssistantMessage out, SubAgentToolLoopContext ctx,
+    protected abstract ToolResponseMessage executeRound(AssistantMessage out, ToolLoopContext ctx,
             Map<String, String> doneSummary, List<SubTask> remaining,
             AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey);
 
@@ -112,9 +112,9 @@ public abstract class AbstractToolLoop implements SubAgentToolLoop {
     // ============================================================
 
     /** 用更新后的计划重渲染执行 prompt（历史摘要 + 剩余任务 + 本策略 toolCallRule） */
-    protected String renderExecution(SubAgentToolLoopContext ctx, List<SubTask> remaining,
+    protected String renderExecution(ToolLoopContext ctx, List<SubTask> remaining,
                                      Map<String, String> doneSummary) {
-        SubTaskPlan updated = SubTaskPlan.builder()
+        ExecutionInput updated = ExecutionInput.builder()
                 .userInput(ctx.plan().getUserInput())
                 .currentResponse(ctx.plan().getCurrentResponse())
                 .tasks(remaining)
@@ -123,7 +123,7 @@ public abstract class AbstractToolLoop implements SubAgentToolLoop {
                 .conversationId(ctx.plan().getConversationId())
                 .round(ctx.plan().getRound())
                 .build();
-        Map<String, String> vars = new LinkedHashMap<>(SubAgentPromptBuilder.buildVariables(updated));
+        Map<String, String> vars = new LinkedHashMap<>(ExecutionPromptBuilder.buildVariables(updated));
         vars.put("toolCallRule", toolCallRule());
         return ctx.promptService().render(PromptKeys.SUBAGENT_EXECUTION, vars);
     }

@@ -6,7 +6,6 @@ import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
-import com.hmdp.agent.util.SseUtils;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;

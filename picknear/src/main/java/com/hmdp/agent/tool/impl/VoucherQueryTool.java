@@ -4,7 +4,7 @@ import java.util.List;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.agent.dag.annotation.DependsOn;
+import com.hmdp.agent.plan.executionPlan.annotation.DependsOn;
 import com.hmdp.dto.Result;
 import com.hmdp.voucher.entity.Voucher;
 import com.hmdp.voucher.entity.VoucherOrder;

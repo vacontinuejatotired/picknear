@@ -5,7 +5,7 @@ import java.util.List;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.agent.dag.annotation.DependsOn;
+import com.hmdp.agent.plan.executionPlan.annotation.DependsOn;
 import com.hmdp.dto.Result;
 import com.hmdp.shop.entity.Shop;
 import com.hmdp.shop.entity.ShopType;

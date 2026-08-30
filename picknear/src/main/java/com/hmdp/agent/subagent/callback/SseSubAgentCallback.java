@@ -1,7 +1,7 @@
 package com.hmdp.agent.subagent.callback;
 
-import com.hmdp.agent.util.SseEventConstants;
-import com.hmdp.agent.util.SseUtils;
+import com.hmdp.agent.stream.SseEventConstants;
+import com.hmdp.agent.stream.SseUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 

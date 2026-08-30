@@ -926,7 +926,7 @@ hmdp:
 | `agent/stream/SseResponseProcessor.java` | SSE 后处理（AfterAiHook → 路由 → 落库） |
 | `agent/history/HistoryRecorder.java` | 最佳努力历史落库（双模共用） |
 | `agent/response/AiResponseRouter.java` | 后处理路由器 |
-| `agent/util/SseUtils.java` | SSE 事件构建 + JSON 序列化 |
+| `agent/stream/SseUtils.java` | SSE 事件构建 + JSON 序列化 |
 | `agent/tool/ToolBeanCollector.java` | @TargetTool 自动扫描 + Guard 包装 |
 | `agent/tool/impl/BlogTool.java` | 博客工具 |
 | `agent/tool/impl/WeatherQueryTool.java` | 天气查询 |

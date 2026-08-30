@@ -1,6 +1,6 @@
 package com.hmdp.agent.config;
 
-import com.hmdp.agent.routing.ToolIntentTree;
+import com.hmdp.agent.plan.intent.ToolIntentTree;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

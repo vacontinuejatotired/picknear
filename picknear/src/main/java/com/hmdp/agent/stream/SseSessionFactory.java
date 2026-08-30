@@ -2,7 +2,6 @@ package com.hmdp.agent.stream;
 
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
-import com.hmdp.agent.observability.api.ObservedSseEmitter;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.TaskScheduler;
