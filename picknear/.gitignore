@@ -33,7 +33,6 @@ build/
 .vscode/settings.json
 ##application
 /src/main/resources/application-dev.yaml
-/src/test/
 #密钥文件
 *.pem
 *.key

@@ -1,0 +1,72 @@
+#server:
+#  port: 8082
+#  tomcat:    # 默认200，建议500~1000
+#    max-connections: 8192  # 默认8192
+#    accept-count: 1000      # 等待队列长度
+#    threads:
+#      max: 800
+#      min-spare: 100
+#    connection-timeout: 5000
+
+server:
+  port: 8082
+  tomcat:
+    max-connections: 8192
+    accept-count: 1000
+    threads:
+      max: 800
+      min-spare: 100
+    connection-timeout: 5000
+    max-keep-alive-requests: 100
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.actuate.autoconfigure.metrics.amqp.RabbitMetricsAutoConfiguration
+  main:
+    allow-bean-definition-overriding: true
+  application:
+    name: hmdp
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/heima?useSSL=false&serverTimezone=UTC
+    username: root
+    password: 123456
+  redis:
+#    host: 192.168.49.130
+#    port: 6379
+#    password: 281458
+    lettuce:
+      pool:
+        max-active: 150
+        max-idle: 30
+        min-idle: 10
+        time-between-eviction-runs: 100ms
+        max-wait:  5000ms
+    host: 127.0.0.1
+    password: 281458
+    port: 6379
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    password: 123321
+    username:  qyh
+    virtual-host: /
+    dynamic: false
+#    host: 192.168.49.130
+#    password: 123321
+#    username: qyh
+#    virtual-host: /
+#    port: 5672
+mybatis-plus:
+    type-aliases-package: com.hmdp.entity,com.hmdp.shop.entity,com.hmdp.voucher.entity,com.hmdp.user.entity,com.hmdp.content.entity # 别名扫描包（P0 域迁移后全量）
+logging:
+    level:
+      com.hmdp: debug
+      com.luues: TRACE
+      org.springframework: INFO
+management:
+  health:
+    rabbit:
+      enabled: false
