@@ -32,6 +32,9 @@ jobs:
         with:
           context: picknear
           push: true
+          # ACR 个人版不支持 provenance/sbom 附件（unknown manifest class 报错），必须关闭
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
