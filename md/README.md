@@ -30,6 +30,7 @@ md/
 | [SSE 流式读取方案](agent/SSE流式读取方案.md) | 前端 fetch + ReadableStream 读取 SSE 流 |
 | [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
 | [Agent 历史会话实现方案](agent/Agent历史会话实现方案.md) | 历史会话：agent_conversation/agent_message 两表、会话列表 + 点进查看 |
+| [Agent 评测设计文档](agent/Agent评测设计文档.md) | 任务完成质量评测：Langfuse LLM-as-a-judge 评估体系、评估器设计、数据补齐方案 |
 
 ### 🔐 认证与登录
 
