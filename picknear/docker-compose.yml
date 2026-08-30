@@ -82,12 +82,10 @@ services:
       - picknear-net
 
   # ==========================================
-  # picknear 后端应用
+  # picknear 后端应用（从阿里云 ACR 拉取镜像，不再本地构建）
+  # 流程：CI push → build-image.yml 构建推送 ACR → VM docker compose pull && up
   # ==========================================
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest
     container_name: picknear-app
     restart: unless-stopped
@@ -148,14 +146,10 @@ services:
       - picknear-net
 
   # ==========================================
-  # picknear 前端（Vue + nginx）
-  # 构建上下文：../../ 从 picknear/picknear 上溯两层到工作区根
-  # （/opt 旧部署副本是 ../，共享文件夹布局是 ../../ —— 2026-08-03 修正）
+  # picknear 前端（Vue + nginx）从阿里云 ACR 拉取镜像，不再本地构建
+  # 流程：CI push → build-image.yml 构建推送 ACR → VM docker compose pull && up
   # ==========================================
   frontend:
-    build:
-      context: ../../nginx-1.18.0heima/frontend
-      dockerfile: Dockerfile
     image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-frontend:latest
     container_name: picknear-frontend
     restart: unless-stopped
