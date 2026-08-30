@@ -111,4 +111,5 @@ class ConfigPropertiesTest {
         assertThat(limit.getMaxPerSession()).as("默认每会话 30 次").isEqualTo(30);
         assertThat(limit.getWindowSeconds()).as("默认窗口 60 秒").isEqualTo(60);
     }
+
 }
