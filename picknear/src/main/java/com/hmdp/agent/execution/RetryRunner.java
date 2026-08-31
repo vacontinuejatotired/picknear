@@ -94,7 +94,7 @@ public class RetryRunner {
     }
 
     /** 识别 429 限流异常（DashScope 返回 limit_requests，被 Spring AI 包装为 NonTransientAiException） */
-    static boolean isRateLimitException(Exception e) {
+    public static boolean isRateLimitException(Exception e) {
         String msg = e.getMessage();
         return msg != null && (msg.contains("limit_requests") || msg.contains("429"));
     }
