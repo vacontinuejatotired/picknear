@@ -129,7 +129,7 @@ agent:
       provider: default                       # judge 模型来源：default=Langfuse 托管（免费额度，默认）；custom=自定义 OpenAI-compatible 端点
       base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
       api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
-      model: ${EVALUATION_LLM_MODEL:qwen-turbo-2025-04-28}  # 评测专用模型（比主链路 qwen-plus 更便宜）
+      model: ${EVALUATION_LLM_MODEL:qwen-turbo}  # 评测专用模型（无日期版本，与 Langfuse LLM Connection 一致；带日期后缀连不通）
 
 feature:
   subagent:

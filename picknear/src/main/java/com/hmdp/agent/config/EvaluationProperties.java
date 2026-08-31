@@ -41,7 +41,7 @@ public class EvaluationProperties {
         /** 自定义 API Key（provider=custom 时生效） */
         private String apiKey = "";
 
-        /** 自定义模型名（provider=custom 时生效，如 qwen-plus-2025-07-28） */
+        /** 自定义模型名（provider=custom 时生效，如 qwen-turbo；无日期后缀，与 Langfuse LLM Connection 一致） */
         private String model = "";
 
         /** 自定义连接是否完整配置：provider=custom 且 base-url/api-key/model 三键非空 */
