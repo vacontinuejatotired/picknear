@@ -97,6 +97,8 @@ agent:
     parallel-tools: true                      # batch 用：轮内多个工具并发执行
     parallel-compress: true                   # batch 用：轮内多个长结果压缩并发（N×4s → ~4s）
     compress-length: 80                       # 工具结果压缩摘要最大字符数（防上下文滚雪球）
+    rate-limit:
+      retry-backoff: 5s                      # 429 限流专用退避（5s → 10s → 20s 指数退避，比普通错误的 1s 更长）
     dag:
       default-max-retries: 3                  # 全局默认最大重试次数（工具未声明时使用）
       default-retry-enabled: true             # 全局默认是否允许重试
@@ -127,7 +129,7 @@ agent:
       provider: default                       # judge 模型来源：default=Langfuse 托管（免费额度，默认）；custom=自定义 OpenAI-compatible 端点
       base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
       api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
-      model: ${EVALUATION_LLM_MODEL:}         # provider=custom 时：模型名（如 qwen-plus-2025-07-28）
+      model: ${EVALUATION_LLM_MODEL:qwen-turbo-2025-04-28}  # 评测专用模型（比主链路 qwen-plus 更便宜）
 
 feature:
   subagent:
