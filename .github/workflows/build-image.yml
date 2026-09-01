@@ -1,12 +1,19 @@
 name: Build Image
 
 on:
+  # 手动触发（可指定 tag）
   workflow_dispatch:
     inputs:
       tag:
         description: '镜像标签（默认 latest）'
         required: false
         default: 'latest'
+  # 自动触发：push 到发布分支 master 即构建推送（feature 开发不触发）
+  push:
+    branches: ['master']
+    paths-ignore:
+      - 'md/**'
+      - '*.md'
 
 jobs:
   build-and-push:
@@ -35,8 +42,9 @@ jobs:
           # ACR 个人版不支持 provenance/sbom 附件（unknown manifest class 报错），必须关闭
           provenance: false
           sbom: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # GHA 层缓存：显式 scope 避免与仓库内其他 job/workflow 的缓存挤占淘汰
+          cache-from: type=gha,scope=picknear-app
+          cache-to: type=gha,mode=max,scope=picknear-app
           tags: |
             crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:${{ inputs.tag }}
             crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest

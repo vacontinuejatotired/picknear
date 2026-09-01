@@ -15,8 +15,10 @@ COPY docker/maven/settings.xml /build/maven-settings.xml
 
 # 依赖层缓存：go-offline 把所有依赖下载到 /root/.m2/repository（镜像层，非 mount cache），
 # GHA cache 会缓存此层——pom.xml 不变时整层命中，不重新下载。
+# resolve-plugins 把构建插件（spring-boot-maven-plugin 等）也预下载进同层：
+# 否则 src 变化导致 package 重跑时，插件仍要在构建期从镜像源逐一下载。
 # ⚠️ 原 --mount=type=cache 在 GitHub Actions runner 间不共享，必须用镜像层方式。
-RUN mvn -s /build/maven-settings.xml dependency:go-offline -B
+RUN mvn -s /build/maven-settings.xml dependency:go-offline dependency:resolve-plugins -B
 
 COPY src src/
 # -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快。

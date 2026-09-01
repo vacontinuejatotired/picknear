@@ -89,6 +89,8 @@ services:
     image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest
     container_name: picknear-app
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     # 内存上限（关键）：JVM 按容器上限自动缩堆，MaxRAMPercentage=80 → 堆最大 ~800MB，防 OOM
     mem_limit: 1g
     ports:
@@ -153,6 +155,8 @@ services:
     image: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-frontend:latest
     container_name: picknear-frontend
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     # 内存上限：nginx 常驻 ~20MB，128M 富余
     mem_limit: 128m
     # 宿主机 48080 → 容器内 80（80 只在容器内部，不直接暴露）
