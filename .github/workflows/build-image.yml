@@ -48,5 +48,5 @@ jobs:
           cache-from: type=gha,scope=picknear-app
           cache-to: type=gha,mode=max,scope=picknear-app
           tags: |
-            crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:${{ inputs.tag }}
+            crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:${{ inputs.tag || 'latest' }}
             crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest
