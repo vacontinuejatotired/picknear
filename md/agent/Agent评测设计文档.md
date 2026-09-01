@@ -16,6 +16,7 @@
 | v1.2 | 2026-08-30 | Phase 1 实证（B-2 定稿）：§5.5 真实 trace 取数验证（最终回答 / 工具结果 / 属性路径）；最终回答取数规则定稿 |
 | v1.3 | 2026-08-30 | §6.2 评测模型配置类（agent.evaluation.*）：judge 模型 yaml 可配置（default 免费额度 / custom 自定义端点混合路线） |
 | v1.4 | 2026-08-30 | Phase 1 验证进度：§5.6 Score 写入链路已跑通（answer_quality config + 手动打分 trace）；LLM-as-judge 评估器已建，待 Langfuse 后台配默认 evaluation model 后激活 |
+| v1.5 | 2026-09-02 | **取数 key 修正**：§5.4/§5.5 中 "`gen_ai.request/response.content` 补发 → Langfuse input/output" 表述过时。实测（2026-09-01/02）Langfuse OTLP 提取瀑布不识别该 key，主字段恒 null、evaluator 取数空；已改为补发 `langfuse.observation.input/output`（SDK 协议，提取 Step 1）。详见 [Agent评测功能交接文档](./Agent评测功能交接文档.md) §三深挖结论 |
 
 ---
 
