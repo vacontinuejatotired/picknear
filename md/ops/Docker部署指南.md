@@ -56,6 +56,7 @@
 - **手动触发**：GitHub 仓库 → Actions → Build Image → Run workflow，可选 tag
 - 构建用 `docker/build-push-action`，**GHA 层缓存**（`type=gha,scope=picknear-app/-frontend`），依赖层复用：后端 pom.xml / 前端 package-lock.json 不变则依赖层命中，不重新下载
 - **必须关闭 provenance/sbom**（已配）：ACR 个人版不支持 OCI attestation 附件，开启会报 `unknown manifest class for application/vnd.oci.empty.v1+json`
+- **不要用 `type=registry` 构建缓存兜底**（2026-09-02 实测）：ACR 个人版拒绝 buildkit 的 cacheconfig manifest，`cache-to: type=registry` 会报 `unknown manifest class for application/vnd.buildkit.cacheconfig.v0` 导致**整个构建失败**；`type=gha` 是唯一可行的层缓存来源
 - ACR 登录凭据来自 GitHub Secrets：`ALIYUN_ACR_USERNAME` / `ALIYUN_ACR_PASSWORD`
 - 构建上下文：后端 `picknear/`（Dockerfile + `docker/maven/settings.xml` 国内镜像源）；前端 `.`（Dockerfile + nginx.conf）
 - 镜像 tag 规则：手动触发可指定 `{tag}`，同时总是更新 `latest`。**`latest` 始终指向最新一次构建**
@@ -67,6 +68,11 @@
 - GHA 缓存加了显式 `scope`，避免与仓库内其他 job（ci.yml）的缓存互相挤占淘汰
 - 后端 multi-stage + Spring Boot layertools 分层，依赖/应用层独立 COPY —— VM pull 时只拉差异层
 - 若某次构建"重新全量下载依赖"（依赖文件变化或 GHA 缓存被淘汰），属正常，不必惊慌
+
+**2026-09-02 追加的构建缓存优化**：
+- 后端 `pom.xml` **注释了 `spring-milestones` 仓库声明**：项目只用 release（中央仓都有），该声明会导致 go-offline 与 package 版本解析不一致时每次重下 spring-milestones-cn 的依赖（约 52 个）；注释后 spring-milestones 不再参与解析，依赖全部走华为云 central。**改 pom 后首次构建会重建依赖层（全量下载 ~6min，属预期），之后稳定**
+- 后端 `package` 加 `-T 1C` 插件级并行；前端镜像构建改用 `npm run build:image`（只 `vite build`，跳过 vue-tsc，类型检查由 `ci.yml` 的 `npm run build` 兜底），`npm ci` 加 `--no-audit --no-fund`
+- 实测缓存命中时：后端构建 ~7s（全层 CACHED、0 下载）、前端 ~33s（0 下载）；常规改 src 后后端 package 层重建仅重编译，不再补下 spring-milestones 依赖
 
 ---
 
@@ -248,4 +254,4 @@ sudo ip route add 172.18.0.0/16 dev br-<id> src 172.18.0.1
 
 ---
 
-*最后更新：2026-08-30(镜像来源改为 CI/CD + ACR) · 端口：原端口 + 40000 · 镜像 tag：`picknear-app:latest` / `picknear-frontend:latest`*
+*最后更新：2026-09-02(构建缓存优化：注释 spring-milestones、前端跳过 vue-tsc、registry 兜底被 ACR 拒绝) · 端口：原端口 + 40000 · 镜像 tag：`picknear-app:latest` / `picknear-frontend:latest`*
