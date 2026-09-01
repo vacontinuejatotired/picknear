@@ -64,8 +64,16 @@ public final class ChatContentSerializer {
         }
         StringBuilder sb = new StringBuilder();
         for (Generation generation : response.getResults()) {
-            String text = generation.getOutput() != null
-                    ? generation.getOutput().getText() : null;
+            AssistantMessage output = generation.getOutput();
+            if (output == null) {
+                continue;
+            }
+            String text = output.getText();
+            if ((text == null || text.isEmpty()) && output.hasToolCalls()) {
+                // TOOL_CALLS 响应：无最终文本，序列化工具调用，避免工具调用参数从 trace 丢失
+                // （2026-09-02 评测取数修复的补充）
+                text = toolCallsText(output);
+            }
             if (text == null || text.isEmpty()) {
                 continue;
             }
@@ -96,17 +104,33 @@ public final class ChatContentSerializer {
             if (body != null && !body.isBlank()) {
                 sb.append(body);
             }
-            for (AssistantMessage.ToolCall tc : am.getToolCalls()) {
+            String tools = toolCallsText(am);
+            if (tools != null) {
                 if (sb.length() > 0) {
                     sb.append("\n");
                 }
-                sb.append("[调用工具] ").append(tc.name())
-                        .append("(").append(tc.arguments()).append(")");
+                sb.append(tools);
             }
-            text = sb.toString();
+            text = sb.length() > 0 ? sb.toString() : "";
         } else {
             text = message.getText();
         }
         return text == null || text.isEmpty() ? "" : sanitizer.sanitizeDiagnostic(text);
+    }
+
+    /** 工具调用序列化（请求/响应两侧共用）："[调用工具] name(args)"，多调用换行连接；无调用返回 null */
+    private static String toolCallsText(AssistantMessage message) {
+        if (!message.hasToolCalls()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (AssistantMessage.ToolCall tc : message.getToolCalls()) {
+            if (sb.length() > 0) {
+                sb.append("\n");
+            }
+            sb.append("[调用工具] ").append(tc.name())
+                    .append("(").append(tc.arguments()).append(")");
+        }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 }
