@@ -13,8 +13,10 @@ import java.util.List;
  *   <li>{@link #supportsSpanAttributes}：自定义属性在目标后端 UI 是否可见。
  *       <b>唯一事实源</b>——「是否把语义编码进 span 名」由命名策略从它推导
  *       （{@link #defaultSemanticNameEncoding()}），不在本类再设布尔字段，杜绝互生失配。</li>
- *   <li>{@link #contentSupplementRequired}：是否需补发 OTel 标准属性
- *       {@code gen_ai.request/response.content}（默认 true）。</li>
+ *   <li>{@link #contentSupplementRequired}：是否需补发
+ *       {@code langfuse.observation.input/output}（默认 true；2026-09-01 由
+ *       {@code gen_ai.request/response.content} 改为 Langfuse SDK 协议 key，修复
+ *       OTLP 转译后主字段恒 null——评测取数依赖主字段）。</li>
  *   <li>{@link #quotaAware}：是否配额敏感（决定白名单默认严谨度，默认 false）。</li>
  *   <li>{@link #defaultTracePrefixes}：默认放行的 span 前缀；{@code agent.} 项
  *       由 {@link AgentSpanSpec#NAMESPACE} 常量派生（评审 13.3.3，消除多份字面量）。</li>

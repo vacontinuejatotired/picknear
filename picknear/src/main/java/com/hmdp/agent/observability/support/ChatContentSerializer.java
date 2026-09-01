@@ -18,8 +18,10 @@ import java.util.Map;
  * 纯静态无状态，可独立单测）。
  * <p>
  * 用途：Langfuse 云版 OTLP 路径下自定义 span attributes 不展示，content 经
- * {@code gen_ai.request.content}/{@code gen_ai.response.content} 补发才能渲染
- * input/output。所有文本先经 {@link AttributeSanitizer} 脱敏（手机号/邮箱/身份证 + 截断）。
+ * {@code langfuse.observation.input}/{@code langfuse.observation.output} 补发
+ * （Langfuse 转译后落 observation 主字段；2026-09-01 由 gen_ai.request/response.content
+ * 改为 SDK 协议 key，修复主字段恒 null——旧 key 不被 Langfuse 提取器识别）。
+ * 所有文本先经 {@link AttributeSanitizer} 脱敏（手机号/邮箱/身份证 + 截断）。
  * </p>
  */
 public final class ChatContentSerializer {
