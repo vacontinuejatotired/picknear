@@ -1,7 +1,7 @@
 # CI 流水线说明
 
 > **最后更新**: 2026-08-30
-> **场景**: GitHub Actions 云 runner 自动编译测试 + 按需构建镜像推送 ACR
+> **场景**: GitHub Actions 云 runner 自动编译测试 + push master 自动构建镜像推送 ACR
 
 ---
 
@@ -10,9 +10,9 @@
 | Workflow | 文件 | 触发 | 作用 |
 |----------|------|------|------|
 | CI | `.github/workflows/ci.yml` | push 任意分支 / PR | 编译 + 单元测试（质量门禁） |
-| Build Image | `.github/workflows/build-image.yml` | 手动（workflow_dispatch） | 构建 Docker 镜像推阿里云 ACR |
+| Build Image | `.github/workflows/build-image.yml` | **push master**（自动）+ 手动（workflow_dispatch） | 构建 Docker 镜像推阿里云 ACR |
 
-无 CD 自动部署：本地无常在线服务器（VM 不常开），需要部署时手动触发 Build Image，任意有 docker 的机器 `docker compose up -d --no-build` 拉取镜像即可。
+无 CD 自动部署：本地无常在线服务器（VM 不常开），master 上构建出新镜像后，任意有 docker 的机器 `docker compose pull && up -d --no-build` 拉取镜像即可。
 
 ## 2. CI 细节
 
@@ -29,15 +29,20 @@
 - 其余测试全部为纯 Mockito 单测，可在云端跑（surefire 已配 `-XX:+EnableDynamicAgentLoading`，JDK 17 无 mock maker 问题）
 - 测试代码在 `picknear/src/test/`，**必须保持 `mvn test -DskipITs` 可全绿**——新增/修改主代码时同步更新测试
 
-## 3. Build Image 细节（手动触发）
+## 3. Build Image 细节（push master 自动 + 手动触发）
+
+**自动触发**：push 到 `master` 分支即自动构建推送 ACR（`on.push.branches: [master]`，且忽略纯 `md/**`/`*.md` 文档改动）。后端日常开发在 `feature` 分支不触发，**合并到 master 即发布新镜像**；前端直接在 `master` 开发，每次 push 即重新构建。
+
+**手动触发**：需要指定 tag 或想手动重发时：
 
 ```bash
-# 触发方式：GitHub 仓库 → Actions → Build Image → Run workflow
+# GitHub 仓库 → Actions → Build Image → Run workflow
 # 可选输入 tag（默认 latest）
 ```
 
 - 构建上下文 `picknear/`（Dockerfile + `docker/maven/settings.xml` 国内镜像源）
-- 构建后推送 ACR 两个标签：`picknear-app:{tag}` + `picknear-app:latest`
+- 构建后推送 ACR 两个标签：`picknear-app:{tag}` + `picknear-app:latest`（`latest` 始终指向最近一次构建）
+- **GHA 层缓存**：`cache-from/cache-to: type=gha,scope=picknear-app`，显式 scope 避免与仓库内其他 job（ci.yml）缓存互相挤占。依赖层是**镜像层缓存**（非 `--mount=type=cache`，GHA runner 不共享 mount），pom.xml 不变则依赖层命中、不重新下载；GHA 缓存被淘汰时该层需重建，属正常
 - **必须关闭 provenance/sbom**（`build-image.yml` 已配）：ACR 个人版不支持 OCI attestation 附件，开启会报 `denied: unknown manifest class for application/vnd.oci.empty.v1+json`
 - ACR 登录凭据来自 GitHub Secrets：
   - `ALIYUN_ACR_USERNAME`：ACR 登录用户名（即阿里云账号名，见 `vm-docs/deploy-vm.sh` 的 `USER`）
