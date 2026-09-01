@@ -43,8 +43,13 @@ jobs:
           provenance: false
           sbom: false
           # GHA 层缓存：显式 scope 避免与仓库内其他 job/workflow 的缓存挤占淘汰
-          cache-from: type=gha,scope=picknear-app
-          cache-to: type=gha,mode=max,scope=picknear-app
+          # registry 缓存兜底：GHA 缓存丢失（超 7 天/超限被清）时从 ACR 恢复构建层
+          cache-from: |
+            type=gha,scope=picknear-app
+            type=registry,ref=crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:build-cache
+          cache-to: |
+            type=gha,mode=max,scope=picknear-app
+            type=registry,mode=max,ref=crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:build-cache
           tags: |
             crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:${{ inputs.tag }}
             crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app:latest

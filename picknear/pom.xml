@@ -247,6 +247,11 @@
     </dependencies>
 
     <!-- ========== 仓库配置 ========== -->
+    <!-- spring-milestones 仓库已注释（2026-09-02，CI 构建缓存优化）：
+         项目仅使用 release 版本，release 均在中央仓，该声明会导致 go-offline 与
+         package 版本解析不一致时每次重下 spring-milestones-cn 的依赖（约 52 个）。
+         若未来引入里程碑版依赖，恢复此声明即可。 -->
+    <!--
     <repositories>
         <repository>
             <id>spring-milestones</id>
@@ -257,6 +262,7 @@
             </snapshots>
         </repository>
     </repositories>
+    -->
 
     <build>
         <plugins>

@@ -22,7 +22,8 @@ RUN mvn -s /build/maven-settings.xml dependency:go-offline dependency:resolve-pl
 
 COPY src src/
 # -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快。
-RUN mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B
+# -T 1C：插件级并行（单模块 javac 收益有限，但无副作用）。
+RUN mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -T 1C -B
 
 # 拆分层，配合 JarLauncher 路径
 RUN java -Djarmode=layertools -jar target/*.jar extract --destination extracted
