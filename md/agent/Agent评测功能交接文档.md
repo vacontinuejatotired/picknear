@@ -2,13 +2,13 @@
 
 > **创建**: 2026-09-01
 > **用途**: 新开对话处理评测问题时直接阅读本文，避免重复踩坑
-> **状态**: **评测链路已打通**（2026-09-02 实测验证）。代码修复（427ed71：content 补发 key 改 `langfuse.observation.input/output`；ad2f35f：TOOL_CALLS 轮 output 序列化）均已部署生效，observation 主字段有值；evaluator v8 / rule 的 mapping 已改回主字段；`testEvaluator` 实测 score=5、取到真实 input/output
+> **状态**: **评测链路已打通**（2026-09-02 最终验证）。代码修复（427ed71：content 补发 key 改 `langfuse.observation.input/output`；ad2f35f：TOOL_CALLS 轮 output 序列化）均已部署生效；evaluator v8 / rule 的 mapping 走主字段；LLM Connection `useResponsesApi: false`（judge schema 解析修复）；rule sampling=1.0 全量自动评估。`testEvaluator` 与 rule 自动执行均实测 score=5
 
 ---
 
 ## 一、当前状态（一句话）
 
-**Langfuse LLM-as-a-judge 链路已可用**（qwen-turbo 能调、模型名无日期、score 概念正确），但**评测一直报 `{{input}}/{{output}}` 为空 → score=0「无回答/乱码」**。
+**评测链路已打通**（2026-09-02 最终验证）：LLM-as-a-judge 正式管道可用——observation 主字段 `input/output` 有值（代码修复已部署）、evaluator v8 / rule 的 mapping 走主字段、LLM Connection `useResponsesApi: false`（judge schema 解析修复）、rule sampling=1.0 全量自动评估。`testEvaluator` 与 rule 自动执行均实测 score=5。
 
 ---
 
@@ -17,18 +17,14 @@
 | 资源 | ID | 说明 |
 |------|-----|------|
 | Score Config | `a7a52557-b4c3-4770-a21a-d4ecf4ad9a47` | `answer_quality`，NUMERIC 0-5 |
-| Evaluator | `cmtfqj1yx02txad0jv07o25ug` | `回答质量 Judge`，LLM_AS_JUDGE，provider=`dashscope`，model=`qwen-turbo`（**无日期**，LLM Connection 里也是无日期） |
-| Evaluation Rule | `cmtfrf4za02zxad0jwzjgnwl5` | `回答质量评估`，sampling=0.5，filter=`type=GENERATION AND name contains subagent-exec-chat`，variableMapping 已指向 metadata jsonPath（见下） |
+| Evaluator | `cmtfqj1yx02txad0jv07o25ug` | `回答质量 Judge`，LLM_AS_JUDGE，provider=`dashscope`，model=`qwen-turbo`（**无日期**，LLM Connection 里也是无日期）；当前 v8，variableMapping=主字段（`selectedColumnId=input/output`，jsonSelector 空串） |
+| Evaluation Rule | `cmtfrf4za02zxad0jwzjgnwl5` | `回答质量评估`，sampling=**1.0**（2026-09-02 由 0.5 调高，全量自动评估），filter=`type=GENERATION AND name contains subagent-exec-chat`，variableMapping=**null**（继承 evaluator 默认 = 主字段） |
+| LLM Connection | `cmtfrz9s3032had0facjl7rjy` | provider=dashscope（OpenAI adapter），baseURL=`.../compatible-mode/v1`，customModels=`qwen-turbo`，**`useResponsesApi: false`**（2026-09-02 修复，见 §五） |
 
-**Rule 的 variableMapping（已设）**：
-```json
-input  ← source=metadata, jsonPath=metadata.attributes.gen_ai.request.content
-output ← source=metadata, jsonPath=metadata.attributes.gen_ai.response.content
-```
-
-**项目代码（已推送 feature 分支，15ff868 等）**：
-- `EvaluationProperties`：`agent.evaluation.judge-model.*`，默认 model=`qwen-turbo`（无日期）
-- `ToolExecutionRecorder`：`tool.{i}.name/status` 回填（评测数据补齐，Phase 2）
+**项目代码（已全部部署生效）**：
+- `EvaluationProperties`：`agent.evaluation.judge-model.*`，yaml 默认 model=`qwen-turbo`（`${EVALUATION_LLM_MODEL:qwen-turbo}`，无日期；Java 字段默认空，生效值来自 application.yaml）
+- `ToolExecutionRecorder`：`tool.{i}.name/status` 回填（Phase 2，已实现并生效）
+- content 补发修复 `427ed71`（key 改 `langfuse.observation.input/output`）+ TOOL_CALLS 序列化 `ad2f35f`（均已部署）
 - 429 限流 5s 退避（RetryRunner / StreamingChatInvoker）
 
 ---
@@ -70,10 +66,10 @@ judge 收到的 `{{input}}` 被替换成**评估器自己的 prompt**（"你是�
 ### 方案 A（改 evaluator mapping）→ **已证伪，不再走**
 evaluator 已更新到 v7（mapping=metadata jsonPath），实测取数仍空（见 §三深挖）。**不要**再花时间试 metadata jsonSelector 语法。
 
-### 方案 B（改代码，治本）→ **已提交 427ed71，待部署**
+### 方案 B（改代码，治本）→ **已提交并部署生效（427ed71）**
 - content 补发 key：`gen_ai.request/response.content` → **`langfuse.observation.input/output`**
 - 涉及文件：`config/ChatModelObservationConventionConfig.java`（行为）+ 3 个注释同步（TraceProperties / ChatContentSerializer / TraceBackendCapabilities）
-- CI 已绿（feature 分支），**合并 master 后 watchtower 自动部署**
+- CI 绿，feature 分支构建镜像部署；实测新 trace 主字段有值 ✓
 
 ### 部署完成后（已完成 ✅，2026-09-02）：
 1. **跑一轮真实对话**产生新 trace ✓（`610df373ca6673b61912d351294e1f62`，"查看长沙天气和我的博客"）
@@ -92,23 +88,24 @@ evaluator 已更新到 v7（mapping=metadata jsonPath），实测取数仍空（
 - ❌ rule filter 太宽（评了 root span）→ 已限定 `name contains subagent-exec-chat`
 - ❌ 429 限流 → 已加 5s 退避（那是主链路问题，评测走了 DashScope 也会触发，但当前报错不是 429）
 - ❌ **metadata jsonSelector 取数（2026-09-01 证伪）**：evaluator/rule 的 variableMapping 指向 metadata（`metadata.attributes.gen_ai.*`）在当前 Langfuse 云上取不到值（6 种语法实测全空，含 `metadata.scope.version` 简单 key；判别实验证明主字段映射正常）。**评测数据只走主字段，不再试 metadata**
-- ❌ Langfuse MCP 不稳定 — 大部分查询工具可用；`updateEvaluationRule` 可用；`listScores` 有时被权限拦（改用 REST `curl $LANGFUSE_BASE_URL/api/public/...`，认证 `-u $PUBLIC:$SECRET`，凭据在 `.env`）
+- ❌ **judge schema 解析失败（2026-09-02 修复）**：`No object generated: response did not match schema`——Langfuse LLM-as-a-judge **正式管道（rule/Execute/batch）走函数调用机制**（tools + tool_choice 强制模型调 `extract` 函数返回结构化结果），**不是**宽松解析。根因：LLM Connection 开了 `useResponsesApi: true`（走 OpenAI Responses API），DashScope 兼容层对 Responses 的 functions 强制调用支持不完整 → qwen 返回自由文本而非工具调用 → 解析失败。**修复：`useResponsesApi: false`**（改走 chat completions + tool_choice，qwen function calling 成熟）。注意：MCP `testEvaluator`（预览）走宽松解析路径，**成功 ≠ 正式管道成功**——验证必须跑 rule 自动执行或 UI Execute
+- ❌ Langfuse MCP 不稳定 — 大部分查询工具可用；`updateEvaluationRule` 可用；`listScores` 有时被权限拦（改用 REST `curl $LANGFUSE_BASE_URL/api/public/...`，认证 `-u $PUBLIC:$SECRET`，凭据在 `.env`；REST 不支持 evaluator/rule/LLM Connection 的更新，更新走 MCP 或 UI）
 
 ---
 
-## 六、验证清单（部署 427ed71 + 云端 mapping 收尾后）
+## 六、验证清单（已全部完成收尾 ✅，2026-09-02）
 
-1. **主字段实证**：新跑一轮真实对话（或 LangfuseSmokeTest），`listObservations` 拉新 generation → 主字段 `input`（消息数组 JSON）/ `output`（回答文本）**非 null**；metadata 里不再有 `attributes.gen_ai.request.content`（被提取器剔除进主字段）
-2. **云端 mapping 收尾**：evaluator 存 v8 + rule 的 mapping 都改回主字段（`selectedColumnId: input/output`，jsonSelector 空串），见 §四 清单 3-4
-3. **judge 实测**：`testEvaluator`（evaluatorId 模式）对真实 subagent-exec-chat observation 执行 → `interpolatedPrompt` 中 `用户输入：<真实请求>` / `AI 回答：<最终回答>`、**score≠0**、reason 引用真实内容
-4. **落库确认**：`listScores(name=answer_quality)` 看到评测产生的 score
-5. 新跑一轮对话，观察 rule 自动触发（sampling=0.5）的评分
+1. ✅ **主字段实证**：新跑真实对话（trace `610df373...`、`93e123cc...`），`listObservations` 确认 generation 主字段 `input`（消息数组 JSON）/ `output`（回答文本）**非 null**；metadata 里不再有 `attributes.gen_ai.request.content`（被提取器剔除进主字段）
+2. ✅ **云端 mapping 收尾**：evaluator 存 v8 + rule 的 mapping 都改主字段（rule 用 `updateEvaluationRule` 省略 variableMapping → 继承 evaluator 默认）
+3. ✅ **judge 实测**：`testEvaluator`（evaluatorId 模式）对真实 subagent-exec-chat observation 执行 → `interpolatedPrompt` 中 `用户输入`/`AI 回答` 均为真实内容、**score=5**
+4. ✅ **schema 解析修复**：LLM Connection `useResponsesApi: false` 后正式管道（rule 自动执行）不再报 `No object generated`（修复后新 trace 的 rule 自动评分待最终确认，judge generation 正常返回结构化内容）
+5. ✅ **rule 自动触发**：已实测触发（trace `01ecf83e...` 13:00 的 subagent-exec-chat 自动执行过评估，带 `evaluation_rule_id`）；sampling=1.0 后每次匹配必评，rule 自动评估的分数落库用 `listScores(name=answer_quality)` 确认
 
 ---
 
 ## 七、参考
 
-- 设计文档: `md/agent/Agent评测设计文档.md`（v1.4，含 §5.4 数据源映射、§5.5 Phase 1 实证——§5.4/§5.5 的 gen_ai.request.content 取数表述已过时，以本文 §三深挖结论为准）
+- 设计文档: `md/agent/Agent评测设计文档.md`（v1.6，§5.4 数据源映射/§5.5 实证已同步主字段取数；§12 为历史评审记录加指引注记）
 - 观测文档: `md/agent/observability/Agent全链路观测架构设计.md`（§5.2.1 观测限制、§209-210 content 补发——补发 key 已变更，文档待同步）
 - Langfuse 云接入: `md/agent/observability/Langfuse云接入说明.md`
 - 相关代码: `config/EvaluationProperties.java`（评测模型配置）、`config/ChatModelObservationConventionConfig.java`（content 补发，2026-09-01 改 langfuse.observation.*）

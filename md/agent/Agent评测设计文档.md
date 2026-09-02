@@ -1,8 +1,8 @@
 # Agent 任务完成质量评测设计文档
 
-> **版本**: v1.0（初始版）  
+> **版本**: v1.6（Phase 1/2 完成，链路已打通）  
 > **创建**: 2026-08-30  
-> **状态**: 设计阶段（调研已完成，实施待排期）  
+> **状态**: **Phase 1/2 已完成、评测链路已打通**（2026-09-02 实测验证；详见 [Agent评测功能交接文档](./Agent评测功能交接文档.md)）——回答质量 judge 全链路可用（取数 → schema 解析 → 自动触发），执行质量 evaluator / 评估集沉淀待后续 Phase  
 > **相关文档**: [Agent全链路观测架构设计](./observability/Agent全链路观测架构设计.md) · [Langfuse云接入说明](./observability/Langfuse云接入说明.md) · [Langfuse MCP 接入与使用指南](./observability/Langfuse%20MCP%20接入与使用指南.md)
 
 ---
@@ -16,7 +16,8 @@
 | v1.2 | 2026-08-30 | Phase 1 实证（B-2 定稿）：§5.5 真实 trace 取数验证（最终回答 / 工具结果 / 属性路径）；最终回答取数规则定稿 |
 | v1.3 | 2026-08-30 | §6.2 评测模型配置类（agent.evaluation.*）：judge 模型 yaml 可配置（default 免费额度 / custom 自定义端点混合路线） |
 | v1.4 | 2026-08-30 | Phase 1 验证进度：§5.6 Score 写入链路已跑通（answer_quality config + 手动打分 trace）；LLM-as-judge 评估器已建，待 Langfuse 后台配默认 evaluation model 后激活 |
-| v1.5 | 2026-09-02 | **取数 key 修正**：§5.4/§5.5 中 "`gen_ai.request/response.content` 补发 → Langfuse input/output" 表述过时。实测（2026-09-01/02）Langfuse OTLP 提取瀑布不识别该 key，主字段恒 null、evaluator 取数空；已改为补发 `langfuse.observation.input/output`（SDK 协议，提取 Step 1）。详见 [Agent评测功能交接文档](./Agent评测功能交接文档.md) §三深挖结论 |
+| v1.5 | 2026-09-02 | **代码侧取数 key 修正**（标注 §5.4/§5.5 表述待同步）：`gen_ai.request/response.content` 补发不被 Langfuse OTLP 提取瀑布识别，主字段恒 null；代码已改为补发 `langfuse.observation.input/output`（SDK 协议，提取 Step 1）。详见 [Agent评测功能交接文档](./Agent评测功能交接文档.md) §三深挖结论 |
+| v1.6 | 2026-09-02 | **链路打通收尾（§5.4/§5.5 正文同步修正）**：取数 key 正文更新为主字段；补评测三个实测坑（metadata jsonSelector 取数不可用 / 正式管道走函数调用机制 + `useResponsesApi: false` / testEvaluator 宽松解析≠正式管道）；§9 Phase 1/2 ✅、Phase 3 部分完成（rule 自动触发 sampling=1.0）；§10 风险与 D1-D4 决策点标注实测结论 |
 
 ---
 
@@ -186,16 +187,16 @@ Agent 模块（两阶段规划 + 工具调用 + 多轮编排）上线后，**没
 - **防偏置**：prompt 不透露 judge 模型身份；要求"先通读 → 打分 → 理由"固定流程
 - **强制 JSON**：输出结构固定，便于 Langfuse 解析与告警
 - **锚定示例**：评分标准中给出 5 分与 2 分的对照行为描述（后续 Dataset 沉淀后引入 few-shot）
-- **数据脱敏**：judge 输入来自 trace 属性（AgentField 已按 SUMMARY/DIAGNOSTIC 脱敏），理由中不含用户隐私
+- **数据脱敏**：judge 输入实际来自 observation **主字段** `input/output`（`ChatContentSerializer` 序列化 + `AttributeSanitizer` 已按 SUMMARY/DIAGNOSTIC 脱敏），**不是** trace metadata 属性（2026-09-02 实证，见 §5.5 警示）；理由中不含用户隐私
 
 ### 5.3 judge 模型选择
 
 | 方案 | 说明 | 风险 | 决策 |
 |------|------|------|------|
-| A. Langfuse 默认 judge 模型 | 零配置，平台托管 | LLM 调用成本按量计费；模型与主链路异构（更客观） | 先跑通验证 |
-| B. 自定义 LLM Connection 连 DashScope qwen | 复用现有 API Key + OpenAI-compatible 端点 | **qwen 评 qwen 同质偏置**（对自身生成过于宽容）；配置有门槛 | 实测对比后定 |
+| A. Langfuse 默认 judge 模型 | 零配置，平台托管 | LLM 调用成本按量计费；模型与主链路异构（更客观） | 未采用 |
+| B. 自定义 LLM Connection 连 DashScope qwen | 复用现有 API Key + OpenAI-compatible 端点 | **qwen 评 qwen 同质偏置**（对自身生成过于宽容）；配置有门槛 | **已落地**（2026-09-02） |
 
-> 决策：**Phase 1 先用 A 验证全链路**（成本/分数/展示），Phase 3 上线前用 B 跑同批 trace 对比两者分布，差异大再议。
+> 决策结论（2026-09-02 更新）：**实际落地 B**——LLM Connection（provider=dashscope / OpenAI adapter / `qwen-turbo` 无日期）自 Phase 1 即启用，未走 A。落地关键前提：**Connection 的 `useResponsesApi` 必须为 `false`**（走 chat completions + tool_choice 函数调用；Responses API 下 DashScope functions 支持不完整会报 `No object generated`，见 §10 风险表）。A/B 分布对比未做（开放事项，见 §10）。
 
 ### 5.4 数据源映射表（评估输入 ← trace 字段）
 
@@ -204,14 +205,16 @@ Agent 模块（两阶段规划 + 工具调用 + 多轮编排）上线后，**没
 | 评估需要 | trace 字段 | span | 现状 |
 |---------|-----------|------|------|
 | 会话标识 | `conversation.id` / `user.id` | agent.session | ✅ 已有 |
-| 用户原始输入 | `gen_ai.request.content`（phase1 generation） | chat <model> | ✅ include-content 已开 |
-| 最终回答 | `gen_ai.response.content` | chat <model> | ⚠️ **取数位置待实证（见下方 B-2）** |
-| 工具清单 | `plan.tools` | agent.plan | ✅ 已有 |
+| 用户原始输入 | **主字段 `input`**（`langfuse.observation.input` 补发，消息数组 JSON；如 phase1 的 user 消息） | 各 chat generation | ✅ 已打通（v1.5 起补发 key 修正） |
+| 最终回答 | **主字段 `output`**（`langfuse.observation.output` 补发；最后一条 GENERATION 的最终回答 + DATA_SNAPSHOT） | subagent-exec-chat | ✅ 已打通（B-2 定稿见 §5.5） |
+| 工具清单 | `plan.tools`（⚠️ 在 metadata.attributes，见下方警示） | agent.plan | ✅ 已有（仅 UI 查阅） |
 | 工具数量/轮次 | `tool_count`；轮次由 `agent.round` span 的 **semantic**（轮次号）区分（非属性 key） | agent.round | ✅ 已有 |
-| **逐工具名称/状态** | **`tool.{i}.name` / `tool.{i}.status`** | agent.subagent | ⚠️ 本次实现（§6.1） |
-| 守卫/审批事件 | `guard.decision` / `hook.decision` | agent.guard | ✅ 已有 |
-| 规划来源/校验 | `validate_result` | agent.plan | ✅ 已有 |
+| **逐工具名称/状态** | **`tool.{i}.name` / `tool.{i}.status`**（⚠️ metadata.attributes，见下方警示） | agent.subagent | ✅ 已实现生效（§6.1） |
+| 守卫/审批事件 | `guard.decision` / `hook.decision`（⚠️ metadata.attributes） | agent.guard | ✅ 已有（仅 UI 查阅） |
+| 规划来源/校验 | `validate_result`（⚠️ metadata.attributes） | agent.plan | ✅ 已有（仅 UI 查阅） |
 | 阶段/状态 | `status` | 各 span | ✅ 已有 |
+
+> **⚠️ 取数警示（2026-09-02 实证，重要）**：上表"⚠️ metadata.attributes"列出的字段（plan.tools / tool.{i} / guard.* / validate_result）**只存在于 observation 的 metadata.attributes**，**evaluator/rule 的 metadata jsonSelector 取数在当前 Langfuse 云上实测不可用**（6 种语法全空）——评估器只能读到 observation **主字段** input/output。工具链信息改从主字段获取：input 消息数组（含 `[调用工具] name(args)` 的 assistant 消息段）+ TOOL_CALLS 轮 output（`[调用工具] ...` 序列化，v1.5 代码修复）+ 末轮 output 的 `===DATA_SNAPSHOT===` JSON。**CODE/规则 evaluator 读 metadata 属性的设计前提（B-3/C-1）需要重估**。
 
 **实证标注（审查 B-2/B-3/B-7，Phase 1 必验）**：
 
@@ -240,24 +243,26 @@ agent.session（根：conversation.id / user.id / finish=COMPLETE / langfuse.* �
 └─ agent.round.2（tool_count=0, plan_valid=false）→ agent.plan（validate_result=empty）→ 结束
 ```
 
-**实证结论（评估取数规则定稿）**：
+**实证结论（评估取数规则定稿；2026-09-02 主字段修正）**：
 
 | 结论 | 依据 |
 |------|------|
-| **最终回答** = `agent.subagent` 下**最后一条** `subagent-exec-*` generation 的 `gen_ai.response.content`（DATA_SNAPSHOT 前的自然语言部分）；无 subagent 的简单对话 = `agent.phase1` 下 chat generation。取数规则：**trace 内最后一条 GENERATION**（两种路径统一） | 用户实际看到的就是 subagent-exec-chat 的回复；phase1 的 chat 只是过渡语 |
-| **工具结果：不需要补 `tool.{i}.result`** | 最终 generation 的 `===DATA_SNAPSHOT===` JSON 已含每工具 status+data（500 字截断），judge 的"对照工具链判断完整性/准确性"输入从它提取即可；压缩 generation 的 request 还有工具原始结果全文兜底 |
-| **`tool.{i}.name/status` 回填仍保留** | 供规则/CODE evaluator 直接读属性（成功率/失败/重复统计），不必解析 generation 文本；本次回填代码已实现，待部署后生效 |
-| **属性取数路径** = `metadata.attributes.{field}`（OTLP attributes 落 Langfuse observation 的 metadata，前缀 `attributes.`） | 实测 `attributes.plan.tools`、`attributes.guard.decision` 等均在 metadata 下 |
-| **工具清单另一来源**：`subagent-exec-*` generation 的 `spring.ai.model.request.tool.names` | 与 plan.tools 互为印证 |
+| **最终回答** = `agent.subagent` 下**最后一条** `subagent-exec-*` generation 的**主字段 output**（DATA_SNAPSHOT 前的自然语言部分）；无 subagent 的简单对话 = `agent.phase1` 下 chat generation。取数规则：**trace 内最后一条 GENERATION**（两种路径统一） | 用户实际看到的就是 subagent-exec-chat 的回复；phase1 的 chat 只是过渡语。补发 key 2026-09-01 起为 `langfuse.observation.output`（旧 `gen_ai.response.content` 不再上报，见 v1.5/v1.6） |
+| **工具结果：不需要补 `tool.{i}.result`** | 最终 generation 的 `===DATA_SNAPSHOT===` JSON 已含每工具 status+data（500 字截断），judge 的"对照工具链判断完整性/准确性"输入从它提取即可；压缩 generation 的 input 还有工具原始结果全文兜底 |
+| **`tool.{i}.name/status` 回填仍保留** | 供 UI 查阅与后续 CODE evaluator（⚠️ evaluator 读 metadata 属性可行性待重估，见 §5.4 警示）；**回填代码已实现并部署生效**（ToolExecutionRecorder，2026-09 实测 agent.subagent span 可见 `tool.0/1` 且 COMPLETED） |
+| **⚠️ 属性取数路径限制（2026-09-02 修正）**：OTLP attributes 落 `metadata.attributes.{field}` 仅**供 UI/手动查阅**（实测 `attributes.plan.tools`、`attributes.guard.decision` 等在 metadata 下）——**不可作 evaluator mapping 取数源**（metadata jsonSelector 实测取空，见 §5.4 警示） | 判别实验：主字段映射取到值、metadata 映射 6 种语法全空 |
+| **工具清单另一来源**：`subagent-exec-*` generation input 的 `spring.ai.model.request.tool.names`（⚠️ metadata）与主字段消息数组的 `[调用工具] name(args)` 段 | 与 plan.tools 互为印证 |
 | 空计划轮 `plan.tools` 为空串序列化为 `{}`，CODE evaluator 取数需判空 | round.2 实测 |
 
-> B-2 全部落定；评估器输入无需再补字段。`tool.{i}` 回填代码已 push（CI 绿），部署后即可在 agent.subagent span 看到。
+> B-2 全部落定（v1.2）；v1.6 起取数 key/路径按主字段修正。评估器输入无需再补字段。rule sampling 已定 **1.0**（v1.6，全量自动评估，评估对象 = 已采样 trace——观测验证期 sampling=1.0）。
 
 ---
 
 ## 六、数据补齐方案（项目侧唯一 Java 改动点）
 
-### 6.1 AgentField `tool.{i}.name/status` 回填（Phase 2，v1.1 定稿）
+### 6.1 AgentField `tool.{i}.name/status` 回填（Phase 2，v1.1 定稿）✅ 已实现
+
+> 2026-09-02 状态：**已实现并部署生效**——`ToolExecutionRecorder`（`execution/ToolExecutionRecorder.java`）+ `AbstractToolLoop.invokeToolAndRecord` + 三策略接入 + 单测（InMemorySpanExporter 断言）均在代码树内；实测 agent.subagent span 可见 `tool.0/1.name/status=COMPLETED`。
 
 #### 现状
 
@@ -347,22 +352,22 @@ public class ToolExecutionRecorder {
 ```yaml
 agent:
   evaluation:
-    enabled: false                            # 评测总开关（评估器/触发功能启用后置 true）
+    enabled: false                            # 评测总开关（评估器/触发功能启用后置 true；当前评测执行在 Langfuse 云端，本项目侧开关仍未消费）
     judge-model:
       provider: default                       # judge 模型来源：default=Langfuse 托管（免费额度，默认）；custom=自定义 OpenAI-compatible 端点
       base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
       api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
-      model: ${EVALUATION_LLM_MODEL:}         # provider=custom 时：模型名（如 qwen-plus-2025-07-28）
+      model: ${EVALUATION_LLM_MODEL:qwen-turbo}  # provider=custom 时：模型名（无日期，与云端 LLM Connection 一致；application.yaml 实际默认 qwen-turbo）
 ```
 
-**设计决策**：
+**设计决策（2026-09-02 落地注记）**：
 
-- **混合路线**：默认 `provider=default` 走 Langfuse 托管 judge（免费额度、零配置）先行验证；后续切自定义只需 yaml 填三键 + `provider=custom`，复用 DashScope 现有 API Key，**无需改代码**
+- **混合路线**：默认 `provider=default` 走 Langfuse 托管 judge；实际评测验证走的是 **Langfuse 云端 LLM Connection（dashscope/qwen-turbo）**，与本配置类解耦——本类目前无 Java 消费方（见下），是预留的配置骨架
 - **完整性判定**：`isCustomConfigured()` = provider=custom 且 base-url/api-key/model 三键非空（防半配置静默生效，风格对齐 `PromptProperties.isConfigured()`）
 - **总开关** `enabled=false` 默认关闭（评测功能未上线前不产生任何行为）
 - 测试：`config/EvaluationPropertiesTest.java`（纯 POJO：默认值 / 三键齐备 / 缺键 / 大小写不敏感）
 
-> 当前消费方为后续评估器配置与项目内触发（§3.3 薄门面）；本类先行落地作为配置骨架，评估器配置（Langfuse 云端）与 Java 消费方后续接入。
+> 消费方状态（2026-09-02）：评测执行完全在 Langfuse 云端（evaluator/rule），**Java 侧无消费方、`EvaluationReporter` 薄门面未建**（§3.3 的触发条件未满足——平台 evaluator 已覆盖）；本类保留为配置骨架。
 
 ### 6.2 观测配置确认（无改动，仅核对）
 
@@ -405,36 +410,36 @@ agent:
 
 ## 九、实施步骤（Phase 划分）
 
-| Phase | 内容 | 产出 | 预估 |
+| Phase | 内容 | 产出 | 状态（2026-09-02） |
 |-------|------|------|------|
-| **Phase 1 平台验证** | Langfuse 云端手工建 1 个回答质量 judge evaluator，对现有 trace 跑通 | 全链路验证（模型可用/成本/分数展示） | 0.5-1d |
-| **Phase 2 数据补齐** | AgentField `tool.{i}` 回填（Java + 单测） | 工具明细进 trace | 0.5d |
-| **Phase 3 评估器上线** | 配置回答质量 judge + 执行质量规则 evaluator，定时批量触发 | 生产可评估 | 1d |
-| **Phase 4 评估集与回归** | Dataset 沉淀 + Experiment 回归流程跑通 | 迭代回归闭环 | 1d |
-| **Phase 5 扩展（可选）** | 规划质量 judge / 项目内规则写回 score / 事件驱动 / 告警 | 完善 | 按需 |
+| **Phase 1 平台验证** | Langfuse 云端手工建 1 个回答质量 judge evaluator，对现有 trace 跑通 | 全链路验证（模型可用/成本/分数展示） | ✅ **完成**（evaluator v8 + Score Config + rule 已建，judge 实测 score=5） |
+| **Phase 2 数据补齐** | AgentField `tool.{i}` 回填（Java + 单测） | 工具明细进 trace | ✅ **完成**（ToolExecutionRecorder + 单测，已部署生效） |
+| **Phase 3 评估器上线** | 配置回答质量 judge + 执行质量规则 evaluator，定时批量触发 | 生产可评估 | 🔶 **部分完成**：回答质量 judge 已上线并 **rule 自动触发**（filter=GENERATION+subagent-exec-chat，sampling=1.0，2026-09-02 实测自动执行）；**执行质量规则 evaluator 未做**；触发方式落地为 rule 事件驱动（非原设计"定时批量"） |
+| **Phase 4 评估集与回归** | Dataset 沉淀 + Experiment 回归流程跑通 | 迭代回归闭环 | ⏳ 未开始 |
+| **Phase 5 扩展（可选）** | 规划质量 judge / 项目内规则写回 score / 事件驱动 / 告警 | 完善 | ⏳ 未开始 |
 
-> Phase 1 是**前置验证**：先确认 Langfuse 云端 judge 能跑、成本可接受，再投入 Java 改动。
+> Phase 1 前置验证已完成（2026-09-02 实测 judge 能跑、成本可接受），Java 改动已投入并闭环。
 
 ---
 
 ## 十、风险与开放问题
 
-| 风险 | 影响 | 缓解 |
+| 风险 | 影响 | 现状与缓解 |
 |------|------|------|
-| **qwen 评 qwen 同质偏置** | judge 对自身生成过宽容，分数虚高 | Phase 1 用 Langfuse 默认模型验证；上线前 A/B 对比分布 |
-| **LLM-as-judge 成本** | 每条对话 1+ 次额外 LLM 调用 | 定时批量 + 采样；规则 evaluator 零成本兜底 |
-| **免费档配额（含评估 units）** | Langfuse 免费档 50k units/月摄取配额。**评估新增两类 units 消耗：score 写入（每个 score 计 1 unit）+ 平台内 evaluator 产生的 judge LLM observation（每条计 units）**——与观测 trace 消耗同池 | Phase 1 实测"评估 1 条 trace 新增多少 units"，连同观测日常消耗一起核算预算，回写本节（审查 B-5） |
-| **评估器配置复杂度** | 首次配置门槛高、易踩坑 | 参考社区实践文章；Phase 1 专门排期验证 |
-| **数据缺口影响评估** | tool.{i} 未回填前，过程级评估不完整 | Phase 2 补齐后才开过程级评估 |
+| **qwen 评 qwen 同质偏置** | judge 对自身生成过宽容，分数虚高 | **现状**：已直接用 qwen-turbo（B 路线），A/B 分布对比**未做（开放事项）**。缓解：qwen-turbo 与主链路 qwen-plus 异构（模型不同，偏置有限）；后续可抽批 trace 用 Langfuse 默认模型对比 |
+| **LLM-as-judge 成本** | 每条对话 1 次额外 LLM 调用 | 当前 qwen-turbo（低价档）+ rule sampling=1.0（验证期全量）；稳定后可调回采样或分维度评估时再评估 |
+| **免费档配额（含评估 units）** | Langfuse 免费档 50k units/月摄取配额。**评估新增两类 units 消耗：score 写入（每个 score 计 1 unit）+ 平台内 evaluator 产生的 judge LLM observation（每条计 units）**——与观测 trace 消耗同池 | **B-5 实测回写：未完成（开放事项）**——需抽批统计"评估 1 条 trace 新增 units"，连同观测消耗核算预算 |
+| **评估器配置复杂度** | 首次配置门槛高、易踩坑 | Phase 1 已完成排期验证。**实测新增两个大坑（2026-09-02，详见交接文档 §五）**：① **正式管道走函数调用机制**——LLM-as-a-judge 的 rule/Execute/batch 用 tools+tool_choice 强制模型调 `extract` 函数，judge 模型/端点必须支持；DashScope 需 **LLM Connection `useResponsesApi: false`**（Responses API functions 支持不完整 → `No object generated: response did not match schema`）；② **observation 级 evaluator 的 metadata jsonSelector 取数不可用**（数据必须走主字段） |
+| **数据缺口影响评估** | tool.{i} 未回填前，过程级评估不完整 | Phase 2 已补齐并生效；但 tool.{i}/plan.tools 等在 metadata.attributes，**evaluator 读不到**（见上一条 + §5.4 警示），过程级评估（执行质量 evaluator）输入需重估 |
 
-### 待拍板决策点（实测后定）
+### 待拍板决策点（实测结论 2026-09-02）
 
-| # | 决策点 | 选项 | 触发时机 |
+| # | 决策点 | 选项 | 实测结论 |
 |---|--------|------|---------|
-| D1 | 评估对象范围 | 只评最终回答 / 回答 + 过程链 | Phase 2 数据补齐后 |
-| D2 | judge 模型 | Langfuse 默认 / DashScope qwen（LLM Connection） | Phase 1 验证后 |
-| D3 | 触发方式 | 定时批量 / 事件驱动 | 成本实测后 |
-| D4 | 维度粒度 | 综合 judge ×1 / 分维度 judge ×2-3 | Phase 1 跑通后 |
+| D1 | 评估对象范围 | 只评最终回答 / 回答 + 过程链 | **落地偏差**：实际只评最终生成轮（`subagent-exec-chat` generation，rule filter 限定），非原设计的会话级/过程链——观测级 evaluator 只能看单 observation 主字段，过程链评估依赖后续执行质量 evaluator 的输入方案重估（§5.4 警示） |
+| D2 | judge 模型 | Langfuse 默认 / DashScope qwen（LLM Connection） | **已定**：DashScope qwen（`qwen-turbo` 无日期，LLM Connection `useResponsesApi: false`），见 §5.3 |
+| D3 | 触发方式 | 定时批量 / 事件驱动 | **已定**：rule 事件驱动自动触发（observation 匹配即评，sampling=1.0），非定时批量；成本随量走（qwen-turbo 低价） |
+| D4 | 维度粒度 | 综合 judge ×1 / 分维度 judge ×2-3 | **已跑通**：单综合分 evaluator（v8，NUMERIC 0-5）；分维度 judge 未做（设计 §5.2 的 sub_scores 结构未在 outputDefinition 拆分为独立 score） |
 
 ---
 
@@ -447,6 +452,8 @@ agent:
 ---
 
 ## 十二、设计评审意见（2026-08-30）
+
+> **指引注记（2026-09-02）**：本节为 2026-08-30 评审当天的历史记录，保留原貌。其中 A 组（A-1/A-2 API 与回填位置）已按评审意见修正并实现（见 §6.1）；B-2 的 `gen_ai.response.content` 表述已被 v1.5/v1.6 实证修正（主字段取数），B-3/B-7 的 metadata 取数前提已被 §5.4 警示推翻（evaluator 读不到 metadata 属性）。后续结论一律以 v1.6 正文与 [Agent评测功能交接文档](./Agent评测功能交接文档.md) 为准。
 
 > 评审依据：对照代码现状（`observability/model/AgentField.java`、`observability/api/AgentSpan.java`、`execution/ToolExecutionFacade.java`、`execution/RetryRunner.java`、`execution/loop/strategy/SerialStrategy.java`、`subagent/loop/AbstractToolLoop.java`）与《Agent全链路观测架构设计》《Langfuse云接入说明》核查。整体结论：**方案方向与选型成立（Langfuse 平台评估 + 项目侧只补数据），可进入实施；但 Phase 2 的 Java 改动文档有两处硬伤（A-1/A-2），B 组建议在 Phase 1 用真实 trace 实证后回写**。
 

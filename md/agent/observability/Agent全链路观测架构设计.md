@@ -61,7 +61,7 @@
 | D7 | 指标 | 混合：业务指标自研（Redis 计数 + 每日快照单表）+ 技术指标 Actuator 白捡 |
 | D8 | 访问控制 | 公网演示定位：**云版 2 用户硬限制天然限次**——管理员 + 演示访客（Viewer 只读）各占一个名额；演示期外停用访客账号（见 6.5） |
 | D9 | LLM 观测深度 | 深度版：token/费用/重试（改造 5 处调用点，已核验无遗漏） |
-| D10 | prompt 全文 | **2026-08-09 起默认记录进 OTel content 属性**（`gen_ai.request/response.content`，经 AttributeSanitizer 脱敏），开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true，可关回"不记"）；`log-prompt`（DEBUG 日志）仍默认 false |
+| D10 | prompt 全文 | **2026-08-09 起默认记录；2026-09-01 key 修正**为 `langfuse.observation.input/output`（原 `gen_ai.request/response.content` 不被 Langfuse OTLP 提取瀑布识别、主字段恒 null，评测取数因此断——详见 §5.2.1 修订注记），经 AttributeSanitizer 脱敏；开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true，可关回"不记"）；`log-prompt`（DEBUG 日志）仍默认 false |
 | D11 | 为什么不用 Langfuse Java SDK | ① 数据先落标准 OTel，可同时喂 Jaeger/Grafana/自建面板，不绑厂商；② 协议解耦，SDK 版本不随 Spring AI 升级漂移；③ evals/scoring 现阶段用不上。面试答："SDK 省接入成本，我要的是观测管线的控制权和学习 Observation 本身" |
 
 ---
@@ -190,7 +190,7 @@ sequenceDiagram
 | `agent.decision` | session | AfterAiHookChain 后 | `DECISION`→`decision`(BLOCK/REPLACE/PASS/PLANNING)、`HOOK_NAME`→`hook.name` |
 | `agent.round` | session | TaskPlanner 主循环每轮（semantic=轮次号） | `TOOL_COUNT`→`tool_count`、`PLAN_VALID`→`plan_valid` |
 | `agent.plan` | round | decompose 校验后 | `VALIDATE_RESULT`→`validate_result`(from_response/ai_plan/empty)、`PLAN_TOOLS`→`plan.tools`(逗号拼接) |
-| `agent.subagent` | round | SubTaskAgent.execute 整段（默认路径） | `TOOL_COUNT`→`tool_count`；M4 待补：`TOOL_ENTRY_NAME/STATUS`→`tool.{i}.name/status` 逐工具回填（模板已注册） |
+| `agent.subagent` | round | SubTaskAgent.execute 整段（默认路径） | `TOOL_COUNT`→`tool_count`；**逐工具回填已实现**（2026-09，评测 Phase 2）：`TOOL_ENTRY_NAME/STATUS`→`tool.{i}.name/status`（ToolExecutionRecorder + AbstractToolLoop.invokeToolAndRecord 三策略统一接入，见评测设计文档 §6.1） |
 | `agent.tool_call` | round | 每个 TOOL_CALL 执行（回退路径） | `STATUS`→`status`(OK/FAILED)、`TOOL_RESULT_SUMMARY`→`tool.result_summary` |
 | `agent.llm_reason` | round | 每个 LLM_REASON 执行 | `BASED_ON`→`based_on`(完成/失败工具摘要)、`STATUS`→`status` |
 | `agent.guard` | — | GuardedToolCallback 评估（semantic=决策.工具[.模型][.参数摘要]） | `TOOL_NAME`→`tool.name`、`MODEL_NAME`→`model.name`、`TOOL_ARGUMENTS`→`tool.arguments`、`GUARD_POLICY`→`guard.policy` |
@@ -204,10 +204,12 @@ sequenceDiagram
 
 业务 span 命名挂 `agent.*` 前缀避免与 `gen_ai.*` 保留语义冲突；LLM span 由 Spring AI 按 `gen_ai.*` 约定自动生成。**每个 LLM 调用实际有两层自动 span**（`spring.ai.chat.client` 层 + `gen_ai.client.operation` model 层），这是正常结构，不是重复调用。
 
-#### 5.2.1 LLM generation 名按功能区分 + content 补发（2026-08-09 增强）
+#### 5.2.1 LLM generation 名按功能区分 + content 补发（2026-08-09 增强，2026-09-01 key 修正）
 
-- **背景**：Spring AI 1.1.2 的 `DefaultChatModelObservationConvention` 只发 usage/参数/finish_reason，**不发 `gen_ai.request.content` / `gen_ai.response.content`** → Langfuse generation 的 input/output 恒为 null；且所有 LLM 调用默认同名 `chat <model>`，无法一眼区分各功能。
-- **content 补发**：自定义 convention（`ChatModelObservationConventionConfig`）在 `getHighCardinalityKeyValues` 补发两个标准属性；请求侧序列化消息数组（含 tool 结果 / 工具调用，经 `AttributeSanitizer` 脱敏 + 截断），Langfuse 据此渲染 input/output。开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true）。序列化/脱敏逻辑抽为 `ChatContentSerializer`（observability/support，纯静态可独立单测，2026-08 拆分）。
+> **修订注记（2026-09-01，评测取数修复）**：补发 key 从 `gen_ai.request.content`/`gen_ai.response.content` **改为 `langfuse.observation.input/output`**（Langfuse SDK 协议）。原因：Langfuse OTLP 转译的 input/output 提取瀑布（extractInputAndOutput）**不识别 `gen_ai.request/response.content`**——该 key 转译后只进 observation metadata、主字段恒 null；而 observation 级 evaluator（LLM-as-a-judge）从 metadata 取数又实测不可用（jsonSelector 全空），评测链路因此断。`langfuse.observation.input/output` 是提取瀑布 Step 1（最高优先级），转译后**主字段有值**。完整排查见 `md/agent/Agent评测功能交接文档.md` §三。
+
+- **背景**：Spring AI 1.1.2 的 `DefaultChatModelObservationConvention` 只发 usage/参数/finish_reason，**不发 LLM content** → Langfuse generation 的 input/output 恒为 null；且所有 LLM 调用默认同名 `chat <model>`，无法一眼区分各功能。
+- **content 补发（key 2026-09-01 修正）**：自定义 convention（`ChatModelObservationConventionConfig`）在 `getHighCardinalityKeyValues` 补发 `langfuse.observation.input`（请求侧序列化消息数组，含 tool 结果 / 工具调用，经 `AttributeSanitizer` 脱敏 + 截断）与 `langfuse.observation.output`（回复文本；TOOL_CALLS 响应序列化为 `[调用工具] name(args)`，2026-09-02 补充）。开关 `hmdp.ai-observability.chat-observation.include-content`（默认 true）。序列化/脱敏逻辑抽为 `ChatContentSerializer`（observability/support，纯静态可独立单测）。
 - **功能命名**：各 LLM 调用点用 `mark("<功能>")` 打标（try/finally 清理），generation 名 = `{功能}-chat <model>`：`phase1-chat`（JSON+SSE Phase1）、`planner-chat`（子任务规划）、`subagent-exec-chat`（子代理工具循环）、`subagent-compress-chat`（工具结果压缩）、`llm-reason-chat`（回退路径聚合）。
 - ⚠️ **已知限制**：SSE 流式 Phase1 的模型层观察在 Reactor 线程创建/命名，ThreadLocal 标记跨不过去，暂仍为 `chat`（同步调用均正常）。
 
@@ -405,7 +407,7 @@ hmdp:
     summary-max-chars: 200       # 摘要类属性截断
     diagnostic-max-chars: 4096   # 诊断类属性上限（plan_json 等）
     chat-observation:
-      include-content: true      # LLM 请求/回复全文写入 gen_ai.request/response.content（Langfuse input/output），经脱敏
+      include-content: true      # LLM 请求/回复全文写入 langfuse.observation.input/output（2026-09-01 key 修正，Langfuse 转译后落主字段 input/output），经脱敏
     metric:
       pricing:                   # token 单价（元/千 token）
         qwen-plus: { input: 0.0008, output: 0.002 }   # ⚠️ 仅 0-128K 段，2025-09 起阶梯计价，误差 ±30%，口径"数量级估算"
@@ -435,7 +437,7 @@ micrometer-registry-prometheus   <!-- 缺它 /actuator/prometheus 404 -->
 | `agent/service/impl/AiServiceImpl.java` | AfterAiHookChain 后 | `agent.decision` | decision、hook.name |
 | `agent/task/TaskPlanner.java` | 主循环每轮 | `agent.round` | tool_count、plan_valid |
 | `agent/task/TaskPlanner.java` | decompose 校验后 | `agent.plan` | validate_result、plan.tools |
-| `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count（M4 待补逐工具回填） |
+| `agent/task/TaskPlanner.java` | SubTaskAgent.execute 段 | `agent.subagent` | tool_count + tool.{i}.name/status 逐工具回填（ToolExecutionRecorder，2026-09 已实现，见 §5.1 表） |
 | `agent/task/TaskExecutor.java` | TOOL_CALL / LLM_REASON（回退路径） | `agent.tool_call` / `agent.llm_reason` | status、tool.result_summary / based_on |
 | `agent/guard/GuardedToolCallback.java` | 评估后 | `agent.guard`（semantic 编码 决策.工具[.模型][.参数摘要]，决策小步在 ToolGuardGate） | tool.name、model.name、tool.arguments、guard.policy |
 | `agent/prompt/impl/DefaultPromptService.java` | 模板获取/渲染 | `agent.prompt`（semantic=模板键） | prompt.source、prompt.rendered_len |

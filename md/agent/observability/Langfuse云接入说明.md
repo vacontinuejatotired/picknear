@@ -1,11 +1,13 @@
 # Langfuse 云接入说明（M0/M1 实施指南）
 
-> **版本**: v1.0
-> **最后更新**: 2026-08-03
+> **版本**: v1.1
+> **最后更新**: 2026-09-02
 > **上游文档**: [Agent全链路观测架构设计](./Agent全链路观测架构设计.md)（§6.5 接入、§10 里程碑）
 > **用途**: 在主机开发环境落地 M0（配额评估）+ M1（链路打通）的逐条操作指引
 >
 > **⚠️ 定位注记（2026-08-15）**：本文件是**默认观测后端（Langfuse）** 的操作指南。观测后端已支持可插拔（策略 + 装配器 + 能力驱动，见 [观测后端解耦改造方案](./观测后端解耦改造方案.md)）——换后端时本文的链路打通方法不变（仍是 OTLP），只有 endpoint/凭据/专有 header（§4）与配额口径（§1/§7）随后端变化；本文提到的「Langfuse 不展示自定义属性 → span 名编码」是 **Langfuse 特有行为**，切到支持 attributes 的后端时由后端能力开关自动关闭编码、语义改由 attributes 展示。
+>
+> **v1.1 修订（2026-09-02，评测链路打通）**：§5.6「自定义属性全部不展示」结论新增**可转译例外**——`langfuse.observation.input/output` 前缀（LLM content 补发，2026-09-01 起）会被 Langfuse 转译为 observation **主字段** input/output，评测（LLM-as-a-judge 取数）依赖此机制。
 
 ---
 
@@ -124,6 +126,8 @@ agent 会话链路（后续 M2 才有业务 span）
 ## 5.6 自定义属性可见性（M1.5 实测，⚠️ 影响 M2 设计）
 
 **实测结论（2026-08-03，Langfuse 4.2.0 JP 云版）**：**OTLP 路径下自定义 span attributes 全部不展示**——普通前缀与 `langfuse.observation.metadata.*` 前缀均未转译进 metadata（官方文档称应落 `metadata.attributes` catch-all，JP 实例行为不一致；ingestion API 直发 201 成功但查询未回显，未闭环）。
+
+> **例外注记（2026-09-02 实测）**：上述"全部不展示"存在**一个可转译例外**——`langfuse.observation.input` / `langfuse.observation.output`（Langfuse SDK 协议前缀）会被 OTLP 提取器转译为 observation **主字段** input/output（提取瀑布 Step 1），不再留在 metadata。项目自 2026-09-01 起用该 key 补发 LLM content（`ChatModelObservationConventionConfig`），使 generation 主字段有值——**LLM-as-a-judge 评测取数的前提**。其余自定义属性（`agent.*` / `guard.*` 等）仍按本结论"不展示/仅落 metadata.attributes"处理。
 
 **对 M2 的影响**：业务语义改由 **span 名编码**（span 名在 Langfuse 100% 可见）：
 - 命名规则：`agent.{类型}.{关键语义}`，如 `agent.tool_call.queryShop`、`agent.guard.BLOCK.deleteBlog`
