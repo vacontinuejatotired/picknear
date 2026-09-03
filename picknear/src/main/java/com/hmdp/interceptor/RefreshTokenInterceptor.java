@@ -92,7 +92,12 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
                     // 刷新成功：写回响应头 + 设置 Refresh Token Cookie
                     TokenPair newPair = refreshResult.tokenPair();
                     response.setHeader("X-Token-Refresh", "ok");
-                    response.setHeader("authorization", "Bearer " + newPair.getAccessToken());
+                    // 防御：签发/自愈读到的 AT 为空时不下发坏值（曾出现 "Bearer null" 导致前端 401 风暴）
+                    if (newPair.getAccessToken() != null && !newPair.getAccessToken().isEmpty()) {
+                        response.setHeader("authorization", "Bearer " + newPair.getAccessToken());
+                    } else {
+                        log.error("【Token拦截】刷新后 accessToken 为空，不下发 authorization，userId={}", userId);
+                    }
                     // 双通道：响应头让前端刷新 localStorage 中的 RT，与 Set-Cookie 保持同步
                     response.setHeader("Refresh-Token", newPair.getRefreshToken());
                     if (newPair.getRefreshToken() != null) {
