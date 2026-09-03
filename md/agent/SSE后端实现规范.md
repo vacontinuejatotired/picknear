@@ -6,21 +6,21 @@
 
 ### 1.1 核心原则
 
-- **同一端点，双模响应**：`/agent/string/send` 根据请求头 `Accept` 自动切换 JSON / SSE 模式
-- **前端无感切换**：后端切换响应模式时，前端不改 URL，不改调用方式
-- **向后兼容**：现有 JSON 模式完整保留
+- **对话固定 SSE 流式（2026-09-03 起）**：`/agent/string/send` 一律 SSE（`Accept` 内容协商已删除，JSON 同步对话废弃）
+- **前端无感切换**：前端统一走 SSE 读取，不改 URL、不改调用方式
+- **向后兼容**：历史数据（agent_conversation / agent_message）与查询接口保持不变
 
-## 2. 内容协商
+## 2. 响应模式（对话仅 SSE）
+
+> **2026-09-03 起 `/agent/string/send` 固定 SSE 流式**：`Accept` 内容协商与 JSON 同步模式已废弃删除（`chatReturnStringResult` 移除，见《Agent模块链路迭代文档》Phase 27）。下方 JSON 描述保留为历史参考。
 
 ```
 客户端请求                             后端行为
 ──────────────────────────────────────────────────────────
-POST /agent/string/send?content=xxx   检查 Accept 头
-Accept: text/event-stream            ──→ SSE 流式响应
-Accept: */* 或 无 Accept 头          ──→ 普通 JSON 响应
+POST /agent/string/send?content=xxx   固定 SSE 流式响应（不再检查 Accept 头）
 ```
 
-### 2.1 JSON 模式（现有行为）
+### 2.1 JSON 模式（历史，已废弃）
 
 ```json
 HTTP/1.1 200 OK
@@ -34,7 +34,7 @@ Content-Type: application/json
 }
 ```
 
-### 2.2 SSE 模式（新增）
+### 2.2 SSE 模式（对话唯一模式）
 
 ```http
 HTTP/1.1 200 OK
