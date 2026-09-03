@@ -1380,6 +1380,24 @@ flowchart TD
 
 ---
 
+## Phase 31：SSE 事件结构化（任务清单 + 状态更新）
+
+> **2026-09-03**。目标：任务清单作为**结构化事件**推送前端、特殊展示（Claude Code 风格清单卡片），而非文本流；任务完成/失败时推送状态变更事件。
+
+**背景**：规划产出只推 `progress.stage=planning` 文本（"规划完成：需要执行 a、b、c"），前端只能当阶段文案展示；任务级状态仅回退执行器 / CONFIRM 恢复路径有（按 toolName），子 Agent 默认路径无任务级事件。
+
+**改动**：
+1. **新增 `type:plan` 任务清单事件**（`SseUtils.planEvent`）：`MultiRoundOrchestrator` 每轮 decompose 后推送，替代 planning 文本；`tasks` 含 `id`/`description`/`toolName`/`type`/`status(PENDING)`，id 缺失回退 `sub-N` 保证前端可定位
+2. **`progress.stage=step` 增强**：新增 `stepEvent(taskId, toolName, description, status)` 重载（两参兼容保留），`FallbackRoundExecutor` 带 taskId+description
+3. **子 Agent 工具循环补状态事件**：补全既有的 `SubAgentProgressCallback.onToolCall` 预留方法；`ToolLoopContext` 增 `callback` 字段；`AbstractToolLoop.invokeToolAndRecord` 统一推 RUNNING/COMPLETED/FAILED（CONFIRM 上抛不推终态）。链路：`ToolExecutionFacade` → `RetryRunner` → `ToolLoopContext` → 三策略（Serial/Parallel/Dag）
+4. **前端**：`sse.ts` 分发 `type:plan`（onPlan）；`agent.ts` 透传；`TaskProgress.vue` 整表渲染清单卡片（编号+描述+工具名+状态图标）+ 按 taskId 优先/toolName 兜底增量更新；`AiChat.vue` sendMessage / confirmContinue 接 onPlan
+
+**协议**（真相源：`SSE后端实现规范.md` §3.5）：plan 事件一次推全量清单；step 事件增量更新对应行状态；所有结构化事件按 `type` 分发不混入正文。
+
+**验证**：`SseUtilsTest`（plan/step 新断言）、`AbstractToolLoopTest`、`SerialStrategyTest`、`MultiRoundOrchestratorTest` 全绿；前端 `npm run build` 通过。
+
+---
+
 ## 迭代演进总结
 
 | 维度 | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 |

@@ -17,7 +17,6 @@ import com.hmdp.agent.plan.PlanRouter;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.TaskReport;
 import com.hmdp.agent.tool.ToolBeanCollector;
-import com.hmdp.agent.stream.SseEventConstants;
 import com.hmdp.agent.stream.SseUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -104,11 +103,8 @@ public class MultiRoundOrchestrator {
                     }
                     roundSpan.set(AgentField.PLAN_VALID, "true");
 
-                    String planDesc = tasks.stream()
-                            .map(SubTask::getDescription)
-                            .collect(Collectors.joining("、"));
-                    SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_PLANNING,
-                            SseEventConstants.TEXT_PLANNING_PREFIX + planDesc));
+                    // 推送结构化任务清单事件（前端渲染清单卡片，非文本流）；状态变更由各执行器推 step 事件
+                    SseUtils.safeSend(emitter, SseUtils.planEvent(r, tasks));
 
                     if (useSubAgent) {
                         log.info("========== [Round {}] 2) 子 Agent 执行 ==========", r);

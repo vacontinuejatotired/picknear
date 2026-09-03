@@ -75,7 +75,7 @@ class SerialStrategyTest {
                 ExecutionInput.builder()
                         .tasks(List.of(SubTask.builder().toolName("queryWeather").type(TaskType.TOOL_CALL).build()))
                         .build(),
-                promptService, Map.of(), new SubTaskProperties(), null);
+                promptService, Map.of(), new SubTaskProperties(), null, null);
     }
 
     private AssistantMessage toolCallMessage() {

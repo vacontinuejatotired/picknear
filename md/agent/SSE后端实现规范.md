@@ -103,6 +103,32 @@ data: [DONE]
 
 前端在遇到以 `{` 开头的 `data:` 行时，按 JSON 解析并提取结构化数据。
 
+### 3.5 任务清单与状态更新事件（2026-09-03 新增）
+
+所有结构化事件均为 JSON 文本行（`{` 开头），前端按 `type` 在 `dispatchStructured` 路由分发，**不混入回答正文**。已有类型：`meta`（会话ID）/ `progress`（阶段文本+工具状态）/ `confirm`（审批）/ `error`（业务错误）。
+
+**任务清单事件 `plan`**（每轮规划产出后推送一次，替代旧的 planning 文本进度）：
+
+```json
+{"type":"plan","round":1,"tasks":[{"id":"t1","description":"查天气","toolName":"queryWeather","type":"TOOL_CALL","status":"PENDING"},{"id":"t2","description":"基于以上数据生成结论","type":"LLM_REASON","status":"PENDING"}]}
+```
+
+- `tasks` 为规划产出的子任务全量清单（初始 `status=PENDING`），前端据此渲染**任务清单卡片**（非文本流）
+- `id` 缺省时后端回退 `sub-N` 占位，保证前端可定位；`type` = `TOOL_CALL` / `LLM_REASON`
+- 触发点：`MultiRoundOrchestrator`（decompose 后、执行前）；不再发送 `progress.stage=planning` 文本
+
+**工具状态事件 `progress.stage=step`**（任务执行状态变更 RUNNING/COMPLETED/FAILED，前端更新清单对应行）：
+
+```json
+{"type":"progress","stage":"step","taskId":"t1","toolName":"queryWeather","description":"查天气","status":"COMPLETED"}
+```
+
+- 带 `taskId` 时按 id 精确定位；仅 `toolName` 时按 toolName 匹配（子 Agent 工具循环 / CONFIRM 恢复推送）
+- 推送来源：
+  - 回退执行器 `FallbackRoundExecutor`（带 taskId + description）
+  - CONFIRM 恢复 `ConfirmFlowManager`（仅 toolName，确认后 RUNNING→COMPLETED）
+  - 子 Agent 工具循环 `AbstractToolLoop`（统一工具执行点，仅 toolName；CONFIRM 上抛不推终态）
+
 ## 4. 错误处理
 
 ### 4.1 HTTP 层错误（4xx/5xx）

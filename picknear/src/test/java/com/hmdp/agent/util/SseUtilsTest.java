@@ -1,11 +1,15 @@
 package com.hmdp.agent.util;
 
+import com.hmdp.agent.plan.model.SubTask;
+import com.hmdp.agent.plan.model.SubTaskStatus;
+import com.hmdp.agent.plan.model.TaskType;
 import com.hmdp.agent.stream.SseEventConstants;
 import com.hmdp.agent.stream.SseUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,8 +92,54 @@ class SseUtilsTest {
     void should_build_step_event() {
         String json = SseUtils.stepEvent("queryWeather", "RUNNING");
 
+        assertThat(json).contains("\"type\":\"progress\"");
+        assertThat(json).contains("\"stage\":\"step\"");
         assertThat(json).contains("\"toolName\":\"queryWeather\"");
         assertThat(json).contains("\"status\":\"RUNNING\"");
+    }
+
+    @Test
+    void should_build_step_event_with_task_id_and_description() {
+        String json = SseUtils.stepEvent("t1", "queryWeather", "查天气", "COMPLETED");
+
+        assertThat(json).contains("\"taskId\":\"t1\"");
+        assertThat(json).contains("\"toolName\":\"queryWeather\"");
+        assertThat(json).contains("\"description\":\"查天气\"");
+        assertThat(json).contains("\"status\":\"COMPLETED\"");
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // planEvent
+    // ═══════════════════════════════════════════════════════
+
+    @Test
+    void should_build_plan_event() {
+        List<SubTask> tasks = List.of(
+                SubTask.builder().id("t1").description("查天气").toolName("queryWeather")
+                        .type(TaskType.TOOL_CALL).status(SubTaskStatus.PENDING).build(),
+                SubTask.builder().id("t2").description("基于以上数据生成结论")
+                        .type(TaskType.LLM_REASON).status(SubTaskStatus.PENDING).build());
+
+        String json = SseUtils.planEvent(1, tasks);
+
+        assertThat(json).contains("\"type\":\"plan\"");
+        assertThat(json).contains("\"round\":1");
+        assertThat(json).contains("\"id\":\"t1\"");
+        assertThat(json).contains("\"description\":\"查天气\"");
+        assertThat(json).contains("\"toolName\":\"queryWeather\"");
+        assertThat(json).contains("\"status\":\"PENDING\"");
+        assertThat(json).contains("\"type\":\"TOOL_CALL\"");
+    }
+
+    @Test
+    void should_handle_null_task_id_in_plan_event() {
+        List<SubTask> tasks = List.of(
+                SubTask.builder().toolName("queryWeather").type(TaskType.TOOL_CALL).build());
+
+        String json = SseUtils.planEvent(1, tasks);
+
+        assertThat(json).as("id 为 null 时应回退为主键占位，保证前端可定位")
+                .contains("\"id\":\"sub-1\"");
     }
 
     // ═══════════════════════════════════════════════════════

@@ -3,6 +3,7 @@ package com.hmdp.agent.subagent.loop;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.execution.ToolExecutionRecorder;
 import com.hmdp.agent.observability.model.CallerType;
+import com.hmdp.agent.stream.SseEventConstants;
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
@@ -126,18 +127,34 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
 
     /**
      * 统一工具执行点（三策略共用）：执行前经 recorder 记录终态到 subagent span
-     * （评估数据补齐 §6.1）。CONFIRM 原样上抛不记录（执行未发生）。
+     * （评估数据补齐 §6.1）。同时通过 ctx.callback 向 SSE 推工具生命周期事件
+     * （RUNNING → COMPLETED/FAILED，前端据此更新任务清单）。CONFIRM 原样上抛不记录（执行未发生）。
      */
-    protected <T> T invokeToolAndRecord(String toolName, Supplier<T> invoker) {
+    protected <T> T invokeToolAndRecord(String toolName, Supplier<T> invoker, ToolLoopContext ctx) {
+        emitToolStatus(ctx, toolName, SseEventConstants.TOOL_RUNNING);
         try {
             T result = invoker.get();
             recorder.record(toolName, SubTaskStatus.COMPLETED);
+            emitToolStatus(ctx, toolName, SseEventConstants.TOOL_COMPLETED);
             return result;
         } catch (ConfirmRequiredException e) {
             throw e;
         } catch (Exception e) {
             recorder.record(toolName, SubTaskStatus.FAILED);
+            emitToolStatus(ctx, toolName, SseEventConstants.TOOL_FAILED);
             throw e;
+        }
+    }
+
+    /** 推送工具状态事件（旁路：回调缺失/异常不影响工具执行主链） */
+    private void emitToolStatus(ToolLoopContext ctx, String toolName, String status) {
+        if (ctx == null || ctx.callback() == null || toolName == null) {
+            return;
+        }
+        try {
+            ctx.callback().onToolCall(toolName, status);
+        } catch (Exception e) {
+            log.warn("[ToolLoop] 工具状态回调失败 tool={}, err={}", toolName, e.getMessage());
         }
     }
 

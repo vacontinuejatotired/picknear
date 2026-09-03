@@ -2,11 +2,14 @@ package com.hmdp.agent.stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.agent.plan.model.SubTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,13 +53,56 @@ public final class SseUtils {
         return toJson(m);
     }
 
-    /** 进度事件（工具步骤）：{"type":"progress","stage":"step","toolName":"...","status":"..."} */
+    /** 进度事件（工具步骤·兼容）：{"type":"progress","stage":"step","toolName":"...","status":"..."} */
     public static String stepEvent(String toolName, String status) {
+        return stepEvent(null, toolName, null, status);
+    }
+
+    /**
+     * 进度事件（工具步骤·结构化）：{"type":"progress","stage":"step","taskId":"...","toolName":"...","description":"...","status":"..."}
+     * <p>taskId 对应 {@link com.hmdp.agent.plan.model.SubTask#getId()}，前端据此精确定位 plan 清单中的任务行更新状态。</p>
+     */
+    public static String stepEvent(String taskId, String toolName, String description, String status) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "progress");
         m.put("stage", SseEventConstants.STAGE_STEP);
-        m.put("toolName", toolName);
+        if (taskId != null) {
+            m.put("taskId", taskId);
+        }
+        if (toolName != null) {
+            m.put("toolName", toolName);
+        }
+        if (description != null) {
+            m.put("description", description);
+        }
         m.put("status", status);
+        return toJson(m);
+    }
+
+    /**
+     * 规划事件（任务清单）：{"type":"plan","round":1,"tasks":[{"id":"...","description":"...","toolName":"...","type":"...","status":"PENDING"}]}
+     * <p>每轮规划产出后推送一次，替代 planning 文本：前端据此渲染任务清单卡片（而非文本流），
+     * 后续任务的执行状态由 {@code step} 事件按 {@code taskId} 增量更新。</p>
+     */
+    public static String planEvent(int round, List<SubTask> tasks) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "plan");
+        m.put("round", round);
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (tasks != null) {
+            int i = 0;
+            for (SubTask t : tasks) {
+                i++;
+                Map<String, Object> tm = new LinkedHashMap<>();
+                tm.put("id", t.getId() != null ? t.getId() : "sub-" + i);
+                tm.put("description", t.getDescription() != null ? t.getDescription() : "");
+                tm.put("toolName", t.getToolName() != null ? t.getToolName() : "");
+                tm.put("type", t.getType() != null ? t.getType().name() : "TOOL_CALL");
+                tm.put("status", t.getStatus() != null ? t.getStatus().name() : "PENDING");
+                list.add(tm);
+            }
+        }
+        m.put("tasks", list);
         return toJson(m);
     }
 

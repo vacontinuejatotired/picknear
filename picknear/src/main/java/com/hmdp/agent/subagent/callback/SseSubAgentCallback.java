@@ -24,6 +24,12 @@ public class SseSubAgentCallback implements SubAgentProgressCallback {
     }
 
     @Override
+    public void onToolCall(String toolName, String status) {
+        // 工具生命周期事件：前端按 toolName 关联 plan 清单对应任务行更新状态
+        SseUtils.safeSend(emitter, SseUtils.stepEvent(toolName, status));
+    }
+
+    @Override
     public void onMergeStart() {
         SseUtils.safeSend(emitter, SseUtils.progressEvent(SseEventConstants.STAGE_MERGING,
                 SseEventConstants.TEXT_MERGING));
