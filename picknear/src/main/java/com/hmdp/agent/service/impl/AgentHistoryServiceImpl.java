@@ -6,13 +6,17 @@ import com.hmdp.agent.dto.ConversationVO;
 import com.hmdp.agent.dto.MessageVO;
 import com.hmdp.agent.entity.AgentConversation;
 import com.hmdp.agent.entity.AgentMessage;
+import com.hmdp.agent.history.compression.ConversationTurnRecordedEvent;
 import com.hmdp.agent.mapper.AgentConversationMapper;
 import com.hmdp.agent.mapper.AgentMessageMapper;
 import com.hmdp.agent.service.AgentHistoryService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -32,6 +36,9 @@ public class AgentHistoryServiceImpl implements AgentHistoryService {
 
     @Resource
     private AgentMessageMapper messageMapper;
+
+    @Resource
+    private ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -67,6 +74,18 @@ public class AgentHistoryServiceImpl implements AgentHistoryService {
 
         insertMessage(userId, conversationId, "user", userContent);
         insertMessage(userId, conversationId, "assistant", assistantContent);
+
+        // 写后投递：事务提交后发"回合落库事件"，驱动异步压缩（压缩禁用时由 Dispatcher enabled 门拦截，零开销）
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    eventPublisher.publishEvent(new ConversationTurnRecordedEvent(conversationId, userId));
+                } catch (Exception e) {
+                    log.debug("会话压缩事件发布失败（旁路，忽略）conversationId={}", conversationId, e);
+                }
+            }
+        });
     }
 
     @Override
