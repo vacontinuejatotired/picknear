@@ -9,6 +9,9 @@ import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.execution.model.ExecutionOutput;
 import com.hmdp.agent.execution.model.ExecutionSession;
+import com.hmdp.agent.plan.model.SubTask;
+import com.hmdp.agent.plan.model.TaskType;
+import com.hmdp.agent.stream.SseEventConstants;
 import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.tool.ToolBeanCollector;
 import jakarta.annotation.Resource;
@@ -117,6 +120,18 @@ public class ToolExecutionFacade {
         }
 
         ExecutionOutput result = resultParser.parse(content, start);
+
+        // 本轮计划里的 TOOL_CALL 任务若未被模型实际调用（子 Agent 动态决策），补推 SKIPPED
+        // 终态，避免前端任务清单停留在待办（PENDING）观感
+        if (callback != null) {
+            Map<String, ?> executed = result.getRawResults() != null ? result.getRawResults() : Map.of();
+            for (SubTask t : plan.getTasks()) {
+                if (t.getType() == TaskType.TOOL_CALL && t.getToolName() != null
+                        && !executed.containsKey(t.getToolName())) {
+                    callback.onToolCall(t.getToolName(), SseEventConstants.TOOL_SKIPPED);
+                }
+            }
+        }
 
         if (callback != null) callback.onMergeStart();
 

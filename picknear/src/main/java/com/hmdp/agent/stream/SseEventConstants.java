@@ -43,6 +43,9 @@ public final class SseEventConstants {
     /** 工具执行失败 */
     public static final String TOOL_FAILED = "FAILED";
 
+    /** 工具未执行（计划列了但本次没有调用，前端显示"跳过"终态，避免停留待办） */
+    public static final String TOOL_SKIPPED = "SKIPPED";
+
     // ════════════════════════════════════════════════════════════
     // Progress text（给用户看的描述文案）
     // ════════════════════════════════════════════════════════════
