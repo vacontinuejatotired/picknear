@@ -133,6 +133,9 @@ agent:
   hook:
     sensitive-word:
       enabled: false                    # 敏感词脱敏 Hook 默认关闭（多轮历史回放会带回原文，语义待定，见 SensitiveWordHook TODO）
+  replay:
+    enabled: true                       # 多轮记忆回放总开关（false → 不读历史，回归单条）
+    keep-recent-turns: 6                # 回放的最近轮数上限（不含当前轮，读尾部 2×N 条 user/assistant，硬上限防 token 涨）
 
 feature:
   subagent:

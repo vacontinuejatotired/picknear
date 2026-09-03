@@ -48,10 +48,9 @@ public class SseResponseProcessor {
             if (afterResult.getHookName() != null) {
                 decision.set(AgentField.HOOK_NAME, afterResult.getHookName());
             }
-            // 内容已逐 token 推送，通知路由跳过重复发送
-            responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
 
-            // 历史会话：PASS/REPLACE 在此落库。
+            // 历史会话：PASS/REPLACE 在此落库 —— 必须先于 route()（内含 emitter.complete()），
+            // 否则快速连发的下一请求会在该回合落库前读到历史（读不到刚结束回合）。
             // PLANNING 由 TaskPlanner 完成时记录最终合并答案；BLOCK 不落库（用户看到的是阻断原因，非成功回合）。
             if (afterResult.isPass()) {
                 historyRecorder.recordBestEffort(ctx.userId(), ctx.conversationId(),
@@ -60,6 +59,9 @@ public class SseResponseProcessor {
                 historyRecorder.recordBestEffort(ctx.userId(), ctx.conversationId(),
                         originalContent, afterResult.getReplacedText());
             }
+
+            // 内容已逐 token 推送，通知路由跳过重复发送
+            responseRouter.route(afterResult, finalContent, fullResponse, ctx, emitter, true);
         }
     }
 }

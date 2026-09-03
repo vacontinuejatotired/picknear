@@ -6,11 +6,11 @@ import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
 import com.hmdp.agent.observability.model.AgentSpanSpec;
+import com.hmdp.agent.prompt.Phase1PromptAssembler;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -38,12 +38,14 @@ public class StreamingChatInvoker {
     private final ChatModel chatModel;
     private final AgentTracer agentTracer;
     private final ObservationRegistry observationRegistry;
+    private final Phase1PromptAssembler promptAssembler;
 
     public StreamingChatInvoker(ChatModel chatModel, AgentTracer agentTracer,
-                                ObservationRegistry observationRegistry) {
+                                ObservationRegistry observationRegistry, Phase1PromptAssembler promptAssembler) {
         this.chatModel = chatModel;
         this.agentTracer = agentTracer;
         this.observationRegistry = observationRegistry;
+        this.promptAssembler = promptAssembler;
     }
 
     /**
@@ -57,8 +59,27 @@ public class StreamingChatInvoker {
      * @param emitter        SSE 输出（逐 token 推送原文）
      */
     public StreamOutcome streamWithRetry(String systemText, String initialContent, SseEmitter emitter) {
+        return streamWithRetry(systemText, List.of(), initialContent, emitter);
+    }
+
+    /**
+     * 流式调用 LLM（带多轮记忆回放）并逐 token 推送，内部最多 {@link #MAX_ATTEMPTS} 次重试。
+     * <p>
+     * historyMessages 在重试循环外固定构建一次，重试时历史不变；
+     * 错误回喂仍只追加到当前用户消息（见 {@link Phase1PromptAssembler}）。
+     * </p>
+     *
+     * @param systemText       系统提示词（调用方渲染一次，重试循环不重复渲染）
+     * @param historyMessages  本会话最近 N 轮历史（置于 system 与当前 user 之间）
+     * @param initialContent   用户输入（重试时自动附加失败原因回喂 LLM）
+     * @param emitter          SSE 输出（逐 token 推送原文）
+     */
+    public StreamOutcome streamWithRetry(String systemText, List<Message> historyMessages,
+                                         String initialContent, SseEmitter emitter) {
         Exception lastError = null;
         String currentContent = initialContent;
+        // 历史与系统提示固定：循环外构建一次，重试时不变（错误回喂仅追加到 currentContent）
+        List<Message> base = promptAssembler.assembleBase(systemText, historyMessages);
 
         // 观测：Phase1 整段（含重试循环），属性 attempt 标记成功轮次
         try (AgentSpan phase1 = agentTracer.start(AgentSpanSpec.PHASE1, null)) {
@@ -76,9 +97,7 @@ public class StreamingChatInvoker {
                     String fullResponse;
                     try {
                         Observation streamParent = observationRegistry.getCurrentObservation();
-                        Prompt streamPrompt = new Prompt(List.of(
-                                new SystemMessage(systemText),
-                                new UserMessage(currentContent)));
+                        Prompt streamPrompt = promptAssembler.withCurrentUser(base, currentContent);
                         Flux<ChatResponse> stream = chatModel.stream(streamPrompt);
                         if (streamParent != null) {
                             stream = stream.contextWrite(rctx -> rctx.put("micrometer.observation", streamParent));

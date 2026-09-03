@@ -1,6 +1,8 @@
 package com.hmdp.agent.service.impl;
 
+import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.history.ConversationReplayService;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -18,9 +20,11 @@ import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -46,6 +50,12 @@ public class AiServiceImpl implements AiService {
 
     @Resource
     private PromptService promptService;
+
+    @Resource
+    private ConversationReplayService conversationReplayService;
+
+    @Resource
+    private ReplayProperties replayProperties;
 
     /** 系统提示词变量：当前用户 ID（可空，渲染器对缺变量保留字面量） */
     private Map<String, String> systemVars(Long userId) {
@@ -95,9 +105,13 @@ public class AiServiceImpl implements AiService {
                 // 系统提示词渲染一次（缓存命中后开销≈0），重试循环不重复渲染
                 String systemText = promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId));
 
+                // 多轮记忆回放：请求开始读历史，fail-open（DB 异常由服务内兜底返回空，绝不阻断对话）
+                List<Message> historyMessages = conversationReplayService.recentMessages(
+                        userId, conversationId, replayProperties.getKeepRecentTurns());
+
                 // 流式调用 + 重试（StreamingChatInvoker：ChatModel 直调 + 逐 token 推送 + phase1 观测）
                 StreamingChatInvoker.StreamOutcome streamOutcome =
-                        streamingChatInvoker.streamWithRetry(systemText, finalContent, emitter);
+                        streamingChatInvoker.streamWithRetry(systemText, historyMessages, finalContent, emitter);
                 if (streamOutcome.failed()) {
                     // 所有重试耗尽，给用户友好提示而非原始异常（完整堆栈已在上方 warn 日志记录）
                     String friendlyMsg = "抱歉，AI 服务暂时不可用（" + TextUtils.errorSummary(streamOutcome.lastError()) + "），请稍后再试。";
