@@ -43,8 +43,8 @@
 | **CONFIRM 审批流** | 敏感工具调用前真暂停（ConfirmRequiredException 穿透），agent_approval 表持久化快照，`/agent/confirm` 审批通过后从快照续流恢复（CAS 状态机 + 超时清扫） |
 | **全链路可观测** | AgentTracer 业务埋点 → OTel → 多后端可插拔（langfuse / jaeger / signoz / collector / console / noop），session → phase1 → round → subagent → tool_call → guard 多层 span 同 traceId 串树 |
 | **提示词工程化** | Langfuse Prompt Management + 内置模板三级降级，运行期热改（/agent/prompt/reload），工具描述外置，PromptRepository 策略化（langfuse / none） |
-| **多轮对话记忆** | JDBC 持久化 MessageWindowChatMemory，最近 10 轮上下文；历史会话 agent_conversation / agent_message 双表落库 + 查询接口 |
-| **双模响应** | 同一端点同时支持 JSON 同步响应和 SSE 流式推送（Accept 头协商） |
+| **多轮对话记忆** | agent_conversation / agent_message 双表落库完整历史 + 查询接口（当前仅展示；模型侧记忆回放待接通，见《上下文压缩子系统设计文档》） |
+| **对话流式（SSE-only）** | 对话统一 SSE 流式推送；JSON 同步模式已废弃（2026-09-03） |
 | **请求级上下文** | AgentContext + ThreadLocal + TaskDecorator 跨线程传播（userId / conversationId / 原始输入 / 根 span），取代散落的旧载体 |
 | **可插拔架构** | @TargetTool + @ToolMeta 注解自动注册，Guard / Hook / Router / ToolLoop 均为策略接口，新增组件只加注解或实现类 |
 
@@ -58,7 +58,7 @@
 └────────────────────────────┬─────────────────────────────────────┘
                              │ HTTP / SSE
 ┌────────────────────────────▼─────────────────────────────────────┐
-│  ChatController（/agent/string/send 双模 · /agent/confirm 审批）   │
+│  ChatController（/agent/string/send 流式 · /agent/confirm 审批）   │
 │  ├─ SseSessionFactory        ← SSE 会话统一装配（根 span/超时/常量）│
 │  ├─ AgentContext             ← 请求级上下文（ThreadLocal + 传播）  │
 │  ├─ PromptHookExecutor       ← Hook 链执行 + 决策                 │
@@ -241,12 +241,12 @@ Langfuse Prompt Management 为事实源 + 内置模板兜底，改提示词不�
 
 当前测试覆盖约 75%，核心链路已覆盖，但边缘场景和错误路径仍有缺口。
 
-### 7. SSE 回合不进 ChatMemory
+### 7. 对话历史：ChatMemory 空转，历史在 agent_message（2026-09-03 起对话仅 SSE）
 
-Spring AI 的 JDBC ChatMemory 不区分 JSON 和 SSE 模式，SSE 回合的历史记录走自建的 `agent_conversation` / `agent_message` 表。这意味着：
-- ChatMemory 中只有 JSON 模式的对话历史
-- SSE 模式的多轮上下文需要通过自建表重建
-- 两者的历史数据没有统一查询入口
+JSON 同步对话模式已废弃（`chatReturnStringResult` 删除，`/agent/string/send` 仅 SSE）。历史记录全部走自建的 `agent_conversation` / `agent_message` 表：
+- JDBC ChatMemory（`SPRING_AI_CHAT_MEMORY`）当前**空转**——全项目无 `chatMemory.add` 写入方（仅 PromptHookExecutor REPLACE 分支会 clear+add），不再是历史来源
+- **多轮记忆尚未回灌模型**：每次请求只带 `system + 当条 user`，历史只服务前端历史列表
+- 回放 / 压缩子系统落点见《上下文压缩子系统设计文档》
 
 ---
 
@@ -332,25 +332,17 @@ mvn spring-boot:run
 ### 4. 调用示例
 
 ```bash
-# JSON 同步模式
-curl -X POST http://localhost:8081/agent/string/send \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{"content": "你好"}'
-
-# SSE 流式模式
+# SSE 流式模式（对话已废弃 JSON 同步模式，仅此一种；content 走 form/query 参数）
 curl -N -X POST http://localhost:8081/agent/string/send \
-  -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
   -H "Authorization: Bearer <token>" \
-  -d '{"content": "统计一下店铺数量"}'
+  --data-urlencode "content=统计一下店铺数量"
 
 # 触发敏感工具后审批续流（流中会先收到 type=confirm 事件）
 curl -N -X POST http://localhost:8081/agent/confirm \
-  -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
   -H "Authorization: Bearer <token>" \
-  -d '{"confirmId": "cfm_xxx"}'
+  --data-urlencode "confirmId=cfm_xxx"
 ```
 
 ---

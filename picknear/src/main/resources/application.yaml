@@ -130,6 +130,9 @@ agent:
       base-url: ${EVALUATION_LLM_BASE_URL:}   # provider=custom 时：OpenAI 兼容端点（如 DashScope MaaS compatible-mode），空=未配置
       api-key: ${EVALUATION_LLM_API_KEY:}     # provider=custom 时：API Key
       model: ${EVALUATION_LLM_MODEL:qwen-turbo}  # 评测专用模型（无日期版本，与 Langfuse LLM Connection 一致；带日期后缀连不通）
+  hook:
+    sensitive-word:
+      enabled: false                    # 敏感词脱敏 Hook 默认关闭（多轮历史回放会带回原文，语义待定，见 SensitiveWordHook TODO）
 
 feature:
   subagent:

@@ -1,9 +1,6 @@
 package com.hmdp.agent.service.impl;
 
-import com.hmdp.agent.config.ChatModelObservationConventionConfig;
-import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.context.AgentContext;
-import com.hmdp.agent.history.HistoryRecorder;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -21,8 +18,6 @@ import io.micrometer.observation.Observation;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -33,10 +28,6 @@ import java.util.concurrent.Executor;
 @Service
 @Slf4j
 public class AiServiceImpl implements AiService {
-
-    @Resource
-    @Qualifier("aliibabaChatClient")
-    private ChatClient chatClient;
 
     @Resource
     private PromptHookExecutor promptHookExecutor;
@@ -54,44 +45,11 @@ public class AiServiceImpl implements AiService {
     private SseResponseProcessor sseResponseProcessor;
 
     @Resource
-    private HistoryRecorder historyRecorder;
-
-    @Resource
     private PromptService promptService;
 
     /** 系统提示词变量：当前用户 ID（可空，渲染器对缺变量保留字面量） */
     private Map<String, String> systemVars(Long userId) {
         return Map.of("userId", userId != null ? String.valueOf(userId) : "");
-    }
-
-    @Override
-    public String chatReturnStringResult(String content, String conversationId) {
-        log.info("AI 调用：{}", content);
-
-        Long userId = UserHolder.getUserId();
-
-        // 1-3. Hook 链执行 + 决策（双模共用 PromptHookExecutor）
-        PromptHookExecutor.HookOutcome outcome = promptHookExecutor.execute(content, conversationId, userId, null);
-        if (outcome.blocked()) {
-            return "❌ " + outcome.blockReason();
-        }
-
-        // 4. 正常调用 LLM（系统提示词每次请求经 PromptService 注入，支持按用户个性化）
-        ChatModelObservationConventionConfig.mark(CallerType.PHASE1);
-        String result;
-        try {
-            result = chatClient.prompt()
-                    .system(promptService.render(PromptKeys.SYSTEM_MAIN, systemVars(userId)))
-                    .user(outcome.finalContent())
-                    .call().content();
-        } finally {
-            ChatModelObservationConventionConfig.clear();
-        }
-        log.info("AI 回复：{}", result);
-
-        // 历史会话：JSON 模式成功回合落库（BLOCK 已提前 return，不落库）
-        historyRecorder.recordBestEffort(userId, conversationId, content, result);
-        return result;
     }
 
     @Override

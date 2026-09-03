@@ -9,6 +9,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
@@ -17,8 +18,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -26,7 +25,7 @@ import static org.mockito.Mockito.*;
 /**
  * ChatController — 聊天控制器测试（纯 Mock 方式）。
  * <p>
- * 覆盖 JSON/SSE 模式切换、conversationId 生成/复用、SSE 超时。
+ * 对话已废弃 JSON 模式：/string/send 固定 SSE（conversationId 生成/复用、SSE emitter 装配）。
  */
 @ExtendWith(MockitoExtension.class)
 class ChatControllerTest {
@@ -64,55 +63,39 @@ class ChatControllerTest {
     }
 
     @Test
-    void should_return_json_when_no_accept_header() {
-        when(aiService.chatReturnStringResult(anyString(), anyString())).thenReturn("AI回复");
-
-        Object result = controller.chat("你好", "", null);
-
-        assertThat(result).as("JSON 模式应返回 Result 信封").isInstanceOf(com.hmdp.dto.Result.class);
-        com.hmdp.dto.Result r = (com.hmdp.dto.Result) result;
-        assertThat(r.getData()).as("data 应包含 content 和 conversationId")
-                .isInstanceOf(Map.class);
-        Map<String, Object> data = (Map<String, Object>) r.getData();
-        assertThat(data).containsKey("content");
-        assertThat(data).containsKey("conversationId");
-    }
-
-    @Test
-    void should_return_sse_when_accept_is_event_stream() {
+    void should_return_sse_emitter() {
         SseSessionFactory.ChatSseSession session =
                 new SseSessionFactory.ChatSseSession(mock(AgentSpan.class), mock(SseEmitter.class));
         when(sseSessionFactory.open(anyString(), anyLong())).thenReturn(session);
 
-        Object result = controller.chat("你好", "text/event-stream", null);
+        SseEmitter emitter = controller.chat("你好", null);
 
-        assertThat(result).as("SSE 模式应返回 SseEmitter").isInstanceOf(SseEmitter.class);
-        SseEmitter emitter = (SseEmitter) result;
+        assertThat(emitter).as("对话固定 SSE，应返回 SseEmitter").isInstanceOf(SseEmitter.class);
         verify(aiService).chatWithToolcall(eq("你好"), anyString(), eq(session.emitter()), any());
     }
 
     @Test
     void should_generate_new_conversation_id() {
-        when(aiService.chatReturnStringResult(anyString(), anyString())).thenReturn("AI回复");
+        SseSessionFactory.ChatSseSession session =
+                new SseSessionFactory.ChatSseSession(mock(AgentSpan.class), mock(SseEmitter.class));
+        when(sseSessionFactory.open(anyString(), anyLong())).thenReturn(session);
 
-        Object result = controller.chat("你好", "", null);
+        controller.chat("你好", null);
 
-        com.hmdp.dto.Result r = (com.hmdp.dto.Result) result;
-        Map<String, Object> data = (Map<String, Object>) r.getData();
-        assertThat(data.get("conversationId")).as("首次调用应生成新 conversationId")
-                .isNotNull().asString().isNotBlank();
+        ArgumentCaptor<String> cid = ArgumentCaptor.forClass(String.class);
+        verify(sseSessionFactory).open(cid.capture(), anyLong());
+        assertThat(cid.getValue()).as("首次调用应生成新 conversationId").isNotBlank();
     }
 
     @Test
     void should_reuse_conversation_id() {
-        when(aiService.chatReturnStringResult(eq("你好"), eq("existing-id"))).thenReturn("AI回复");
+        SseSessionFactory.ChatSseSession session =
+                new SseSessionFactory.ChatSseSession(mock(AgentSpan.class), mock(SseEmitter.class));
+        when(sseSessionFactory.open(anyString(), anyLong())).thenReturn(session);
 
-        Object result = controller.chat("你好", "", "existing-id");
+        controller.chat("你好", "existing-id");
 
-        com.hmdp.dto.Result r = (com.hmdp.dto.Result) result;
-        Map<String, Object> data = (Map<String, Object>) r.getData();
-        assertThat(data.get("conversationId"))
-                .as("传入 conversationId 应被复用").isEqualTo("existing-id");
+        verify(sseSessionFactory).open(eq("existing-id"), anyLong());
     }
 
     @Test

@@ -31,7 +31,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -73,11 +72,10 @@ public class ChatController {
      * </ul>
      */
     @PostMapping("/string/send")
-    @Operation(summary = "发送聊天消息（双模）", description =
-            "JSON 模式返回 Result 信封；SSE 模式（Accept: text/event-stream）逐段推送 AI 回复 + [DONE] 标记")
-    public Object chat(
+    @Operation(summary = "发送聊天消息（SSE 流式）", description =
+            "SSE 流式：逐段推送 AI 回复 + [DONE] 标记（对话已废弃 JSON 模式，仅保留流式）")
+    public SseEmitter chat(
             @Parameter(description = "聊天内容") @RequestParam String content,
-            @Parameter(description = "客户端期望的响应格式") @RequestHeader(value = "Accept", required = false, defaultValue = "") String accept,
             @Parameter(description = "会话 ID（首次不传，后端自动生成并返回）") @RequestParam(required = false) String conversationId) {
 
         // 首次调用无 conversationId → 自动生成；后续调用由前端传入
@@ -88,75 +86,51 @@ public class ChatController {
             log.info("续传会话 [conversationId={}]", conversationId);
         }
 
-        // SSE 模式
-        if (isSse(accept)) {
-            log.debug("SSE 模式：content={}", content);
+        log.debug("SSE 模式：content={}", content);
 
-            // 会话装配（root span + emitter + 断链修复约定收敛到 SseSessionFactory）
-            ChatSseSession session =
-                    sseSessionFactory.open(conversationId, UserHolder.getUserId());
-            AgentSpan root = session.root();
-            SseEmitter emitter = session.emitter();
+        // 会话装配（root span + emitter + 断链修复约定收敛到 SseSessionFactory）
+        ChatSseSession session =
+                sseSessionFactory.open(conversationId, UserHolder.getUserId());
+        AgentSpan root = session.root();
+        SseEmitter emitter = session.emitter();
 
-            // 请求级 AgentContext：入口创建一次，同步段 Holder 读取、异步段 Propagator 自动传播。
-            // history 在此拉取（与 PromptHookExecutor 原逻辑同源），Hook 链无需再查 chatMemory
-            AgentContextHolder.set(AgentContext.builder()
-                    .userId(UserHolder.getUserId())
-                    .conversationId(conversationId)
-                    .originalInput(content)
-                    .history(chatMemory.get(conversationId))
-                    .rootSpan(root)
-                    .build());
-            try {
-                emitter.onCompletion(() ->
-                        log.debug("SSE 流完成, thread={}", Thread.currentThread().getName()));
-                emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", brief(content)));
-                emitter.onError(ex -> log.error("SSE 流异常, content={}", brief(content), ex));
-
-                // 先推送 conversationId（JSON 格式，前端据此识别为元事件，不混入回答文本）
-                try {
-                    sseSessionFactory.sendConversationId(emitter, conversationId);
-                } catch (IOException e) {
-                    log.error("推送 conversationId 失败", e);
-                    emitter.completeWithError(e);
-                    return null;
-                }
-
-                // 委托 AiService 异步推送。
-                // 兜底 try/catch：SSE 响应已提交，任何异常都必须转为 SSE error 事件，
-                // 否则会逃逸到 WebExceptionAdvice 往已提交的流里写 JSON，前端收不到提示。
-                try {
-                    aiService.chatWithToolcall(content, conversationId, emitter, root);
-                } catch (Exception e) {
-                    log.error("SSE 会话初始化异常，content={}", content, e);
-                    SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用，请稍后再试。"));
-                    emitter.complete();
-                }
-                return emitter;
-            } finally {
-                // 与根 span 清理同点：请求线程的 AgentContext 在此清理（异步段由 Propagator 清理）
-                AgentContextHolder.clear();
-            }
-        }
-
-        // JSON 模式
-        log.debug("JSON 模式：content={}，accept={}", content, accept);
-        // 请求级 AgentContext：JSON 模式同步执行，无异步段，但保持入口创建语义统一
+        // 请求级 AgentContext：入口创建一次，同步段 Holder 读取、异步段 Propagator 自动传播。
+        // history 在此拉取（与 PromptHookExecutor 原逻辑同源），Hook 链无需再查 chatMemory
         AgentContextHolder.set(AgentContext.builder()
                 .userId(UserHolder.getUserId())
                 .conversationId(conversationId)
                 .originalInput(content)
                 .history(chatMemory.get(conversationId))
+                .rootSpan(root)
                 .build());
         try {
-            String result = aiService.chatReturnStringResult(content, conversationId);
+            emitter.onCompletion(() ->
+                    log.debug("SSE 流完成, thread={}", Thread.currentThread().getName()));
+            emitter.onTimeout(() -> log.warn("SSE 流超时, content={}", brief(content)));
+            emitter.onError(ex -> log.error("SSE 流异常, content={}", brief(content), ex));
 
-            // 返回内容 + conversationId，供前端保存并下次传入
-            Map<String, Object> data = new HashMap<>();
-            data.put("content", result);
-            data.put("conversationId", conversationId);
-            return Result.ok(data);
+            // 先推送 conversationId（JSON 格式，前端据此识别为元事件，不混入回答文本）
+            try {
+                sseSessionFactory.sendConversationId(emitter, conversationId);
+            } catch (IOException e) {
+                log.error("推送 conversationId 失败", e);
+                emitter.completeWithError(e);
+                return null;
+            }
+
+            // 委托 AiService 异步推送。
+            // 兜底 try/catch：SSE 响应已提交，任何异常都必须转为 SSE error 事件，
+            // 否则会逃逸到 WebExceptionAdvice 往已提交的流里写 JSON，前端收不到提示。
+            try {
+                aiService.chatWithToolcall(content, conversationId, emitter, root);
+            } catch (Exception e) {
+                log.error("SSE 会话初始化异常，content={}", content, e);
+                SseUtils.safeSend(emitter, SseUtils.errorEvent("抱歉，AI 服务暂时不可用，请稍后再试。"));
+                emitter.complete();
+            }
+            return emitter;
         } finally {
+            // 与根 span 清理同点：请求线程的 AgentContext 在此清理（异步段由 Propagator 清理）
             AgentContextHolder.clear();
         }
     }

@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
  * {@code @ConditionalOnMissingBean}，本 Bean 定义后自动配置回退，其
  * {@code openAiChatModel(...)} 会按类型装配本版本（连接池）构建模型。
  * <ul>
- *   <li><b>同步模式</b>（{@code chatReturnStringResult}）：使用 Apache HttpClient 5 + 连接池，
+ *   <li><b>同步调用</b>（planner/子 Agent 等非流式 LLM 调用）：使用 Apache HttpClient 5 + 连接池，
  *       替代默认的 {@code HttpURLConnection}（无连接池，每次新建 TCP 连接）；</li>
  *   <li><b>流式模式</b>（SSE）：使用 Reactor Netty 连接池，调优空闲回收与获取超时参数。</li>
  * </ul>
