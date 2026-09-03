@@ -7,6 +7,8 @@
 
 ---
 
+> **另有命令行入口（CLI，2026-09-03）**：终端查观测/管 prompt/评分可用 `lf` 封装命令替代 MCP 工具，见 [Langfuse CLI 使用指南](./Langfuse CLI 使用指南.md)。MCP server 保留，两者并存。
+
 ## 1. 背景与价值
 
 接入 **Langfuse 官方原生 MCP server** 后，Claude Code 会话内直接可调用 `listTraces` / `listObservations` / `queryMetrics` 等工具查数据，验证埋点结构、token 用量、成本变成一句话的事。
