@@ -1,8 +1,11 @@
 package com.hmdp.agent.history;
 
+import org.springframework.stereotype.Component;
+
 /**
  * 会话记忆相关 Redis key 生成 — 单一职责收敛 key 拼接。
  */
+@Component
 public class ConversationMemoryKeyFactory {
 
     private static final String PREFIX = "agent:conv:";
