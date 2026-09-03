@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.mapper.AgentMessageMapper;
+import com.hmdp.agent.model.Mem;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -58,6 +60,9 @@ class ConversationReplayServiceImplTest {
     @Mock
     private ReplayBudgetTrim replayBudgetTrim;
 
+    @Mock
+    private ConversationMemoryStore memoryStore;
+
     @InjectMocks
     private ConversationReplayServiceImpl replayService;
 
@@ -77,6 +82,8 @@ class ConversationReplayServiceImplTest {
         // 预算裁剪默认恒等（不裁），预算接线在 should_apply_char_budget_trim 单独验证
         lenient().when(replayBudgetTrim.trimToBudget(anyList(), anyInt()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        // 默认无记忆视图（P2 压缩未发生 → 纯近期完整窗口语义）；摘要用例单独覆盖
+        lenient().when(memoryStore.read(any(), any())).thenReturn(Optional.empty());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -177,6 +184,24 @@ class ConversationReplayServiceImplTest {
         List<Message> result = replayService.recentMessages(USER_ID, CONV_ID, WINDOW);
 
         assertThat(result).as("DB 异常应 fail-open 返回空，不阻断对话").isEmpty();
+    }
+
+    @Test
+    void should_prepend_summary_when_mem_exists() {
+        // P2 压缩已产生记忆视图：回放应 = [System 历史摘要] + id>uptoId 增量
+        when(memoryStore.read(any(), any()))
+                .thenReturn(Optional.of(new Mem("余额1200元", 9L, 1, null)));
+        List<AgentMessage> rows = List.of(msg(11L, "新回复"), msg(10L, "新问题")); // DB orderByDesc 最新在前，reverse 后升序
+        when(messageMapper.selectList(any())).thenReturn(rows);
+        when(replayMessageMapper.map(any())).thenAnswer(inv -> Optional.of(
+                new UserMessage(((AgentMessage) inv.getArgument(0)).getContent())));
+
+        List<Message> result = replayService.recentMessages(USER_ID, CONV_ID, WINDOW);
+
+        assertThat(result).as("有摘要应 [摘要] + 增量").hasSize(3);
+        assertThat(result.get(0)).isInstanceOf(SystemMessage.class);
+        assertThat(((SystemMessage) result.get(0)).getText()).startsWith("【历史摘要】");
+        assertThat(((UserMessage) result.get(2)).getText()).isEqualTo("新回复");
     }
 
     private static AgentMessage msg(long id, String content) {
