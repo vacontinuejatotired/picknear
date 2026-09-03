@@ -136,6 +136,7 @@ agent:
   replay:
     enabled: true                       # 多轮记忆回放总开关（false → 不读历史，回归单条）
     keep-recent-turns: 6                # 回放的最近轮数上限（不含当前轮，读尾部 2×N 条 user/assistant，硬上限防 token 涨）
+    max-replay-chars: 3000              # 回放历史累计字符预算（近似 token），超预算从最旧丢、最新一条恒保留；0=不限制
 
 feature:
   subagent:

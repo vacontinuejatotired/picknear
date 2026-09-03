@@ -16,8 +16,9 @@ import java.util.List;
 /**
  * 多轮记忆回放契约服务实现 — 瘦编排。
  * <p>
- * 职责：enabled 门 → 尾部窗口查询（最新在前 LIMIT 后 reverse 升序）→ 委托
- * {@link ReplayMessageMapper} 逐条映射 → 返回最近 N 轮历史。业务细节全在依赖小类。
+ * 职责：enabled 门 → 尾部窗口查询（最新在前 LIMIT 后 reverse 升序）→
+ * {@link ReplayBudgetTrim} 字符预算裁剪 → 委托 {@link ReplayMessageMapper}
+ * 逐条映射 → 返回最近 N 轮历史。业务细节全在依赖小类。
  * fail-open：DB 异常只记日志返回空，绝不阻断对话（压缩子系统复用本读取点同样受益）。
  * </p>
  */
@@ -29,6 +30,7 @@ public class ConversationReplayServiceImpl implements ConversationReplayService 
     private final AgentMessageMapper messageMapper;
     private final ReplayProperties replayProperties;
     private final ReplayMessageMapper replayMessageMapper;
+    private final ReplayBudgetTrim replayBudgetTrim;
 
     @Override
     public List<Message> recentMessages(Long userId, String conversationId, int windowTurns) {
@@ -44,6 +46,7 @@ public class ConversationReplayServiceImpl implements ConversationReplayService 
                     .orderByDesc(AgentMessage::getId)
                     .last("LIMIT " + (2 * windowTurns))));
             Collections.reverse(rows); // 转升序，与对话顺序一致
+            rows = replayBudgetTrim.trimToBudget(rows, replayProperties.getMaxReplayChars());
             List<Message> history = new ArrayList<>(rows.size());
             for (AgentMessage row : rows) {
                 replayMessageMapper.map(row).ifPresent(history::add);

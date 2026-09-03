@@ -25,6 +25,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +55,9 @@ class ConversationReplayServiceImplTest {
     @Mock
     private ReplayMessageMapper replayMessageMapper;
 
+    @Mock
+    private ReplayBudgetTrim replayBudgetTrim;
+
     @InjectMocks
     private ConversationReplayServiceImpl replayService;
 
@@ -68,6 +74,9 @@ class ConversationReplayServiceImplTest {
     void setUp() {
         // 默认开启回放，单测聚焦窗口/过滤/fail-open 行为；disabled 用例单独覆盖
         lenient().when(replayProperties.isEnabled()).thenReturn(true);
+        // 预算裁剪默认恒等（不裁），预算接线在 should_apply_char_budget_trim 单独验证
+        lenient().when(replayBudgetTrim.trimToBudget(anyList(), anyInt()))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -109,6 +118,28 @@ class ConversationReplayServiceImplTest {
         assertThat(((SharedString) lastSql).getStringValue())
                 .as("尾部窗口 LIMIT 应为 2×windowTurns")
                 .contains("LIMIT " + (2 * WINDOW));
+    }
+
+    @SuppressWarnings({"unchecked"})
+    @Test
+    void should_apply_char_budget_trim_after_reverse() {
+        // mapper 返回视为「最新在前」（DB orderByDesc 语义）
+        List<AgentMessage> rows = List.of(msg(2L, "新"), msg(1L, "老"));
+        when(messageMapper.selectList(any())).thenReturn(rows);
+        when(replayProperties.getMaxReplayChars()).thenReturn(3000);
+        // 模拟裁剪器：只保留最新一条
+        when(replayBudgetTrim.trimToBudget(anyList(), anyInt()))
+                .thenAnswer(inv -> inv.<List<AgentMessage>>getArgument(0).subList(1, 2));
+        when(replayMessageMapper.map(any())).thenAnswer(inv -> Optional.of(
+                new UserMessage(((AgentMessage) inv.getArgument(0)).getContent())));
+
+        List<Message> result = replayService.recentMessages(USER_ID, CONV_ID, WINDOW);
+
+        assertThat(result)
+                .as("应仅映射裁剪后保留的最新一条")
+                .extracting(m -> ((UserMessage) m).getText())
+                .containsExactly("新");
+        verify(replayBudgetTrim).trimToBudget(anyList(), eq(3000));
     }
 
     @Test
