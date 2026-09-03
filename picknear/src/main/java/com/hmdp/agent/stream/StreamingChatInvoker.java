@@ -105,8 +105,20 @@ public class StreamingChatInvoker {
                     return new StreamOutcome(fullResponse, null);
                 } catch (Exception e) {
                     lastError = e;
-                    log.warn("AI 流式调用失败 [attempt={}/{}]", attempt, MAX_ATTEMPTS, e);
+                    boolean isRateLimit = com.hmdp.agent.execution.RetryRunner.isRateLimitException(e);
+                    log.warn("AI 流式调用失败 [attempt={}/{}], rateLimit={}", attempt, MAX_ATTEMPTS, isRateLimit, e);
                     if (attempt < MAX_ATTEMPTS) {
+                        // 429 限流：先退避再重试，避免触发更严格的限流
+                        if (isRateLimit) {
+                            try {
+                                long backoffMs = 5000L * (long) Math.pow(2, attempt - 1);
+                                log.info("[Phase1] 429 限流，{}ms 后重试...", backoffMs);
+                                Thread.sleep(backoffMs);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        }
                         // 把错误喂给 AI，让 AI 重试生成回复
                         currentContent = initialContent + "\n\n[系统提示] 上一步调用因以下异常失败，请重试："
                                 + e.getClass().getSimpleName() + ": " + e.getMessage();

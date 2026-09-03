@@ -97,7 +97,7 @@ public class ToolExecutionFacade {
         String content;
         try {
             content = retryRunner.executeWithRetry(systemText, prompt, plan, filteredCallbacks, props,
-                    start, plan.getUserId(), plan.getConversationId());
+                    start, plan.getUserId(), plan.getConversationId(), session.getSubagentSpan());
         } finally {
             ChatModelObservationConventionConfig.clear();
         }

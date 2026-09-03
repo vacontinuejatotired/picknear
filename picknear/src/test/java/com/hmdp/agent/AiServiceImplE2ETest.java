@@ -1,7 +1,6 @@
 package com.hmdp.agent;
 
 import com.hmdp.agent.context.AgentContext;
-import com.hmdp.agent.history.HistoryRecorder;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -18,7 +17,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,14 +24,12 @@ import java.io.IOException;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 链路A + 链路B 端到端打通测试。
+ * 链路B 端到端打通测试（对话已废弃 JSON 模式，链路A 已随 chatReturnStringResult 一并删除）。
  * <p>
- * 链路A：AiServiceImpl.chatReturnStringResult() — JSON 同步模式
  * 链路B：AiServiceImpl.chatWithToolcall() — SSE 流式模式
  * <p>
  * 关键技巧：
@@ -54,19 +50,13 @@ class AiServiceImplE2ETest {
     @InjectMocks
     private AiServiceImpl aiService;
 
-    // ========== 8 个 @Resource 依赖全部 @Mock ==========
-    @Mock private ChatClient chatClient;
+    // ========== 依赖全部 @Mock ==========
     @Mock private PromptHookExecutor promptHookExecutor;
     @Mock private Executor aiTaskExecutor;
     @Mock private AgentTracer agentTracer;
     @Mock private StreamingChatInvoker streamingChatInvoker;
     @Mock private SseResponseProcessor sseResponseProcessor;
-    @Mock private HistoryRecorder historyRecorder;
     @Mock private PromptService promptService;
-
-    // ========== ChatClient 链式调用中间对象 ==========
-    @Mock private ChatClient.ChatClientRequestSpec requestSpec;
-    @Mock private ChatClient.CallResponseSpec responseSpec;
 
     private AgentContext ctx;
 
@@ -87,19 +77,12 @@ class AiServiceImplE2ETest {
                 .originalInput("你好")
                 .build();
 
-        // (4) ChatClient 链式调用打桩（JSON 模式）
-        lenient().when(chatClient.prompt()).thenReturn(requestSpec);
-        lenient().when(requestSpec.system(anyString())).thenReturn(requestSpec);
-        lenient().when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        lenient().when(requestSpec.call()).thenReturn(responseSpec);
-        lenient().when(responseSpec.content()).thenReturn(LLM_REPLY_NORMAL);
-
-        // (5) Hook 链与提示词渲染默认行为
+        // (4) Hook 链与提示词渲染默认行为
         lenient().when(promptHookExecutor.execute(anyString(), anyString(), any(), any()))
                 .thenReturn(PromptHookExecutor.HookOutcome.passed(ctx, "你好"));
         lenient().when(promptService.render(anyString(), anyMap())).thenReturn(SYSTEM_TEXT);
 
-        // (6) 流式调用默认成功（SSE 模式）
+        // (5) 流式调用默认成功（SSE 模式）
         lenient().when(streamingChatInvoker.streamWithRetry(anyString(), anyString(), any()))
                 .thenReturn(new StreamingChatInvoker.StreamOutcome(LLM_REPLY_NORMAL, null));
     }
@@ -107,73 +90,6 @@ class AiServiceImplE2ETest {
     @AfterEach
     void tearDown() {
         UserHolder.remove();
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // 链路A：chatReturnStringResult — JSON 同步模式
-    // ═══════════════════════════════════════════════════════
-    @Nested
-    class ChatReturnStringResult {
-
-        @Test
-        void should_return_llm_reply_when_hook_passes() {
-            String result = aiService.chatReturnStringResult("你好", TEST_CONV_ID);
-
-            assertThat(result)
-                    .as("PASS 时应返回 LLM 原始回复")
-                    .isEqualTo(LLM_REPLY_NORMAL);
-            verify(chatClient).prompt();
-            verify(requestSpec).user("你好");
-            verify(historyRecorder).recordBestEffort(TEST_USER_ID, TEST_CONV_ID, "你好", LLM_REPLY_NORMAL);
-        }
-
-        @Test
-        void should_return_block_message_when_hook_blocks() {
-            when(promptHookExecutor.execute(anyString(), anyString(), any(), any()))
-                    .thenReturn(PromptHookExecutor.HookOutcome.blocked(ctx, "检测到敏感词"));
-
-            String result = aiService.chatReturnStringResult("攻击银行", TEST_CONV_ID);
-
-            assertThat(result)
-                    .as("BLOCK 时应返回错误提示")
-                    .startsWith("❌");
-            verify(chatClient, never()).prompt();
-            verify(historyRecorder, never()).recordBestEffort(any(), any(), any(), any());
-        }
-
-        @Test
-        void should_use_replaced_text_when_hook_replaces() {
-            when(promptHookExecutor.execute(anyString(), anyString(), any(), any()))
-                    .thenReturn(PromptHookExecutor.HookOutcome.passed(ctx, "脱敏后的文本"));
-
-            String result = aiService.chatReturnStringResult("原始敏感内容", TEST_CONV_ID);
-
-            verify(requestSpec).user("脱敏后的文本");
-            assertThat(result)
-                    .as("REPLACE 后应返回 LLM 对替换文本的回复")
-                    .isEqualTo(LLM_REPLY_NORMAL);
-        }
-
-        @Test
-        void should_return_null_when_llm_returns_null() {
-            when(responseSpec.content()).thenReturn(null);
-
-            String result = aiService.chatReturnStringResult("你好", TEST_CONV_ID);
-
-            assertThat(result)
-                    .as("LLM 返回 null 时应透传 null")
-                    .isNull();
-        }
-
-        @Test
-        void should_throw_when_user_not_logged_in() {
-            UserHolder.remove();
-
-            assertThatThrownBy(() -> aiService.chatReturnStringResult("你好", TEST_CONV_ID))
-                    .as("未登录时应抛出 IllegalArgumentException")
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("用户ID不存在");
-        }
     }
 
     // ═══════════════════════════════════════════════════════

@@ -13,15 +13,17 @@ COPY pom.xml .
 # 国内 Maven 镜像配置（源自本机 D:\apache-maven-3.8.8-bin\...\conf\settings.xml）
 COPY docker/maven/settings.xml /build/maven-settings.xml
 
-# Maven 本地仓库：用 BuildKit cache 卷持久化（首次构建自动下载，后续构建复用缓存）
-# Docker settings.xml 已配阿里云/华为云镜像，首次构建也很快
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -s /build/maven-settings.xml dependency:copy-dependencies -DoutputDirectory=/tmp/deps-check -B
+# 依赖层缓存：go-offline 把所有依赖下载到 /root/.m2/repository（镜像层，非 mount cache），
+# GHA cache 会缓存此层——pom.xml 不变时整层命中，不重新下载。
+# resolve-plugins 把构建插件（spring-boot-maven-plugin 等）也预下载进同层：
+# 否则 src 变化导致 package 重跑时，插件仍要在构建期从镜像源逐一下载。
+# ⚠️ 原 --mount=type=cache 在 GitHub Actions runner 间不共享，必须用镜像层方式。
+RUN mvn -s /build/maven-settings.xml dependency:go-offline dependency:resolve-plugins -B
 
 COPY src src/
 # -Dmaven.test.skip=true：连测试代码编译都跳过，构建更快。
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -B
+# -T 1C：插件级并行（单模块 javac 收益有限，但无副作用）。
+RUN mvn -s /build/maven-settings.xml package -Dmaven.test.skip=true -T 1C -B
 
 # 拆分层，配合 JarLauncher 路径
 RUN java -Djarmode=layertools -jar target/*.jar extract --destination extracted

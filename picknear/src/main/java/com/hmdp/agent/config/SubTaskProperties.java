@@ -46,4 +46,13 @@ public class SubTaskProperties {
 
     /** 工具结果压缩摘要的最大字符数（LLM 把原始结果压成要点后再入上下文，防滚雪球） */
     private int compressLength = 80;
+
+    /** 429 限流专用退避间隔（比普通错误更长，防限流雪崩） */
+    private RateLimit rateLimit = new RateLimit();
+
+    @Data
+    public static class RateLimit {
+        /** 429 限流专用退避基础间隔（指数增长：5s → 10s → 20s） */
+        private Duration retryBackoff = Duration.ofSeconds(5);
+    }
 }

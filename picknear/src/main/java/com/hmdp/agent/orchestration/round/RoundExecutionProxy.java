@@ -66,6 +66,7 @@ public class RoundExecutionProxy {
                     .callback(new SseSubAgentCallback(emitter))
                     .properties(subTaskProperties)
                     .startTimeMs(System.currentTimeMillis())
+                    .subagentSpan(subagentSpan)
                     .build();
 
             ExecutionOutput result = toolExecutionFacade.execute(session);

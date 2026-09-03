@@ -35,6 +35,13 @@ import lombok.extern.slf4j.Slf4j;
  * 默认 ChatModel 观察的 span 名是 {@code chat <model>}，主代理与子代理共用同一
  * {@code OpenAiChatModel} Bean 时无法区分调用方——故前缀编码是 Langfuse 特有需求的兜底。
  * </p>
+ * <p>
+ * <b>补发 key 约定（2026-09-01 评测链路修复定稿）</b>：写 {@code langfuse.observation.input} /
+ * {@code langfuse.observation.output}（Langfuse SDK 协议，OTLP 转译提取瀑布 Step 1 最高
+ * 优先级）——observation 主字段即有值；旧 key {@code gen_ai.request/response.content}
+ * 不在 Langfuse 提取器的识别列表，转译后只进 metadata、主字段恒 null，导致 LLM-as-a-judge
+ * 评估器（从主字段取数）取空。详见 {@code md/agent/Agent评测功能交接文档.md} §三。
+ * </p>
  */
 @Slf4j
 @Configuration
@@ -113,16 +120,16 @@ public class ChatModelObservationConventionConfig {
                 String requestContent = ChatContentSerializer.toRequestContentJson(
                         context.getRequest(), sanitizer, objectMapper);
                 if (requestContent != null) {
-                    keyValues = keyValues.and("gen_ai.request.content", requestContent);
-                    log.info("[obs-convention] 写入 gen_ai.request.content，len={}", requestContent.length());
+                    keyValues = keyValues.and("langfuse.observation.input", requestContent);
+                    log.info("[obs-convention] 写入 langfuse.observation.input，len={}", requestContent.length());
                 } else {
                     log.info("[obs-convention] 无 request content（request 为 null 或无消息）");
                 }
                 String responseContent = ChatContentSerializer.toResponseContent(
                         context.getResponse(), sanitizer);
                 if (responseContent != null) {
-                    keyValues = keyValues.and("gen_ai.response.content", responseContent);
-                    log.info("[obs-convention] 写入 gen_ai.response.content，len={}", responseContent.length());
+                    keyValues = keyValues.and("langfuse.observation.output", responseContent);
+                    log.info("[obs-convention] 写入 langfuse.observation.output，len={}", responseContent.length());
                 } else {
                     log.info("[obs-convention] 无 response content（response 为 null 或无文本）");
                 }

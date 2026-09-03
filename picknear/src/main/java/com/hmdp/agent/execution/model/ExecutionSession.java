@@ -1,6 +1,7 @@
 package com.hmdp.agent.execution.model;
 
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.subagent.callback.SubAgentProgressCallback;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,9 @@ public class ExecutionSession {
 
     /** 开始执行的时间戳（System.currentTimeMillis） */
     private long startTimeMs;
+
+    /** 观测：subagent span（工具执行状态记录用，可为 null） */
+    private AgentSpan subagentSpan;
 
     /**
      * 是否已超过总超时。

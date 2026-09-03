@@ -2,6 +2,7 @@ package com.hmdp.agent.execution;
 
 import com.hmdp.agent.config.SubTaskProperties;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
+import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
 import com.hmdp.agent.subagent.loop.ToolLoopContext;
 import com.hmdp.agent.execution.model.ExecutionInput;
@@ -36,8 +37,9 @@ public class RetryRunner {
     public String executeWithRetry(String systemText, String prompt, ExecutionInput plan,
                                    ToolCallback[] callbacks,
                                    SubTaskProperties props, long roundStartMs,
-                                   Long userId, String conversationId) {
+                                   Long userId, String conversationId, AgentSpan subagentSpan) {
         int maxRetries = props.getMaxRetries();
+        long rateLimitBackoffMs = props.getRateLimit().getRetryBackoff().toMillis();
         Exception lastError = null;
         String currentPrompt = prompt;
 
@@ -60,7 +62,7 @@ public class RetryRunner {
                 }
                 ToolLoopContext ctx = new ToolLoopContext(
                         Arrays.asList(callbacks), systemText, currentPrompt, plan, promptService,
-                        toolCtx, props);
+                        toolCtx, props, subagentSpan);
                 String content = toolLoop.execute(ctx);
                 log.info("[SubAgent] 调用成功 [attempt={}/{}]", attempt, maxRetries);
                 return content;
@@ -68,11 +70,14 @@ public class RetryRunner {
                 throw e;
             } catch (Exception e) {
                 lastError = e;
-                log.warn("[SubAgent] 调用失败 [attempt={}/{}], err={}",
-                        attempt, maxRetries, e.getMessage());
+                boolean isRateLimit = isRateLimitException(e);
+                log.warn("[SubAgent] 调用失败 [attempt={}/{}], rateLimit={}, err={}",
+                        attempt, maxRetries, isRateLimit, e.getMessage());
 
                 if (attempt < maxRetries) {
-                    long backoffMs = props.getRetryBackoff().toMillis() * (long) Math.pow(2, attempt - 1);
+                    long backoffMs = isRateLimit
+                            ? rateLimitBackoffMs * (long) Math.pow(2, attempt - 1)
+                            : props.getRetryBackoff().toMillis() * (long) Math.pow(2, attempt - 1);
                     log.info("[SubAgent] {}ms 后重试...", backoffMs);
                     try {
                         Thread.sleep(backoffMs);
@@ -86,5 +91,11 @@ public class RetryRunner {
         }
         log.error("[SubAgent] 重试耗尽 [maxRetries={}]", maxRetries, lastError);
         return null;
+    }
+
+    /** 识别 429 限流异常（DashScope 返回 limit_requests，被 Spring AI 包装为 NonTransientAiException） */
+    public static boolean isRateLimitException(Exception e) {
+        String msg = e.getMessage();
+        return msg != null && (msg.contains("limit_requests") || msg.contains("429"));
     }
 }
