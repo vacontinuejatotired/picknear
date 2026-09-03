@@ -30,8 +30,8 @@ Agent 模块是 picknear 的"智能层"，通过大语言模型（LLM）为用�
 |------|------|------|
 | **自然语言对话** | 用户用中文提问，AI 理解意图并回复 | ✅ 已实现 |
 | **工具调用（Function Calling）** | AI 规划后执行后端工具（查天气、查博客、发布博客） | ✅ 已实现 |
-| **双模响应** | 同一端点同时支持 JSON 同步响应 和 SSE 流式推送 | ✅ 已实现 |
-| **多轮对话记忆** | 通过 ChatMemory 保留最近 10 轮上下文 | ✅ 已实现 |
+| **对话流式（SSE-only）** | 对话统一 SSE 流式（JSON 同步模式已废弃，2026-09-03） | ✅ 已实现 |
+| **多轮对话记忆 + 异步压缩** | agent_message 落库完整历史 + P1 回放最近 N 轮 + P2 后台小模型压缩为运行摘要（Redis Mem 视图） | ✅ 已实现 |
 | **权限校验** | AOP 切面 + 策略模式校验器，可插拔 | ✅ 已实现 |
 | **上下文安全** | 通过 `toolContext` 将当前用户 ID 注入工具调用 | ✅ 已实现 |
 | **审批授权** | 敏感工具调用前需用户确认 | 📅 预留 |
@@ -44,7 +44,7 @@ Agent 模块是 picknear 的"智能层"，通过大语言模型（LLM）为用�
 | 底层模型 | DashScope（通义千问） | qwen-plus-2025-07-28 |
 | SSE 容器 | Spring `SseEmitter` | 内置于 Spring Web |
 | 工具注册 | 自定义注解 `@TargetTool` + 自动扫描 | — |
-| 对话记忆 | JDBC 持久化 `MessageWindowChatMemory` | — |
+| 对话记忆/压缩 | 自建 agent_message 回放（`ConversationReplayService`）+ Redis `Mem` 视图异步压缩 | — |
 | HTTP 连接池 | Apache HttpClient 5（同步） + Reactor Netty（流式） | — |
 
 ---
@@ -266,9 +266,11 @@ public class AgentConfig {
 
 **内容协商**:
 
+> ⚠️ 2026-09-03 起对话仅 SSE：`Accept` 协商已删除，`/string/send` 固定 SSE 流式 + 工具调用（JSON 同步响应废弃，`chatReturnStringResult` 已删）。下方旧内容协商图为历史。
+
 ```
 Accept: text/event-stream    → SSE 流式 + 工具调用
-Accept: */* 或 无 Accept 头  → 普通 JSON 同步响应
+Accept: */* 或 无 Accept 头  → 普通 JSON 同步响应（已废弃）
 ```
 
 ### 3.5 服务层 —— AiService / AiServiceImpl
@@ -279,10 +281,7 @@ Accept: */* 或 无 Accept 头  → 普通 JSON 同步响应
 
 ```java
 public interface AiService {
-    /** JSON 同步模式：等待完整回复后返回 */
-    String chatReturnStringResult(String content, String conversationId);
-
-    /** SSE 流式模式（双模端点，Accept: text/event-stream） */
+    /** SSE 流式对话（JSON 同步模式 chatReturnStringResult 已废弃并删除，对话仅 SSE） */
     void chatWithToolcall(String content, String conversationId, SseEmitter emitter, AgentSpan rootSpan);
 }
 ```

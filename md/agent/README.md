@@ -43,7 +43,7 @@
 | **CONFIRM 审批流** | 敏感工具调用前真暂停（ConfirmRequiredException 穿透），agent_approval 表持久化快照，`/agent/confirm` 审批通过后从快照续流恢复（CAS 状态机 + 超时清扫） |
 | **全链路可观测** | AgentTracer 业务埋点 → OTel → 多后端可插拔（langfuse / jaeger / signoz / collector / console / noop），session → phase1 → round → subagent → tool_call → guard 多层 span 同 traceId 串树 |
 | **提示词工程化** | Langfuse Prompt Management + 内置模板三级降级，运行期热改（/agent/prompt/reload），工具描述外置，PromptRepository 策略化（langfuse / none） |
-| **多轮对话记忆** | agent_conversation / agent_message 双表落库完整历史 + 查询接口（当前仅展示；模型侧记忆回放待接通，见《上下文压缩子系统设计文档》） |
+| **多轮对话记忆（已接通）** | agent_conversation / agent_message 双表落库完整历史；SSE 请求回放最近 N 轮（P1 回放）+ 长会话后台把旧轮异步压成运行摘要（P2 压缩），详见《上下文压缩子系统设计文档》 |
 | **对话流式（SSE-only）** | 对话统一 SSE 流式推送；JSON 同步模式已废弃（2026-09-03） |
 | **请求级上下文** | AgentContext + ThreadLocal + TaskDecorator 跨线程传播（userId / conversationId / 原始输入 / 根 span），取代散落的旧载体 |
 | **可插拔架构** | @TargetTool + @ToolMeta 注解自动注册，Guard / Hook / Router / ToolLoop 均为策略接口，新增组件只加注解或实现类 |
@@ -241,12 +241,12 @@ Langfuse Prompt Management 为事实源 + 内置模板兜底，改提示词不�
 
 当前测试覆盖约 75%，核心链路已覆盖，但边缘场景和错误路径仍有缺口。
 
-### 7. 对话历史：ChatMemory 空转，历史在 agent_message（2026-09-03 起对话仅 SSE）
+### 7. 对话历史与上下文（2026-09-03 起对话仅 SSE）
 
-JSON 同步对话模式已废弃（`chatReturnStringResult` 删除，`/agent/string/send` 仅 SSE）。历史记录全部走自建的 `agent_conversation` / `agent_message` 表：
-- JDBC ChatMemory（`SPRING_AI_CHAT_MEMORY`）当前**空转**——全项目无 `chatMemory.add` 写入方（仅 PromptHookExecutor REPLACE 分支会 clear+add），不再是历史来源
-- **多轮记忆尚未回灌模型**：每次请求只带 `system + 当条 user`，历史只服务前端历史列表
-- 回放 / 压缩子系统落点见《上下文压缩子系统设计文档》
+JSON 同步对话模式已废弃（`chatReturnStringResult` 删除，`/agent/string/send` 仅 SSE）。历史与回放：
+- 历史落库：自建 `agent_conversation` / `agent_message`（SSE 每回合 user+assistant 各一行）；JDBC ChatMemory（`SPRING_AI_CHAT_MEMORY`）**空转**（无 `chatMemory.add` 写入方），不是历史来源。
+- **记忆回放（P1）**：`ConversationReplayService` 契约读取 agent_message 尾部 N 轮 → `[System(历史摘要，可选)] + 近期完整消息` 注入模型。
+- **对话级异步压缩（P2）**：`recordTurn` 落库事务 afterCommit 发事件 → 独立 compressExecutor（小模型 qwen-flash）把旧轮异步压进 Redis `agent:conv:{cid}:mem`（Mem：summary+uptoId 单 key 原子）；回放自动升级为 `[摘要]+id>uptoId 增量`，原值永在 agent_message。压缩旁路 fail-open（dirty 自愈 + sweeper）。
 
 ---
 

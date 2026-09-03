@@ -42,19 +42,18 @@ flowchart TD
 
 所有请求经由 **`ChatController`**（`/agent/string/send`）统一入口，根据 `Accept` 头协商响应模式：
 
-| 模式 | 条件 | 执行方式 |
-|------|------|----------|
-| **SSE 流式** | `Accept: text/event-stream` | 异步推送，支持工具调用全流程 |
-| **JSON 同步** | 其他 / 无 Accept | 同步等待，纯文本 AI 回复 |
+| 模式 | 执行方式 |
+|------|----------|
+| **SSE 流式（唯一对话模式）** | 异步推送，支持工具调用全流程；JSON 同步对话已废弃（2026-09-03） |
 
-**入口动作（双模统一）：**
+**入口动作（SSE）：**
 
 ```mermaid
 flowchart LR
     A["请求到达"] --> B{"conversationId<br/>是否传入？"}
     B -->|否| C["UUID 自动生成"]
     B -->|是| D["续传会话"]
-    C --> E["ChatMemory 拉取历史"]
+    C --> E["回放历史（ConversationReplayService）"]
     D --> E
     E --> F["构建 AgentContext<br/>存入 AgentContextHolder"]
     F --> G["委托 AiService"]
@@ -69,7 +68,7 @@ flowchart LR
 
 **组件：** `PromptHookExecutor` → `PromptHookChain` → 各 Hook 实现
 
-AI 调用**之前**执行的拦截链，双模共用。职责：安全检测、输入清洗、敏感词脱敏。
+AI 调用**之前**执行的拦截链（SSE 对话共用）。职责：安全检测、输入清洗、敏感词脱敏（`SensitiveWordHook` 默认关闭，见源码注解与《上下文压缩子系统设计文档》§0）。
 
 ```mermaid
 flowchart TD
