@@ -126,14 +126,19 @@ public class PlanValidator {
         return toolName;
     }
 
-    /** 截取一句可读描述：取首个句号/逗号前，限长 max 字符 */
+    /** 取一句可读描述：优先切在最早的句末标点/逗号（避免半句截断带引号），超长才补省略号 */
     private static String compact(String s, int max) {
         String t = s.trim();
-        int cut = t.indexOf('。');
-        if (cut > 0) t = t.substring(0, cut).trim();
-        cut = t.indexOf(',');
-        if (cut > 0) t = t.substring(0, cut).trim();
-        return t.length() <= max ? t : t.substring(0, max);
+        int cut = -1;
+        String[] seps = {"。」", "」", "。", "！", "？", "；", "，", ","};
+        for (String sep : seps) {
+            int i = t.indexOf(sep);
+            if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+        }
+        if (cut >= 0) {
+            t = t.substring(0, cut).trim();
+        }
+        return t.length() <= max ? t : t.substring(0, max) + "…";
     }
 
     private static Map<String, ToolCallback> buildIndex(ToolCallback[] callbacks) {
