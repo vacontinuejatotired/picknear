@@ -11,12 +11,16 @@ import java.util.List;
 @Component
 public class SummarizePromptComposer {
 
-    public String system() {
+    /**
+     * @param maxChars 摘要长度上限（约束生成源，防运行摘要逐轮膨胀；对应 agent.context-compression.summary.max-tokens）
+     */
+    public String system(int maxChars) {
         return "把以下对话轮次压缩成一段要点摘要。要求："
                 + "必须保留全部关键数字、ID、价格、数量、百分比、日期、专名等事实，不得篡改数值，不得遗漏用户明确陈述的事实；"
+                + "summary 长度控制在约 " + maxChars + " token 以内、越短越好（这是压缩历史的长期任务，输出过长会逐轮膨胀）；"
                 + "只输出 JSON（无任何其他文字）："
                 + "{\"summary\":\"...\",\"keyData\":[\"关键事实点...\"],\"truncated\":false}。"
-                + "summary 为 ≤ 段落长度的要点总结；keyData 列出必须保留的关键事实点（数字/日期/名称）原文；"
+                + "keyData 列出必须保留的关键事实点（数字/日期/名称）原文；"
                 + "若输入过长无法全部保留，置 truncated=true 并优先保留最新且最重要的事实。";
     }
 

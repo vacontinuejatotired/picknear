@@ -139,11 +139,10 @@ agent:
     max-replay-chars: 3000              # 回放历史累计字符预算（近似 token），超预算从最旧丢、最新一条恒保留；0=不限制
   context-compression:
     enabled: true                       # 对话级异步压缩总开关（关 = 回放退化为纯近期完整窗口）
-    keep-recent-turns: 10               # 压缩后仍以完整消息保留的最近轮数（安全尾窗）
-    batch-turns: 6                      # 每批压缩轮数
+    batch-turns: 6                      # 每批压缩轮数（压缩尾窗 = agent.replay.keep-recent-turns，单一事实源）
     trigger:
       token-threshold: 3000             # 未摘要消息估算 token 超此阈值触发压缩
-      message-count: 20                 # 消息条数下限（防单条超长漏检）
+      message-count: 20                 # 消息条数下限，须 > 2×agent.replay.keep-recent-turns（否则压缩永不触发）
     summary:
       max-tokens: 1200                  # 批次摘要估算上限
       keep-keydata: true                # 保真：关键数据点回填/预留后缀

@@ -42,4 +42,13 @@ public class DirtyMarker {
             return null;
         }
     }
+
+    /** 清除 dirty 标记（压缩执行结束无论成败调用；重试靠"新写回合"，dirty 只为"投递/锁丢失"兜底）。 */
+    public void clear(String conversationId) {
+        try {
+            stringRedisTemplate.delete(keyFactory.dirtyKey(conversationId));
+        } catch (Exception e) {
+            log.debug("清除 dirty 标记失败 conversationId={}（仅兜底，不致命）", conversationId, e);
+        }
+    }
 }

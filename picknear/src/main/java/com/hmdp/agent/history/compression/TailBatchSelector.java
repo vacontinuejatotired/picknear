@@ -27,11 +27,11 @@ public class TailBatchSelector implements BatchSelector {
 
     @Override
     public Optional<ConversationBatch> select(Mem mem, List<AgentMessage> pendingAsc,
-                                              ContextCompressionProperties properties) {
+                                              int keepRecentTurns, ContextCompressionProperties properties) {
         if (pendingAsc.isEmpty()) {
             return Optional.empty();
         }
-        int keepRows = 2 * properties.getKeepRecentTurns();
+        int keepRows = 2 * keepRecentTurns;
         int compressible = pendingAsc.size() - keepRows;
         if (compressible <= 0) {
             return Optional.empty();

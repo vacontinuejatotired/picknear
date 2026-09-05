@@ -32,7 +32,7 @@ class TailBatchSelectorTest {
     void should_not_select_when_below_trigger() {
         ContextCompressionProperties props = new ContextCompressionProperties();
 
-        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(18), props);
+        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(18), 10, props);
 
         assertThat(batch).isEmpty();
     }
@@ -41,7 +41,7 @@ class TailBatchSelectorTest {
     void should_select_oldest_batch_within_message_trigger() {
         ContextCompressionProperties props = new ContextCompressionProperties(); // 20 触发 / keep 10 轮 / batch 6 轮
 
-        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(26), props);
+        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(26), 10, props);
 
         assertThat(batch).isPresent();
         assertThat(batch.get().messages()).hasSize(6);          // min(2*6, 26-2*10=6)
@@ -51,9 +51,8 @@ class TailBatchSelectorTest {
     @Test
     void should_keep_recent_tail_untouched() {
         ContextCompressionProperties props = new ContextCompressionProperties();
-        props.setKeepRecentTurns(2);                             // 保留最近 2 轮不压
 
-        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(26), props);
+        Optional<ConversationBatch> batch = selector.select(Mem.empty(), msgs(26), 2, props);
 
         assertThat(batch).isPresent();
         assertThat(batch.get().messages()).hasSize(12);          // min(12, 26-4=22)

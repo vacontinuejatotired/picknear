@@ -47,7 +47,7 @@ public class ConversationCompressionDispatcher {
 
     /** 对指定会话投递一次压缩（写回合/sweeper 共用入口）。 */
     public void schedule(String conversationId, Long userId) {
-        if (!properties.isEnabled() || conversationId == null || conversationId.isBlank()) {
+        if (!properties.isEnabled() || userId == null || conversationId == null || conversationId.isBlank()) {
             return;
         }
         Runnable task = new CompressTaskLockGuard(redisson, keyFactory, executorProperties,

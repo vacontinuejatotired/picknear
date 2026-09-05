@@ -20,9 +20,6 @@ public class ContextCompressionProperties {
     /** 对话级异步压缩总开关（关 = 回放退化为 P1 纯近期完整窗口，无摘要） */
     private boolean enabled = true;
 
-    /** 压缩后仍以完整消息保留的最近轮数（安全尾窗，不回灌摘要） */
-    private int keepRecentTurns = 10;
-
     /** 每批压缩的轮数（batch-turns，按最旧未压批次切） */
     private int batchTurns = 6;
 

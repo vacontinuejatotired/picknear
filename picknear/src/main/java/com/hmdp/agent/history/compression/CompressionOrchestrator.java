@@ -2,6 +2,7 @@ package com.hmdp.agent.history.compression;
 
 import com.hmdp.agent.config.CompressionExecutorProperties;
 import com.hmdp.agent.config.ContextCompressionProperties;
+import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.history.ConversationMemoryStore;
 import com.hmdp.agent.history.fidelity.FidelityAssurance;
@@ -32,13 +33,24 @@ public class CompressionOrchestrator {
     private final CompressionExecutorProperties executorProperties;
     private final ContextCompressionProperties properties;
     private final FidelityAssurance fidelityAssurance;
+    private final ReplayProperties replayProperties;
 
     public void compressCatchUp(String conversationId, Long userId) {
+        try {
+            compressLoop(conversationId, userId);
+        } finally {
+            // 执行结束即清 dirty：成功或失败都不需要 sweeper 重复补跑，重试靠"下一次写回合"自然触发
+            dirtyMarker.clear(conversationId);
+        }
+    }
+
+    private void compressLoop(String conversationId, Long userId) {
         int rounds = 0;
         while (rounds < executorProperties.getCatchUpMax()) {
             Mem mem = store.read(conversationId, userId).orElse(Mem.empty());
             List<AgentMessage> pending = loadProber.loadPending(userId, conversationId, mem);
-            Optional<ConversationBatch> batchOption = batchSelector.select(mem, pending, properties);
+            Optional<ConversationBatch> batchOption = batchSelector.select(mem, pending,
+                    replayProperties.getKeepRecentTurns(), properties);
             if (batchOption.isEmpty()) {
                 return;
             }
@@ -53,8 +65,8 @@ public class CompressionOrchestrator {
                 log.info("会话压缩完成 batch 至 uptoId={}，version={}，conversationId={}",
                         batch.uptoId(), next.version(), conversationId);
             } catch (Exception e) {
-                log.warn("会话压缩失败，不推进游标，置 dirty 自愈 conversationId={}", conversationId, e);
-                dirtyMarker.mark(conversationId, userId);
+                // 不置 dirty：压缩失败由下一次写回合自然重试，避免 sweeper 每周期无进展风暴
+                log.warn("会话压缩失败，不推进游标（新写回合重试）conversationId={}", conversationId, e);
                 return;
             }
             rounds++;
