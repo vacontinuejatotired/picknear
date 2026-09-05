@@ -139,9 +139,14 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
         try {
             T result = invoker.get();
             recorder.record(toolName, SubTaskStatus.COMPLETED);
-            // 反编造 L0：登记工具真实返回（guard 截断后、模型可见超集）为真值证据
-            if (result instanceof String raw) {
-                toolResultCapture.capture(toolName, raw);
+            // 反编造 L0：登记工具真实返回（guard 截断后、模型可见超集）为真值证据。
+            // 证据登记是旁路增强：capture 缺失（单测桩）或异常都不得影响工具执行主链
+            if (toolResultCapture != null && result instanceof String raw) {
+                try {
+                    toolResultCapture.capture(toolName, raw);
+                } catch (Exception e) {
+                    log.debug("[ToolEvidence] 证据登记失败（旁路忽略）tool={}", toolName, e);
+                }
             }
             emitToolStatus(ctx, toolName, SseEventConstants.TOOL_COMPLETED);
             return result;
