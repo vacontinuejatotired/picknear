@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent 反编造机制 · 核心判断与总体架构</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@400&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif SC', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+    }
+    .frame { max-width: 1280px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.75rem, 2.1rem);
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+      color: var(--color-ink);
+      margin-bottom: 0.4rem;
+    }
+    .sub { font-family: var(--font-sans); font-size: 0.92rem; color: var(--color-muted); margin-bottom: 1.4rem; }
+    svg { width: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Flowchart · Diagram Design</p>
+    <h1>Agent 反编造机制 · 核心判断与总体架构</h1>
+    <p class="sub">主轴：工具执行点捕获真值 → 每轮回复离开子 Agent 前过确定性断言闸 → 无证据断言按处置降级；记忆只回放已核实事实。</p>
+
+    <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="anti-fab-title anti-fab-desc">
+      <title id="anti-fab-title">Agent 反编造机制总体架构</title>
+      <desc id="anti-fab-desc">用户输入经 L1 数据意图预检打标，进入无工具的 Phase 1 纯文本回复；数据类问题由断言 Hook 强制转 PLANNING，子 Agent 规划并执行工具、捕获真值，产出 summary 后通过 J4 输出断言闸；未锚定的数字与实体走违例处置，已锚定则聚合落账到事实账本，账本只存工具真值并回放注入下一轮请求。</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ============ ARROWS (drawn before boxes) ============ -->
+
+      <!-- 1 → 2 → 3 → 4  (vertical spine, col L) -->
+      <line x1="280" y1="116" x2="280" y2="152" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="280" y1="212" x2="280" y2="248" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="280" y1="308" x2="280" y2="334" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 4 diamond → PASS (no, down) -->
+      <line x1="280" y1="426" x2="280" y2="462" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 4 diamond → 规划+执行 (yes, right, labelled PLANNING) -->
+      <line x1="440" y1="380" x2="580" y2="380" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="466" y="350" width="104" height="14" rx="4" fill="#f5f5f5"/>
+      <text x="518" y="360" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PLANNING</text>
+
+      <!-- 规划+执行 → Gate (vertical) -->
+      <line x1="760" y1="404" x2="760" y2="446" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- Gate → 处置 (right, labelled) -->
+      <line x1="900" y1="500" x2="1000" y2="500" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="912" y="462" width="80" height="18" rx="4" fill="#f5f5f5"/>
+      <text x="952" y="476" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">未锚定</text>
+
+      <!-- Gate → 事实账本 (down) -->
+      <line x1="760" y1="546" x2="760" y2="556" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 账本 → 回放 (right) -->
+      <line x1="930" y1="590" x2="1000" y2="590" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 回放 → 回流至 Phase1 (cross-request, dashed, right edge up) -->
+      <path d="M 1210 590 L 1222 590 L 1222 256 L 452 256" fill="none"
+            stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <rect x="640" y="232" width="150" height="14" rx="4" fill="#f5f5f5"/>
+      <text x="715" y="244" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">下轮注入历史</text>
+
+      <!-- ============ ZONE FILL ============ -->
+      <text x="60" y="40" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" letter-spacing="0.16em">L1 输入侧</text>
+      <text x="612" y="40" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" letter-spacing="0.16em">L0 · L2 · L3</text>
+
+      <!-- ============ NODES ============ -->
+
+      <!-- N1 用户输入 (start, input treatment, rounded) -->
+      <rect x="120" y="72" width="320" height="44" rx="20" fill="rgba(79,93,117,0.10)" stroke="rgba(122,131,153,0.9)" stroke-width="1"/>
+      <text x="280" y="100" fill="#2d3142" font-size="14" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">用户输入</text>
+
+      <!-- N2 L1 DataIntentPromptHook -->
+      <rect x="120" y="152" width="320" height="60" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="280" y="176" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">L1 DataIntentPromptHook</text>
+      <text x="280" y="197" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">打标数据意图 · 未核实先答「我来查一下」</text>
+
+      <!-- N3 Phase 1 -->
+      <rect x="120" y="248" width="320" height="60" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="280" y="272" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">Phase 1 纯文本 LLM</text>
+      <text x="280" y="293" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">无工具 · 未核实不报数（L2 纪律）</text>
+
+      <!-- N4 决策 DataAssertionHook (diamond) -->
+      <polygon points="280,334 440,380 280,426 120,380" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="280" y="376" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">数据意图 且</text>
+      <text x="280" y="392" fill="#2d3142" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">本回合未跑工具？</text>
+
+      <!-- N5 PASS (terminal, col L bottom) -->
+      <rect x="224" y="470" width="112" height="48" rx="20" fill="#ffffff" stroke="rgba(79,93,117,0.6)" stroke-width="1"/>
+      <text x="280" y="491" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">直接回复</text>
+      <text x="280" y="507" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">PASS · 终答</text>
+
+      <!-- N6 规划 + 子 Agent 执行 -->
+      <rect x="590" y="344" width="340" height="60" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="760" y="368" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">规划 + 子 Agent 执行</text>
+      <text x="760" y="391" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">工具循环 · L0 捕获真值 · 产出 summary</text>
+
+      <!-- N8 输出断言闸 Gate (decision, FOCAL accent) -->
+      <polygon points="760,454 900,500 760,546 620,500" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+      <text x="760" y="496" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">输出断言闸 J4</text>
+      <text x="760" y="514" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">数字须可锚定</text>
+
+      <!-- N9 违例处置 -->
+      <rect x="1010" y="468" width="200" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1110" y="492" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">违例处置</text>
+      <text x="1110" y="516" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OBSERVE / APPEND / RECHECK</text>
+
+      <!-- N10 事实账本 (store) -->
+      <rect x="590" y="558" width="340" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="760" y="582" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">事实账本 FactLedger</text>
+      <text x="760" y="606" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">只存工具真值 · refId / 关键值</text>
+
+      <!-- N11 回放注入 -->
+      <rect x="1010" y="558" width="200" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1110" y="582" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">回放下轮注入</text>
+      <text x="1110" y="606" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">事实 vs 历史 区隔</text>
+
+      <!-- ============ LEGEND (horizontal bottom strip) ============ -->
+      <line x1="40" y1="656" x2="1240" y2="656" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="676" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <!-- chip: start/end -->
+      <rect x="120" y="666" width="26" height="14" rx="7" fill="none" stroke="rgba(122,131,153,0.9)" stroke-width="1"/>
+      <text x="156" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">起点 / 终点</text>
+      <!-- chip: step -->
+      <rect x="280" y="666" width="22" height="14" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="312" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">处理步骤</text>
+      <!-- chip: decision -->
+      <polygon points="430,666 446,673 430,680 414,673" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="458" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">决策</text>
+      <!-- chip: store -->
+      <rect x="560" y="666" width="22" height="14" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="592" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">存储 / 状态</text>
+      <!-- chip: focal -->
+      <rect x="730" y="666" width="22" height="14" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="762" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">焦点（断言闸）</text>
+      <!-- chip: dashed async -->
+      <line x1="930" y1="673" x2="976" y2="673" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4"/>
+      <text x="990" y="676" fill="#4f5d75" font-size="12" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">跨请求 / 异步</text>
+    </svg>
+  </div>
+</body>
+</html>

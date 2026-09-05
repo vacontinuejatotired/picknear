@@ -544,6 +544,7 @@ hmdp:
 | DAG 规划 | `DAG规划执行器设计文档.md` | DAG 执行计划、依赖解析、分层并行 |
 | 规划路由 | `规划工具路由设计.md` | 意图树、两级路由、目录构建 |
 | 子 Agent 执行 | `SubTaskAgent子Agent执行方案.md` | 子 Agent 循环、工具筛选、结果压缩 |
+| 反编造机制 | `Agent反编造机制设计文档.md` | 幻觉治理：证据源捕获、输入侧路由、输出断言闸、事实账本（P0-P2 分阶段） |
 | 审批方案 | `AgentCONFIRM审批方案.md` | CONFIRM 真暂停 + 快照恢复设计 |
 | SSE 规范 | `SSE后端实现规范.md` | SSE 事件协议、ObservedSseEmitter |
 | 观测架构 | `observability/Agent全链路观测架构设计.md` | 观测 span 串树、多后端、配额管理 |
