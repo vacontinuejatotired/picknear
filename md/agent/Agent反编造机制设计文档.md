@@ -38,6 +38,7 @@
 |---|---|---|---|
 | L0 轮级登记 | `ToolResultCapture`（接口）+ `DefaultToolResultCapture` | 在工具调用点登记本轮真值：短结果 raw 内联 / 长结果指向 refId；begin/snapshot/end 轮级隔离 | 原拟 `ToolResultStore` 已废弃，改用本名 |
 | L0 原值存档 | `ToolResultArchiveStore`（接口）+ `RedisToolResultArchiveStore`（Redis 短 TTL、命中续期封顶） | 长结果原值存取、分配 refId；只本会话可查 | 原拟 `RedisToolResultArchiver` 已废弃，改用本名 |
+| 存档结构 | key-per-refId **String**：`agent:toolref:{cid}:{refId}` → JSON `ToolRefEntry{toolName, userId, raw, createdAt}`；TTL 默认 ~30min、命中续期封顶 | 不用 Hash（Hash 只能整体 TTL，无法表达单条 HIT/EXPIRED 与逐条续期）；值内 userId 双保险归属 | refId = 服务端 12 位小写 hex 随机票号，不编明文 |
 | 存档 key | `ToolResultKeyFactory` | `agent:toolref:{cid}:{refId}`（复用 `ConversationMemoryKeyFactory` 风格） | 前缀不再沿用 P3 蓝图的 `agent:toolraw:*` |
 | 取回工具 | `ToolResultQueryTool`（类，文件已建）· `@Tool queryToolResult(List<String> refIds)` | 模型按需细看/核对精确值；存在性 + 会话归属 | 旧拟名 `QueryToolResultTool` 已废弃，类名随已建文件 |
 | 取回返回 | `ToolResultView{refId, toolName, status, raw, createdAt}` + `ToolRefStatus{HIT, EXPIRED, MISS}` | 逐条状态化返回给模型 | 草稿 `ToolResult`/`ToolResultId` 废弃；refId 即 `String`，不再单独 id 类型 |
@@ -164,6 +165,12 @@ flowchart TD
 5. **与现有压缩链的关系（决策已落定 = 降级为 gist 生成器）**：`ToolResultCompressor`（>80 走 LLM 摘要 + 保真回填）**不退役**，降级为 **gist 生成器**——压缩输出即 gist（进上下文，够模型不回溯即概述）；存档 = 原值、精确核对 = refId。单一路径收敛，避免两套机制各自丢数。
 6. **引用即快照纪律（prompt）**：子 Agent 总结对关键数字标注来源工具名或 refId；`DATA_SNAPSHOT` 只准抄工具返回/gist，不得新增字段。
 7. **存储介质判定**：工具执行结果属**可再生**数据（Redis flush 后重查即有），**不落 MySQL**；Redis + 短 TTL（约 30 分钟量级，命中续期封顶防永不回收）。不可再生、需长期保留的只有 `agent_message` 对话原文（已 MySQL 持久化）。
+8. **refId 与存档结构（2026-09-05 定）**：
+   - **refId**：服务端生成的 **12 位小写 hex** 随机"票号"（如 `a3f90c2b71de`），**不编码** cid/toolName/userId——避免模型拿到带 key 语义的串产生探测空间；仅在大结果存档点分配。格式白名单 `^[a-f0-9]{12}$` 挡注入。
+   - **Redis 用 key-per-refId 的 String 结构，非 Hash**：`agent:toolref:{cid}:{refId}` → JSON `ToolRefEntry{toolName, userId, raw, createdAt}`。cid 作命名空间 ⇒ 会话隔离（跨会话 key 不在前缀下，一律 MISS 且不区分"不存在/别人的"）；userId 放值里做双保险归属校验。
+   - **TTL**：默认 ~30min；命中续期但**封顶**——`newTtl = min(remain + window, cap)`，防永不回收。
+   - **批量**：`MGET` 取回多条 + pipeline 补 `EXPIRE`。
+   - 选 String 而非 Hash 的理由：Hash 只能整体 EXPIRE ⇒ 续命全续、过期一片，无法表达单条 HIT/EXPIRED 与逐条续期——而单条过期语义恰是取回工具的核心。
 
 ### 4.2 L1 · 输入侧（治 T1"根本没查"分支）
 
