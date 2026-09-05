@@ -9,6 +9,8 @@ import com.hmdp.agent.subagent.loop.ToolExecutionStrategy;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.execution.model.ExecutionOutput;
 import com.hmdp.agent.execution.model.ExecutionSession;
+import com.hmdp.agent.execution.model.ToolEvidence;
+import com.hmdp.agent.execution.evidence.ToolResultCapture;
 import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.TaskType;
 import com.hmdp.agent.stream.SseEventConstants;
@@ -57,8 +59,13 @@ public class ToolExecutionFacade {
     @Resource
     private RetryRunner retryRunner;
 
+    @Resource
+    private ToolResultCapture toolResultCapture;
+
     public ExecutionOutput execute(ExecutionSession session) {
         long start = System.currentTimeMillis();
+        // 反编造 L0：开启本轮真值证据收集（工具循环内经 invokeToolAndRecord 登记）
+        toolResultCapture.begin();
         var plan = session.getInput();
         var tasks = plan.getTasks();
         var callback = session.getCallback();
@@ -138,6 +145,9 @@ public class ToolExecutionFacade {
         log.info("[SubAgent] 执行完成 [round={}, elapsed={}ms, allSuccess={}, toolResults={}]",
                 plan.getRound(), result.getExecutionTimeMs(), result.isAllSuccess(),
                 result.getRawResults() != null ? result.getRawResults().keySet() : "none");
+
+        // 反编造 L0：快照本轮真值证据挂到输出（原始列表已从上下文移除，防跨轮残留）
+        result.setToolEvidence(toolResultCapture.snapshot());
 
         return result;
     }

@@ -2,6 +2,7 @@ package com.hmdp.agent.subagent.loop;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.execution.ToolExecutionRecorder;
+import com.hmdp.agent.execution.evidence.ToolResultCapture;
 import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.stream.SseEventConstants;
 import com.hmdp.agent.config.SubTaskProperties;
@@ -59,6 +60,9 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
 
     @Resource
     private ToolExecutionRecorder recorder;
+
+    @Resource
+    private ToolResultCapture toolResultCapture;
 
     @Override
     public String execute(ToolLoopContext ctx) {
@@ -135,6 +139,10 @@ public abstract class AbstractToolLoop implements ToolExecutionStrategy {
         try {
             T result = invoker.get();
             recorder.record(toolName, SubTaskStatus.COMPLETED);
+            // 反编造 L0：登记工具真实返回（guard 截断后、模型可见超集）为真值证据
+            if (result instanceof String raw) {
+                toolResultCapture.capture(toolName, raw);
+            }
             emitToolStatus(ctx, toolName, SseEventConstants.TOOL_COMPLETED);
             return result;
         } catch (ConfirmRequiredException e) {
