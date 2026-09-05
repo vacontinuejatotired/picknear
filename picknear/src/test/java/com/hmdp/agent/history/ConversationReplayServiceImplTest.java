@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
+import com.hmdp.agent.history.ledger.FactLedgerStore;
 import com.hmdp.agent.mapper.AgentMessageMapper;
 import com.hmdp.agent.model.Mem;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -63,6 +64,9 @@ class ConversationReplayServiceImplTest {
     @Mock
     private ConversationMemoryStore memoryStore;
 
+    @Mock
+    private FactLedgerStore ledgerStore;
+
     @InjectMocks
     private ConversationReplayServiceImpl replayService;
 
@@ -84,6 +88,8 @@ class ConversationReplayServiceImplTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         // 默认无记忆视图（P2 压缩未发生 → 纯近期完整窗口语义）；摘要用例单独覆盖
         lenient().when(memoryStore.read(any(), any())).thenReturn(Optional.empty());
+        // 默认无事实账本（反编造 L4 未发生 → 不插账本注记，保持既有结构）
+        lenient().when(ledgerStore.read(any())).thenReturn("");
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

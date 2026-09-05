@@ -5,6 +5,7 @@ import com.hmdp.agent.honesty.gate.EvidenceAnchor;
 import com.hmdp.agent.honesty.gate.EvidenceAssertionGate;
 import com.hmdp.agent.honesty.gate.HonorAction;
 import com.hmdp.agent.honesty.gate.HonorConfig;
+import com.hmdp.agent.history.ledger.FactLedgerStore;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -50,9 +51,16 @@ public class RoundExecutionProxy {
     @Resource
     private EvidenceAssertionGate evidenceAssertionGate;
 
+    @Resource
+    private FactLedgerStore factLedgerStore;
+
     /** 断言闸处置档位（默认 OBSERVE 只观测；命中率校准后按需开 APPEND_DISCLAIMER） */
     @Value("${agent.honesty.assertion-gate.action:OBSERVE}")
     private String assertionGateAction;
+
+    /** 事实账本开关（反编造 L4；默认开，工具真值落账供下轮回放） */
+    @Value("${agent.honesty.ledger.enabled:true}")
+    private boolean ledgerEnabled;
 
     /**
      * 执行一轮子 Agent 路径。
@@ -96,6 +104,11 @@ public class RoundExecutionProxy {
             subagentSpan.set(AgentField.TOOL_COUNT, String.valueOf(result.getRawResults() != null
                     ? result.getRawResults().size() : 0));
             historyAggregator.recordHistory(history, result);
+
+            // 反编造 L4：本轮工具真值追加进事实账本（只存 evidence，绝不存模型转写/编造文本）
+            if (ledgerEnabled && result.getToolEvidence() != null) {
+                factLedgerStore.append(conversationId, result.getToolEvidence());
+            }
             return result.getSummary();
         }
     }

@@ -3,6 +3,7 @@ package com.hmdp.agent.history;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
+import com.hmdp.agent.history.ledger.FactLedgerStore;
 import com.hmdp.agent.mapper.AgentMessageMapper;
 import com.hmdp.agent.model.Mem;
 import lombok.RequiredArgsConstructor;
@@ -36,11 +37,18 @@ public class ConversationReplayServiceImpl implements ConversationReplayService 
     /** 摘要作为消息注入时的固定引导语（SystemMessage 前缀） */
     private static final String SUMMARY_PREFIX = "【历史摘要】";
 
+    /** 事实账本注入前缀（反编造 L4）——只有工具查询返回的真实结果可当事实引用 */
+    private static final String FACTS_PREFIX = "【已核实事实】以下为工具查询返回的真实结果，仅下列条目可当作事实引用：\n";
+
+    /** 回放原文前的区隔说明（反编造 L4）——历史对话仅供参考，不代表已核实事实 */
+    private static final String ORIGIN_NOTE = "【历史原文】以下为历史对话原文，仅供理解上下文，不代表已核实事实；涉及数据的表述须重新核实。";
+
     private final AgentMessageMapper messageMapper;
     private final ReplayProperties replayProperties;
     private final ReplayMessageMapper replayMessageMapper;
     private final ReplayBudgetTrim replayBudgetTrim;
     private final ConversationMemoryStore memoryStore;
+    private final FactLedgerStore ledgerStore;
 
     @Override
     public List<Message> recentMessages(Long userId, String conversationId, int windowTurns) {
@@ -52,9 +60,18 @@ public class ConversationReplayServiceImpl implements ConversationReplayService 
             boolean hasSummary = mem != null && mem.hasSummary();
             List<AgentMessage> pending = queryPending(mem, userId, conversationId, windowTurns);
             pending = replayBudgetTrim.trimToBudget(pending, replayProperties.getMaxReplayChars());
-            List<Message> history = new ArrayList<>(pending.size() + 1);
+            List<Message> history = new ArrayList<>(pending.size() + 3);
             if (hasSummary) {
                 history.add(new SystemMessage(SUMMARY_PREFIX + mem.summary()));
+            }
+            // 反编造 L4：账本非空才注入【已核实事实】+ 把原文区隔为"仅上下文非事实"
+            // （无账本的普通对话不额外插注，保持历史结构向后兼容）
+            String ledger = ledgerStore.read(conversationId);
+            if (!ledger.isBlank()) {
+                history.add(new SystemMessage(FACTS_PREFIX + ledger));
+                if (!pending.isEmpty()) {
+                    history.add(new SystemMessage(ORIGIN_NOTE));
+                }
             }
             for (AgentMessage row : pending) {
                 replayMessageMapper.map(row).ifPresent(history::add);
