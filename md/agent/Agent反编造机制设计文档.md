@@ -30,6 +30,20 @@
 
 ---
 
+## 0.2 P0 实施快照（2026-09-05 已落码，feature 分支）
+
+> 状态：P0 四层（L0/L1/L3/L4 + 模板）全部实现并提交；远程 Langfuse production 已用 `lf` CLI 同步（main/subagent/execution/merge → v4/v5/v5/v3）。设计占位 `ToolResultQueryTool` 已随 `0de228a` 入库（真实现排 P1）。
+
+- 落地 commit：`2c055f0`(L0 证据源) / `e59ff41`(L1 输入侧) / `d07acef`(L3 断言闸) / `ff04d82`(L4 账本) / `ca1f8f5`(模板) / `f8dcc20`(证据登记 fail-open 修复)。
+- **相对正文的落地差异（留 P1/后置）**：
+  1. L1「无工具可查时 REPLACE 引导」P0 未做（`DataIntentPromptHook` 只打标），由 Phase1 模板纪律 + 空计划诚实兜底承载；
+  2. L3 未引入独立 `EvidenceAnchorer` 接口（Detector A 只需工具存在性锚，由 `EvidenceAnchor.hasAnyStatsTool()` 承担）；RECHECK/DROP 暂按 OBSERVE 放行；观测属性 `agent.assertion.*` 暂以日志替代；
+  3. L4 回放注记仅在账本非空时插入（无账本保持历史结构向后兼容，旧测试不破）；
+  4. 处置档位经 `agent.honesty.assertion-gate.action` 用 `@Value` 读取（默认 OBSERVE），`agent.honesty.*` 尚未写入 application.yaml（沿用默认即可）。
+- 验证：本地 `mvn compile` 通过、反编造相关单测（capture/honesty/gate/ledger 及既有 replay/toolloop 回归）全绿；`TokenTest`/`AgentTracerIntegrationTest`/`LangfuseSmokeTest` 为全上下文启动测试，受本机 env 与 VM infra 限制，交由 CI 编译验证。
+
+---
+
 ## 0.1 新增组件命名总表（实施与文档统一用此名，勿再引入别名）
 
 > 对齐项目惯例（工具 = `XxxQueryTool`、校验器 = `XxxPermissionValidator`、Redis 适配 = `RedisXxxStore` + `XxxKeyFactory`）。旧拟名/草稿别名见"备注"列，均已废弃。
