@@ -1,6 +1,8 @@
 package com.hmdp.agent;
 
+import com.hmdp.agent.config.ReplayProperties;
 import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.history.ConversationReplayService;
 import com.hmdp.agent.hook.PromptHookExecutor;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
@@ -17,10 +19,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,6 +63,8 @@ class AiServiceImplE2ETest {
     @Mock private StreamingChatInvoker streamingChatInvoker;
     @Mock private SseResponseProcessor sseResponseProcessor;
     @Mock private PromptService promptService;
+    @Mock private ConversationReplayService conversationReplayService;
+    @Mock private ReplayProperties replayProperties;
 
     private AgentContext ctx;
 
@@ -82,8 +90,8 @@ class AiServiceImplE2ETest {
                 .thenReturn(PromptHookExecutor.HookOutcome.passed(ctx, "你好"));
         lenient().when(promptService.render(anyString(), anyMap())).thenReturn(SYSTEM_TEXT);
 
-        // (5) 流式调用默认成功（SSE 模式）
-        lenient().when(streamingChatInvoker.streamWithRetry(anyString(), anyString(), any()))
+        // (5) 流式调用默认成功（SSE 模式，多轮记忆回放后为 4 参重载）
+        lenient().when(streamingChatInvoker.streamWithRetry(anyString(), anyList(), anyString(), any()))
                 .thenReturn(new StreamingChatInvoker.StreamOutcome(LLM_REPLY_NORMAL, null));
     }
 
@@ -104,7 +112,7 @@ class AiServiceImplE2ETest {
 
             aiService.chatWithToolcall("你好", TEST_CONV_ID, emitter, null);
 
-            verify(streamingChatInvoker).streamWithRetry(SYSTEM_TEXT, "你好", emitter);
+            verify(streamingChatInvoker).streamWithRetry(eq(SYSTEM_TEXT), anyList(), eq("你好"), eq(emitter));
             verify(sseResponseProcessor).process(ctx, "你好", "你好", LLM_REPLY_NORMAL, emitter);
             verify(emitter, never()).complete();
         }
@@ -119,7 +127,7 @@ class AiServiceImplE2ETest {
 
             verify(emitter, atLeastOnce()).send(any(SseEmitter.SseEventBuilder.class));
             verify(emitter).complete();
-            verify(streamingChatInvoker, never()).streamWithRetry(any(), any(), any());
+            verify(streamingChatInvoker, never()).streamWithRetry(any(), any(), any(), any());
         }
 
         @Test
@@ -135,7 +143,7 @@ class AiServiceImplE2ETest {
 
         @Test
         void should_push_friendly_error_when_stream_fails() throws IOException {
-            when(streamingChatInvoker.streamWithRetry(anyString(), anyString(), any()))
+            when(streamingChatInvoker.streamWithRetry(anyString(), anyList(), anyString(), any()))
                     .thenReturn(new StreamingChatInvoker.StreamOutcome(null, new RuntimeException("API 超时")));
             SseEmitter emitter = mock(SseEmitter.class);
 
@@ -154,7 +162,7 @@ class AiServiceImplE2ETest {
 
             aiService.chatWithToolcall("原始敏感内容", TEST_CONV_ID, emitter, null);
 
-            verify(streamingChatInvoker).streamWithRetry(SYSTEM_TEXT, "替换后的内容", emitter);
+            verify(streamingChatInvoker).streamWithRetry(eq(SYSTEM_TEXT), anyList(), eq("替换后的内容"), eq(emitter));
         }
 
         @Test
@@ -170,7 +178,7 @@ class AiServiceImplE2ETest {
             // 推送 error 事件 + complete，且不进入流式调用
             verify(emitter, atLeastOnce()).send(any(SseEmitter.SseEventBuilder.class));
             verify(emitter).complete();
-            verify(streamingChatInvoker, never()).streamWithRetry(any(), any(), any());
+            verify(streamingChatInvoker, never()).streamWithRetry(any(), any(), any(), any());
         }
 
         @Test
@@ -182,6 +190,24 @@ class AiServiceImplE2ETest {
             aiService.chatWithToolcall("你好", TEST_CONV_ID, emitter, rootSpan);
 
             verify(agentTracer).resume(rootSpan);
+        }
+
+        @Test
+        void should_feed_replayed_history_to_stream_when_exists() {
+            List<Message> history = List.of(
+                    new UserMessage("记住：我叫小明，生日 3 月 14 号"),
+                    new AssistantMessage("好的，已记住。"));
+            when(conversationReplayService.recentMessages(anyLong(), anyString(), anyInt()))
+                    .thenReturn(history);
+            // 覆盖默认 Hook stub（默认 finalContent 固定为 "你好"）
+            when(promptHookExecutor.execute(anyString(), anyString(), any(), any()))
+                    .thenReturn(PromptHookExecutor.HookOutcome.passed(ctx, "我叫什么？生日几号？"));
+            SseEmitter emitter = mock(SseEmitter.class);
+
+            aiService.chatWithToolcall("我叫什么？生日几号？", TEST_CONV_ID, emitter, null);
+
+            verify(streamingChatInvoker).streamWithRetry(eq(SYSTEM_TEXT), eq(history),
+                    eq("我叫什么？生日几号？"), eq(emitter));
         }
     }
 }

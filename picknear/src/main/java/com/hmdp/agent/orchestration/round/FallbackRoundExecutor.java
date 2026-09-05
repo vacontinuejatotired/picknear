@@ -68,7 +68,8 @@ public class FallbackRoundExecutor {
 
         for (SubTask t : execTasks) {
             if (t.getType() != TaskType.TOOL_CALL) continue;
-            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), SseEventConstants.TOOL_RUNNING));
+            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getId(), t.getToolName(), t.getDescription(),
+                    SseEventConstants.TOOL_RUNNING));
         }
 
         TaskQueue queue = new TaskQueue(execTasks);
@@ -83,7 +84,7 @@ public class FallbackRoundExecutor {
             String st = t.getStatus() == SubTaskStatus.COMPLETED
                     ? SseEventConstants.TOOL_COMPLETED
                     : SseEventConstants.TOOL_FAILED;
-            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getToolName(), st));
+            SseUtils.safeSend(emitter, SseUtils.stepEvent(t.getId(), t.getToolName(), t.getDescription(), st));
         }
 
         history.record(execTasks);

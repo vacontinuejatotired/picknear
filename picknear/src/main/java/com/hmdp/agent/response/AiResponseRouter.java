@@ -1,6 +1,7 @@
 package com.hmdp.agent.response;
 
 import com.hmdp.agent.context.AgentContext;
+import com.hmdp.agent.honesty.HonestyKeys;
 import com.hmdp.agent.orchestration.TaskPlanner;
 import com.hmdp.agent.stream.SseUtils;
 import com.hmdp.agent.hook.HookResult;
@@ -70,7 +71,16 @@ public class AiResponseRouter {
                 }
                 case PLANNING -> {
                     log.info("路由: PLANNING → TaskPlanner");
-                    taskPlanner.submit(input, aiResponse, ctx, emitter);
+                    // 反编造 L1 seed 清洗：数据意图触发规划时用中性种子替换 Phase1 文本，
+                    // 避免若 Phase1 已输出的数字作为 currentResponse 污染规划/子 Agent
+                    String planAiResponse = aiResponse;
+                    if (ctx != null) {
+                        Object seed = ctx.attribute(HonestyKeys.ATTR_PLAN_SEED_OVERRIDE);
+                        if (seed instanceof String s && !s.isBlank()) {
+                            planAiResponse = s;
+                        }
+                    }
+                    taskPlanner.submit(input, planAiResponse, ctx, emitter);
                 }
                 default -> {
                     // PASS：内容已流式推送则跳过，前端 already 有逐 token 拼接的文本

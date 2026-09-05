@@ -80,7 +80,7 @@ public class PlanValidator {
 
             tasks.add(SubTask.builder()
                     .id(UUID.randomUUID().toString())
-                    .description("执行工具: " + toolName)
+                    .description(taskDescription(entry, toolName, callbackIndex.get(toolName)))
                     .type(TaskType.TOOL_CALL)
                     .toolName(toolName)
                     .params(safeParams)
@@ -98,6 +98,47 @@ public class PlanValidator {
         }
         Set<String> declared = intentTree.resolveIntents(parsed.declaredIntents());
         return declared.isEmpty() ? opts.fallbackNodes() : declared;
+    }
+
+    /**
+     * 任务可读描述（面向任务语义，而非"执行工具: X"）：
+     * ① 规划条目显式给了 description（含业务语义）→ 优先采用；
+     * ② 否则用工具定义的可读描述（能力一句话）；
+     * ③ 兜底工具名。避免技术味术语进任务清单。
+     */
+    private static String taskDescription(Map<String, Object> entry, String toolName, ToolCallback cb) {
+        Object declared = entry.get("description");
+        if (declared instanceof String s && !s.isBlank()) {
+            String t = s.trim();
+            if (!t.contains(toolName)) {
+                return compact(t, 24);
+            }
+        }
+        if (cb != null) {
+            var def = cb.getToolDefinition();
+            if (def != null) {
+                String d = def.description();
+                if (d != null && !d.isBlank()) {
+                    return compact(d, 24);
+                }
+            }
+        }
+        return toolName;
+    }
+
+    /** 取一句可读描述：优先切在最早的句末标点/逗号（避免半句截断带引号），超长才补省略号 */
+    private static String compact(String s, int max) {
+        String t = s.trim();
+        int cut = -1;
+        String[] seps = {"。」", "」", "。", "！", "？", "；", "，", ","};
+        for (String sep : seps) {
+            int i = t.indexOf(sep);
+            if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+        }
+        if (cut >= 0) {
+            t = t.substring(0, cut).trim();
+        }
+        return t.length() <= max ? t : t.substring(0, max) + "…";
     }
 
     private static Map<String, ToolCallback> buildIndex(ToolCallback[] callbacks) {

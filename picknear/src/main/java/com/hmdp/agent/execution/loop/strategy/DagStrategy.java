@@ -134,7 +134,7 @@ public class DagStrategy extends AbstractToolLoop {
                 invokers.put(tc.name(), new ToolInvoker() {
                     @Override
                     public Object invoke() throws Exception {
-                        return invokeToolAndRecord(tc.name(), () -> cb.call(tc.arguments(), toolCtx));
+                        return invokeToolAndRecord(tc.name(), () -> cb.call(tc.arguments(), toolCtx), ctx);
                     }
 
                     @Override

@@ -226,8 +226,16 @@ public class TokenService {
                     ),
                     accessToken, oldVersion.toString());
             if (current != null && !current.isEmpty()) {
-                log.info("并发已刷新，返回当前 token userId={}", userId);
-                return new TokenPair(current.get(0), current.get(1), oldVersion);
+                String currentAt = current.get(0);
+                String currentRt = current.size() > 1 ? current.get(1) : null;
+                // 防御 + 观测：自愈读到的 AT 异常（空/字面 "null"）时拒绝下发，
+                // 避免坏值写回响应头被前端存下（2026-09 曾现 "Bearer null" → 401 风暴）
+                if (currentAt == null || currentAt.isEmpty() || "null".equals(currentAt)) {
+                    log.error("C2 并发自愈读到非法 AT，拒绝返回 userId={}, currentAt={}", userId, abbrev(currentAt));
+                    return null;
+                }
+                log.info("并发已刷新，返回当前 token userId={}, 当前at前18={}", userId, abbrev(currentAt));
+                return new TokenPair(currentAt, currentRt, oldVersion);
             }
             log.warn("refreshToken 不匹配且非并发刷新，拒绝 userId={}", userId);
             return null;
@@ -304,6 +312,12 @@ public class TokenService {
         tokenVersionCache.setVersion(version);
         tokenVersionCache.setStatus(CaffeineConstants.TOKEN_VERSION_CACHE_HIT_MATCH);
         tokenValidVersionCache.put(versionKey, tokenVersionCache);
+    }
+
+    /** 日志用：token 摘要（防止日志刷出全量敏感串） */
+    private static String abbrev(String s) {
+        if (s == null) return "<null>";
+        return s.length() <= 18 ? s : s.substring(0, 18) + "...(" + s.length() + ")";
     }
 
     /**

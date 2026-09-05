@@ -1,6 +1,11 @@
 package com.hmdp.agent.orchestration.round;
 
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.honesty.gate.EvidenceAnchor;
+import com.hmdp.agent.honesty.gate.EvidenceAssertionGate;
+import com.hmdp.agent.honesty.gate.HonorAction;
+import com.hmdp.agent.honesty.gate.HonorConfig;
+import com.hmdp.agent.history.ledger.FactLedgerStore;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -15,6 +20,7 @@ import com.hmdp.agent.plan.model.SubTask;
 import com.hmdp.agent.plan.model.TaskReport;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -41,6 +47,20 @@ public class RoundExecutionProxy {
 
     @Resource
     private HistoryAggregator historyAggregator;
+
+    @Resource
+    private EvidenceAssertionGate evidenceAssertionGate;
+
+    @Resource
+    private FactLedgerStore factLedgerStore;
+
+    /** 断言闸处置档位（默认 OBSERVE 只观测；命中率校准后按需开 APPEND_DISCLAIMER） */
+    @Value("${agent.honesty.assertion-gate.action:OBSERVE}")
+    private String assertionGateAction;
+
+    /** 事实账本开关（反编造 L4；默认开，工具真值落账供下轮回放） */
+    @Value("${agent.honesty.ledger.enabled:true}")
+    private boolean ledgerEnabled;
 
     /**
      * 执行一轮子 Agent 路径。
@@ -71,10 +91,37 @@ public class RoundExecutionProxy {
 
             ExecutionOutput result = toolExecutionFacade.execute(session);
 
+            // 反编造 L3（J4）：summary 离开子 Agent 前的确定性断言（Detector A，默认 OBSERVE）。
+            // 处置重写须先于 recordHistory，保证聚合/落库/返回值一致用处置后文本。
+            String gated = evidenceAssertionGate.gate(
+                    result.getSummary(),
+                    EvidenceAnchor.of(result.getToolEvidence(), input),
+                    new HonorConfig(resolveAction()));
+            if (gated != null && !gated.equals(result.getSummary())) {
+                result.setSummary(gated);
+            }
+
             subagentSpan.set(AgentField.TOOL_COUNT, String.valueOf(result.getRawResults() != null
                     ? result.getRawResults().size() : 0));
             historyAggregator.recordHistory(history, result);
+
+            // 反编造 L4：本轮工具真值追加进事实账本（只存 evidence，绝不存模型转写/编造文本）
+            if (ledgerEnabled && result.getToolEvidence() != null) {
+                factLedgerStore.append(conversationId, result.getToolEvidence());
+            }
             return result.getSummary();
+        }
+    }
+
+    private HonorAction resolveAction() {
+        try {
+            if (assertionGateAction == null || assertionGateAction.isBlank()) {
+                return HonorAction.OBSERVE;
+            }
+            return HonorAction.valueOf(assertionGateAction.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            log.warn("[AssertionGate] 未知处置档位 [{}]，回退 OBSERVE", assertionGateAction);
+            return HonorAction.OBSERVE;
         }
     }
 }

@@ -74,7 +74,7 @@ class AbstractToolLoopTest {
                 AtomicInteger callCounter, AtomicInteger dupCounter, AtomicReference<String> lastCallKey) {
             ToolCall tc = out.getToolCalls().get(0);
             String raw = invokeToolAndRecord(tc.name(),
-                    () -> callback.call(tc.arguments(), new ToolContext(Map.of())));
+                    () -> callback.call(tc.arguments(), new ToolContext(Map.of())), ctx);
             doneSummary.put(tc.name(), raw);
             callCounter.incrementAndGet();
             return ToolResponseMessage.builder()
@@ -101,7 +101,7 @@ class AbstractToolLoopTest {
                 ExecutionInput.builder()
                         .tasks(List.of(SubTask.builder().toolName("queryWeather").type(TaskType.TOOL_CALL).build()))
                         .build(),
-                promptService, Map.of(), new SubTaskProperties(), span);
+                promptService, Map.of(), new SubTaskProperties(), span, null);
     }
 
     private AssistantMessage toolCallMessage() {
@@ -128,7 +128,7 @@ class AbstractToolLoopTest {
         when(callback.call(anyString(), any())).thenReturn("工具数据");
 
         String result = loop.invokeToolAndRecord("queryWeather",
-                () -> callback.call("{}", new ToolContext(Map.of())));
+                () -> callback.call("{}", new ToolContext(Map.of())), ctx(null));
 
         assertThat(result).as("返回值应透传").isEqualTo("工具数据");
         verify(recorder).record("queryWeather", SubTaskStatus.COMPLETED);
@@ -139,7 +139,7 @@ class AbstractToolLoopTest {
         when(callback.call(anyString(), any())).thenThrow(new RuntimeException("boom"));
 
         assertThatThrownBy(() -> loop.invokeToolAndRecord("queryWeather",
-                () -> callback.call("{}", new ToolContext(Map.of()))))
+                () -> callback.call("{}", new ToolContext(Map.of())), ctx(null)))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("boom");
 
@@ -154,7 +154,7 @@ class AbstractToolLoopTest {
                         "需要确认", "ConfirmToolPolicy"));
 
         assertThatThrownBy(() -> loop.invokeToolAndRecord("queryWeather",
-                () -> callback.call("{}", new ToolContext(Map.of()))))
+                () -> callback.call("{}", new ToolContext(Map.of())), ctx(null)))
                 .isInstanceOf(ConfirmRequiredException.class);
 
         verify(recorder, never()).record(anyString(), any());

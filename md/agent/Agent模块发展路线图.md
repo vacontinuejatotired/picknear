@@ -75,7 +75,7 @@
 | 项 | 优先级 | 说明 |
 |----|--------|------|
 | 提示词迁移到 Langfuse | P1 | 当前硬编码在 AgentConfig，应迁至 Langfuse Prompt Management |
-| Redis ChatMemory | P2 | 当前 JDBC，SSE 回合不进 ChatMemory |
+| ~~Redis ChatMemory~~ ✅ 已完成 | — | 会话上下文改自研：agent_message 完整落库 + P1 回放 + P2 异步小模型压缩为运行摘要（Redis `Mem` 单 key 视图）；JDBC ChatMemory 空转不再使用。见《上下文压缩子系统设计文档》 |
 | RAG 知识库 | P3 | 远期，可基于 agent_message 回灌 |
 | 多 Agent 编排 | P3 | 远期规划 |
 | 用户偏好学习 | P3 | 基于对话历史自动学习 |

@@ -15,8 +15,15 @@ flowchart TD
     P6 -->|"后续迭代（Phase 7–13：执行智能体化 + 全链路观测治理）"| P7["Phase 7 子Agent执行"]
     P7 --> P8["Phase 8 全链路可观测"] --> P9["Phase 9 历史会话"] --> P10["Phase 10 提示词外置"] --> P11["Phase 11 CONFIRM审批"] --> P12["Phase 12 MaaS迁移"] --> P13["Phase 13 规划工具路由"]
     P13 -->|"最新迭代（Phase 14–15：规划/工具循环策略化；Phase 8 观测持续演进）"| P14["Phase 14 意图→工具组两级路由"] --> P15["Phase 15 子Agent工具循环策略化"]
-    P15 -->|"架构整理（Phase 16：AiService 编排拆分 + 废弃代码归档）"| P16["Phase 16 AiService编排拆分 / legacy包归档 / ObjectMapper统一"]
+    P15 -->|"架构整理（Phase 16–23：编排拆分 / 注册表单一 / 请求级上下文 / 门面化 / SSE装配下沉 / 拆分 / 双路径 / 决策收敛）"| P16["Phase 16 AiService编排拆分 / legacy包归档 / ObjectMapper统一"]
     P16 -->|"架构整理（Phase 17：工具注册表单一来源）"| P17["Phase 17 @ToolMeta注解 / ToolRegistry聚合 / 4处注册表收敛"]
+    P17 -->|"最新迭代（Phase 24–27：评测打通 / 容错硬化 / 观测透传 / 对话收敛 SSE-only）"| P24["Phase 24 评测链路打通（工具执行状态回填 + 评测模型配置）"]
+    P24 --> P25["Phase 25 容错硬化（429 专用退避 + 评测模型收敛）"]
+    P25 --> P26["Phase 26 观测透传修复（content 补发 + TOOL_CALLS 序列化）"]
+    P26 --> P27["Phase 27 对话收敛 SSE-only（废弃 JSON）+ 敏感词 Hook 默认关"]
+    P27 -->|"上下文地基（Phase 28–30：多轮记忆回放 P1 + 异步压缩 P2）"| P28["Phase 28 P1 多轮记忆回放（历史回灌）"]
+    P28 --> P29["Phase 29 回放字符预算裁剪"]
+    P29 --> P30["Phase 30 P2 对话级异步压缩"]
 ```
 
 ---
@@ -1138,6 +1145,190 @@ flowchart TD
 - 收敛为私有 `markDecided`：差异仅目标状态 / 成功结果 / 日志文案 / approved 的 CAS 额外 expiredAt 双保险条件
 - 决策语义单一来源，后续新增状态流转只改一处；行为零变化（CAS 条件、返回值、日志逐一对齐）
 
+## Phase 24：评测链路打通（工具执行状态回填 + 评测模型配置）
+
+**提交**: `1d57bcd` "feat(agent): 工具执行状态回填 tool.{i}.name/status（评测数据补齐）"、`046709d` "feat(agent): 评测模型配置类 agent.evaluation.* + 工具执行点回填测试补齐"
+
+### 背景
+
+评测体系采用**确定性断言 + 离线比对**（见 `Agent评测设计文档.md`），依赖工具执行精确状态/数据回填进观测——此前 tool 层无结构化执行状态，评测无法逐工具取数。
+
+### 调用执行
+
+- **工具执行状态回填**：`ToolExecutionRecorder` 记录工具执行 name/status；`SerialStrategy`/`ParallelStrategy`/`DagStrategy`（`execution/loop/strategy`）与 `AbstractToolLoop` 在执行点写入 `tool.{i}.name/status`；`ExecutionSession` 补状态字段。
+- **评测模型配置类** `EvaluationProperties`（`agent.evaluation.*`）：judge-model 的 provider / base-url / api-key / model 外置可配。
+- **测试补齐**：`ToolExecutionRecorderTest`、`SerialStrategyTest`、`AbstractToolLoopTest`（执行点回填 + 评测模型配置）。
+
+### 关联
+
+评测设计文档 v1.1–v1.4 演进（128 处取数 key + 工具执行点数据先行），本轮是评测的数据地基。
+
+## Phase 25：容错硬化（DashScope 429 专用退避 + 评测模型收敛）
+
+**提交**: `6791374` "fix(agent): DashScope 429 限流专用退避 + 评测模型切到 qwen-turbo"、`bafded6` "fix(agent): isRateLimitException 改为 public static（stream 包跨包访问）"、`15ff868` "fix(agent): 评测模型名去掉日期后缀（与 Langfuse LLM Connection 一致）"
+
+### 调用执行
+
+- **429 专用指数退避**：`StreamingChatInvoker` / `RetryRunner` 识别限流后按 `SubTaskProperties.rate-limit.retry-backoff`（5s→10s→20s 指数）退避，比普通错误更长，防限流雪崩。
+- `RetryRunner.isRateLimitException` 改 **public static**，供 stream 包跨包复用。
+- 评测模型切 **qwen-turbo** 且**去掉日期后缀**（与 Langfuse LLM Connection 一致——带日期后缀的模型名连不通）。
+
+## Phase 26：观测透传修复（content 补发 + TOOL_CALLS 序列化）
+
+**提交**: `427ed71` "fix(agent): 观测 content 补发改用 langfuse.observation.input/output"、`ad2f35f` "fix(agent): 响应侧序列化工具调用，TOOL_CALLS 轮 output 不再丢失"
+
+### 调用执行
+
+- **content 补发字段修正**：Langfuse 属性不展示，请求/响应内容改从 `langfuse.observation.input/output` 观测字段透传（`ChatModelObservationConventionConfig` / `ChatContentSerializer` / `TraceBackendCapabilities` / `TraceProperties` 联动）。
+- **响应侧工具调用序列化**：`ChatContentSerializer` 对 LLM 返回的工具调用（TOOL_CALLS 轮）做序列化，output 不再丢失（附 `ChatContentSerializerTest`）。
+
+## Phase 27：对话收敛 SSE-only（废弃 JSON 模式 + 敏感词 Hook 默认关闭）
+
+**提交**: `a2fffc5` "refactor(agent): 废弃 JSON 对话模式（SSE-only）+ 敏感词 Hook 默认关闭"
+
+### 背景
+
+JSON 同步对话长期入口存续但无实际使用方，且双模重复样板抬认知负担——收敛为**对话仅 SSE（`/agent/string/send`）**。
+
+### 输入处理
+
+- 删除 `AiService.chatReturnStringResult` 及相关 JSON 分支，`AiServiceImpl` 同步模板逻辑移除；`ChatController` 移除 Accept 内容协商（固 SSE），简化 ~42 行。
+- `SensitiveWordHook` **默认关闭**（`agent.hook.sensitive-word.enabled=false`，`@ConditionalOnProperty`），多轮历史回放会带回原文、脱敏语义待定（见源码 TODO）。
+
+### 回复处理
+
+- SSE 事件流 / 历史落库 / 重试不变；`AiServiceImplE2ETest`、`ChatControllerTest` 同步只测 SSE。
+- `README` 与《上下文压缩子系统设计文档》§0 同步（双模表述按已废弃处理）。
+
+### 关键变化
+
+```
+输入:  Accept 协商双模 → 唯一 SSE 入口（conversationId 自动生成/续传）
+执行:  JSON 同步直调删除 → SSE 流式直调（ChatModel）+ 工具调用
+回复:  双模响应 → 统一 SSE 事件流（含 type:confirm 等元事件）
+```
+
+## Phase 28：多轮记忆回放 P1（历史回灌 SSE 输入）
+
+**提交**: `2c81fec` "feat(agent): 多轮记忆回放 P1（历史回灌 SSE 输入）"
+
+### 背景
+
+多轮历史 `agent_message` 只被前端列表读取、**从不回灌模型**——模型"告诉它一个事实，下句再问就自编"。本轮建立《上下文压缩子系统设计文档》P1 记忆回放地基（跨会话契约，压缩子系统复用读取点）。
+
+### 输入处理
+
+- `ConversationReplayService`（接口+Impl，`com.hmdp.agent.history`）契约读取点 `recentMessages(userId, conversationId, windowTurns)`：按 (conversationId,userId) 查 `agent_message` 尾部 `2×windowTurns` 条（orderByDesc(id) + LIMIT → reverse 升序），无历史返回空。
+- `ReplayMessageMapper` 策略：role→Spring AI 消息（user→UserMessage / assistant→AssistantMessage，未知 role 跳过），压缩阶段可插新映射。
+- `Phase1PromptAssembler`：`[SystemMessage(system)] + ...历史... + 当前 User`，重试时 base 固定、仅当前 User 随错误回喂变化。
+
+### 调用执行
+
+- `StreamingChatInvoker.streamWithRetry` 增 `List<Message>` 四参重载（旧三参保留给测试），循环外组装 base、循环内 `withCurrentUser`。
+- `AiServiceImpl` 异步段在调 invoker 前读历史；**fail-open**（DB 异常由服务内兜底空列表 + warn，绝不阻断对话）。
+- 配置 `agent.replay.{enabled=true, keep-recent-turns=6}`。
+
+### 回复处理
+
+- `SseResponseProcessor` PASS/REPLACE 落库挪到 `route()`（内含 `emitter.complete()`）**之前**——修"快速连发下回合读不到刚结束回合"的竞态；PLANNING/BLOCK 分支不受影响。
+
+### 核心新增
+
+| 文件 | 职责 |
+|------|------|
+| `config/ReplayProperties.java` | `agent.replay.*`（enabled + keepRecentTurns） |
+| `history/ConversationReplayService.java`(+Impl) | 跨会话契约读取点（尾部窗口 + fail-open） |
+| `history/ReplayMessageMapper.java`(+`AgentRoleReplayMessageMapper`) | role→AI 消息映射策略 |
+| `prompt/Phase1PromptAssembler.java` | [System]+历史+当前 User 组装（重试历史固定） |
+
+### 关键变化
+
+```
+输入:  仅 system + 当条 user → system + 最近 N 轮历史 + 当条 user（模型拥有跨轮上下文）
+执行:  落库只增不改 → 回放读取点（按会话/用户隔离，尾部窗口 + fail-open）
+回复:  落库在 complete 后 → 提前到 complete 前（下回合立即可读）
+```
+
+## Phase 29：回放字符预算裁剪（P1 入口 token 止损）
+
+**提交**: `123d306` "feat(agent): 回放历史字符预算裁剪（P1 入口 token 止损）"
+
+### 背景
+
+P1 回放只按**条数**（keep-recent-turns=6=12 条）硬上限、不按**长度**——超长 message（长工具摘要/长回复）会撑爆每轮输入 token。本轮在回放读取点加预算止损。
+
+### 调用执行
+
+- `ReplayBudgetTrim`（单职责小类）：升序历史上**从最旧丢弃到累计字符 ≤ `agent.replay.max-replay-chars`**（默认 3000，≈1000+ token），最新一条恒保留（单条超预算也保）。
+- `ConversationReplayServiceImpl` 在 reverse 升序后接入裁剪；`recentMessages` 签名不变（预算从 `ReplayProperties` 读，契约兼容压缩子系统）。
+
+### 关键变化
+
+- P2 异步压缩上线后本处退化为**读路径纯兜底**（与 P2"读路径止损"设计同源）。
+- 新增 `ReplayBudgetTrimTest` 5 案；全量单测 27 案全绿。
+
+## Phase 30：对话级异步压缩 P2（写后投递 + 独立压缩池 + 小模型摘要 + 保真）
+
+**提交**: `1400461` "feat(agent): 对话级异步压缩 P2（写后投递 + 独立压缩池 + 小模型摘要 + 保真）"、`7536088` "docs(agent): 同步记忆回放与异步压缩落地（README/架构/路线图/处理流程/简历）"
+
+### 背景
+
+P1 只回放近期完整、靠字符预算兜底；**长会话仍需把更早轮次"摘要化"**，且压缩是耗时（LLM）工作，必须由**独立小模型 + 后台队列**异步完成，不能占请求主链。《上下文压缩子系统设计文档》P2 落地。
+
+### 架构
+
+```mermaid
+flowchart LR
+    R["recordTurn（事务）"] -->|"afterCommit 发 ConversationTurnRecordedEvent"| D["ConversationCompressionDispatcher（enabled 门）"]
+    D -->|"组装 锁守卫任务 → 独立 compressExecutor（AbortPolicy，不用 CallerRuns）"| G["CompressTaskLockGuard（Redisson 会话互斥）"]
+    G --> O["CompressionOrchestrator（瘦编排，追平 ≤2）"]
+    O --> P["LoadProber 待压载荷 → TailBatchSelector 选批（keep 尾窗 / token 预算 / 至少 1 对）"]
+    P --> S["LlmConversationSummarizer（compressChatClient qwen-flash，JSON {summary,keyData,truncated}）"]
+    S --> F["FidelityAssurance 保真回填（关键数据点缺失回填/记观测）"]
+    F --> M["RedisConversationMemoryStore.commit（Mem：summary+uptoId+version 单 key 原子）"]
+    M -.->|"失败：不推进游标 → 置 dirty"| SW["@Scheduled sweeper 自愈 + 读写续期"]
+    M -.->|"回放读取"| RE["ConversationReplayServiceImpl：[System(【历史摘要】…)] + id>uptoId 增量（不重不漏，原值永在 agent_message）"]
+```
+
+### 输入处理
+
+- **写后投递**：`recordTurn` 事务提交后 `registerSynchronization(afterCommit)` 发事件；压缩禁用时 Dispatcher `enabled` 门拦截，**零开销**。
+- 摘要作为消息注入固定引导语前缀 `【历史摘要】`（SystemMessage）。
+
+### 调用执行
+
+- 队列：`compressExecutor`（core1/max2/queue512/AbortPolicy）——不用 CallerRuns 防占用 SSE/Tomcat 收尾线程；队列拒绝 catch 置 dirty 交 sweeper。`CleanupTaskDecorator` 跑前 set(null)/finally clear，防线程复用串扰。
+- 互斥：`CompressTaskLockGuard` Redisson RLock tryLock(0, lease)；拿不到→置 dirty 幂等丢弃。
+- 选批：`TailBatchSelector` 最旧优先成对切批，保留最近 `keep-recent-turns`（10）轮完整不压；触发 = 估算 token ≥ 阈值(3000) 或消息数 ≥ 20（防漏检）；每批 ≤ batch-turns(6)、估算 ≤ summary.max-tokens(1200)、至少 1 对。
+- 摘要器：`LlmConversationSummarizer` 走 `compressChatClient`（qwen-flash），JSON `{summary, keyData, truncated}`；解析失败抛异常→调用方不推进游标并置 dirty 自愈。
+- **双模型装配**：`ChatModelConfig` 同处接管主模型（`@Primary mainChatModel` 还原 auto-config，避免新增 ChatModel bean 使 `OpenAiChatModel` 整体退避）+ `compressChatModel`/`compressChatClient`（`CompressModelProperties` provider=inherit 复用主端点换 model）。装配逻辑外置 `ChatModelAssembler`。
+- 保真：`FidelityAssurance` + `NumericKeyDataExtractor` 断言关键数字/日期出现在摘要，缺失回填，绝不静默丢数。
+- 一致性：`Mem(summary, uptoId, version, updatedAt)` 单 key 原子替换 → 读永远"旧版或新版"成对快照，杜绝"游标前进但摘要未写"撕裂；原值永在 `agent_message`（永不删）。
+
+### 回复处理
+
+- 回放读取升级为 `[摘要] + id>uptoId 增量`；压缩旁路 **fail-open**：任何异常不阻断请求主链，dirty 自愈 + sweeper。
+
+### 核心新增
+
+| 文件 | 职责 |
+|------|------|
+| `model/Mem.java` | 记忆视图：summary + uptoId + version（单 key 原子最小单元） |
+| `history/ConversationMemoryStore.java`(+`RedisConversationMemoryStore` / `ConversationMemoryKeyFactory`) | 记忆存储端口 + Redis 适配（单 key JSON SETEX/GET/DEL + 滑动续期）+ key 生成 |
+| `history/pressure/TokenEstimator`(+`HeuristicTokenEstimator`) | token 估算策略（CJK≈1token/字 + ASCII≈1/4） |
+| `history/fidelity/KeyDataExtractor`(+`NumericKeyDataExtractor` / `FidelityAssurance`) | 关键数据点提取 + 保真回填 |
+| `history/compression/` 全组 | 事件、Dispatcher、锁守卫、Task、Orchestrator、TailBatchSelector、LlmConversationSummarizer、SummarizePromptComposer、LoadProber、Sweeper、CleanupTaskDecorator |
+| `config/ChatModelConfig.java`(+`ChatModelAssembler`) | 主模型 @Primary + 压缩模型/客户端双装配（还原 auto-config） |
+| `config/ContextCompressionProperties` / `CompressionExecutorProperties` / `CompressModelProperties` | `agent.context-compression.*` / `agent.compression-executor.*` / `agent.compress-model.*` |
+
+### 关键变化
+
+```
+输入:  尾部完整窗口 → [历史摘要(可选)] + id>uptoId 增量（运行摘要 + 近期完整）
+执行:  请求链内同步 → 写后投递事件 → 独立压缩池（锁守卫 + 选批 + 小模型摘要 + 保真）
+回复:  回放自动升级；压缩失败置 dirty 自愈，原值永在 agent_message（不重不漏）
+```
+
 ## 模块关系总图
 
 ```mermaid
@@ -1189,6 +1380,24 @@ flowchart TD
 
 ---
 
+## Phase 31：SSE 事件结构化（任务清单 + 状态更新）
+
+> **2026-09-03**。目标：任务清单作为**结构化事件**推送前端、特殊展示（Claude Code 风格清单卡片），而非文本流；任务完成/失败时推送状态变更事件。
+
+**背景**：规划产出只推 `progress.stage=planning` 文本（"规划完成：需要执行 a、b、c"），前端只能当阶段文案展示；任务级状态仅回退执行器 / CONFIRM 恢复路径有（按 toolName），子 Agent 默认路径无任务级事件。
+
+**改动**：
+1. **新增 `type:plan` 任务清单事件**（`SseUtils.planEvent`）：`MultiRoundOrchestrator` 每轮 decompose 后推送，替代 planning 文本；`tasks` 含 `id`/`description`/`toolName`/`type`/`status(PENDING)`，id 缺失回退 `sub-N` 保证前端可定位
+2. **`progress.stage=step` 增强**：新增 `stepEvent(taskId, toolName, description, status)` 重载（两参兼容保留），`FallbackRoundExecutor` 带 taskId+description
+3. **子 Agent 工具循环补状态事件**：补全既有的 `SubAgentProgressCallback.onToolCall` 预留方法；`ToolLoopContext` 增 `callback` 字段；`AbstractToolLoop.invokeToolAndRecord` 统一推 RUNNING/COMPLETED/FAILED（CONFIRM 上抛不推终态）。链路：`ToolExecutionFacade` → `RetryRunner` → `ToolLoopContext` → 三策略（Serial/Parallel/Dag）
+4. **前端**：`sse.ts` 分发 `type:plan`（onPlan）；`agent.ts` 透传；`TaskProgress.vue` 整表渲染清单卡片（编号+描述+工具名+状态图标）+ 按 taskId 优先/toolName 兜底增量更新；`AiChat.vue` sendMessage / confirmContinue 接 onPlan
+
+**协议**（真相源：`SSE后端实现规范.md` §3.5）：plan 事件一次推全量清单；step 事件增量更新对应行状态；所有结构化事件按 `type` 分发不混入正文。
+
+**验证**：`SseUtilsTest`（plan/step 新断言）、`AbstractToolLoopTest`、`SerialStrategyTest`、`MultiRoundOrchestratorTest` 全绿；前端 `npm run build` 通过。
+
+---
+
 ## 迭代演进总结
 
 | 维度 | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 | Phase 6 |
@@ -1230,6 +1439,20 @@ flowchart TD
 | **回复处理** | —（纯结构整理，行为零变化） |
 | **工具注册** | 4 处硬编码注册表（TRIGGER_KEYWORDS/TOOL_NAMES/NODES.tools）收敛为注解单一来源；ToolIntentTree 实例化聚合 |
 | **安全性** | —（WriteGuardConsistencyCheck 校验逻辑不变，仅注入适配） |
+
+| 维度 | Phase 24 评测打通 | Phase 25 容错硬化 | Phase 26 观测透传 | Phase 27 SSE 收敛 |
+|------|------------------|------------------|------------------|------------------|
+| **输入处理** | 评测模型配置类 agent.evaluation.*（judge 可配） | — | — | Accept 协商删除 → 唯一 SSE 入口 |
+| **调用执行** | 工具执行状态回填 tool.{i}.name/status（三策略 + ToolLoop） | 429 专用指数退避 + isRateLimitException 跨包复用 | content 补发改 langfuse.observation.input/output | 删 chatReturnStringResult / JSON 同步分支 |
+| **回复处理** | — | — | ChatContentSerializer 响应侧序列化 TOOL_CALLS（output 不丢） | 统一 SSE 事件流（含 type:confirm 等元事件） |
+| **安全性** | — | — | — | SensitiveWordHook 默认关闭（脱敏语义留 TODO） |
+
+| 维度 | Phase 28 P1 回放 | Phase 29 预算裁剪 | Phase 30 P2 异步压缩 |
+|------|-----------------|------------------|---------------------|
+| **输入处理** | 读取 agent_message 尾部 N 轮（契约 recentMessages，role 策略映射） | 累计字符超 max-replay-chars 从最旧丢、最新恒保留 | [历史摘要(可选)] + id>uptoId 增量（单 key Mem 原子） |
+| **调用执行** | StreamWithRetry 四参重载 + Phase1PromptAssembler 组装（重试历史固定） | ReplayBudgetTrim 读路径止损（P2 后退化纯兜底） | 写后投递事件 → 独立压缩池（锁守卫/选批/小模型摘要/保真）；ChatModelConfig 双模型接管 |
+| **回复处理** | 落库提前到 complete 前（修下回合竞态） | — | 压缩失败不推进游标、置 dirty + sweeper 自愈；原值永在 agent_message |
+| **安全性** | 按 (conversationId,userId) 隔离读取 | — | 会话互斥锁（Redisson）+ 压缩旁路 fail-open 不阻断主链 |
 
 ### 关键设计原则
 

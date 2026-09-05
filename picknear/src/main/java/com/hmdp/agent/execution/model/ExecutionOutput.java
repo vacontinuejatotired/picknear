@@ -36,6 +36,11 @@ public class ExecutionOutput {
     /** 实际执行的 toolName 列表（按执行顺序） */
     private List<String> executedTools;
 
+    /** 本轮工具执行的真值证据（反编造 L0，输出断言闸 J4 / 账本 / 评测消费）。
+     *  注意：rawResults 是模型自转写、不可当锚；断言一律以本列表的 raw/refId 为准。 */
+    @Builder.Default
+    private List<ToolEvidence> toolEvidence = List.of();
+
     /** 子 Agent 调用耗时（ms） */
     private long executionTimeMs;
 }

@@ -133,6 +133,33 @@ agent:
   hook:
     sensitive-word:
       enabled: false                    # 敏感词脱敏 Hook 默认关闭（多轮历史回放会带回原文，语义待定，见 SensitiveWordHook TODO）
+  replay:
+    enabled: true                       # 多轮记忆回放总开关（false → 不读历史，回归单条）
+    keep-recent-turns: 6                # 回放的最近轮数上限（不含当前轮，读尾部 2×N 条 user/assistant，硬上限防 token 涨）
+    max-replay-chars: 3000              # 回放历史累计字符预算（近似 token），超预算从最旧丢、最新一条恒保留；0=不限制
+  context-compression:
+    enabled: true                       # 对话级异步压缩总开关（关 = 回放退化为纯近期完整窗口）
+    batch-turns: 6                      # 每批压缩轮数（压缩尾窗 = agent.replay.keep-recent-turns，单一事实源）
+    trigger:
+      token-threshold: 3000             # 未摘要消息估算 token 超此阈值触发压缩
+      message-count: 20                 # 消息条数下限，须 > 2×agent.replay.keep-recent-turns（否则压缩永不触发）
+    summary:
+      max-tokens: 1200                  # 批次摘要估算上限
+      keep-keydata: true                # 保真：关键数据点回填/预留后缀
+    redis:
+      mem-ttl: 7d                       # 记忆视图 TTL（读写滑动续期）
+  compression-executor:
+    core: 1                             # 压缩池核心线程（与请求链隔离：主链流式/规划延迟敏感，压缩慢可重试）
+    max: 2
+    queue: 512
+    sweeper-interval: 5m                # 低频清扫兜底（dirty 自愈 / TTL）
+    lock-lease: 60s                     # 会话压缩互斥锁 lease
+    catch-up-max: 2                     # 单次 worker 追平次数上限（防活锁）
+  compress-model:
+    provider: inherit                   # inherit=复用主端点换 model（同源）；custom=自配 base-url/api-key
+    model: qwen-flash                   # 压缩小模型（便宜档，DashScope MaaS 同端点无日期后缀更稳）
+    temperature: 0.2
+    max-tokens: 1200
 
 feature:
   subagent:

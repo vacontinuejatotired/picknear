@@ -121,7 +121,7 @@ public class ParallelStrategy extends AbstractToolLoop {
         }
         try {
             String raw = invokeToolAndRecord(tc.name(), () -> cb.call(tc.arguments(),
-                    new ToolContext(ctx.toolContext() == null ? Map.of() : ctx.toolContext())));
+                    new ToolContext(ctx.toolContext() == null ? Map.of() : ctx.toolContext())), ctx);
             return new Step1(raw, null, null);
         } catch (ConfirmRequiredException e) {
             return new Step1(null, null, e);

@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# lf — Langfuse 命令行入口（包装 langfuse-cli）
+#
+# 作用：自动加载后端 .env 里的 LANGFUSE 凭据，用短命令替代长命令。
+#   官方 CLI：langfuse api <resource> <action> [options]（README: github.com/langfuse/langfuse-cli）
+#   退出码透传官方 CLI（0 成功 / 2 用法错 / 3 凭据错 / 5 API 非成功 / 6 本地错）。
+# 详细说明见：picknear/md/agent/observability/Langfuse CLI 使用指南.md
+set -euo pipefail
+
+# ---- 定位仓库内 .env（脚本在 picknear/scripts/langfuse/lf → picknear/picknear/.env）----
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$(cd "$SCRIPT_DIR/../.." && pwd)/picknear/.env"
+
+usage() {
+  cat <<'EOF'
+lf — Langfuse 观测命令行（替代 MCP 的读查/管理入口）
+
+用法：
+  lf traces [--limit N] [--json]           最近活动（v4：trace 列表走 observations v2 端点）
+  lf obs [--trace <id>] [--limit N] [--json]
+                                           观测列表；--trace <id> 展开单条完整 trace
+  lf metrics [N天] [--json]                近 N 天(默认 7) 调用量/token/成本聚合
+  lf prompts [get <name>] [list]           prompt 管理（默认 list）
+  lf scores [--limit N]                    评分列表
+  lf raw <args…>                           原样透传 langfuse <args…>（完整能力，api help 探索）
+  lf help                                   本帮助
+
+凭据自动读自仓库内 .env（LANGFUSE_PUBLIC_KEY/SECRET_KEY/BASE_URL），无需 `--env .env`。
+更多示例与 MCP 对照见 md/agent/observability/Langfuse CLI 使用指南.md。
+EOF
+}
+
+[ $# -eq 0 ] && { usage; exit 2; }
+
+# ---- 加载 .env 的 LANGFUSE 三项（容忍引号/注释/CRLF/空格）----
+load_env() {
+  [ -f "$ENV_FILE" ] || { echo "[lf] 找不到凭据文件: $ENV_FILE" >&2; exit 3; }
+  while IFS= read -r line; do
+    line="${line%%#*}"                       # 去注释
+    line="$(printf '%s' "$line" | tr -d '\r')"
+    case "$line" in
+      LANGFUSE_PUBLIC_KEY=*|LANGFUSE_SECRET_KEY=*|LANGFUSE_BASE_URL=*)
+        key="${line%%=*}"
+        val="${line#*=}"
+        val="$(printf '%s' "$val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+        val="${val%\"}"; val="${val#\"}"
+        val="${val%\'}"; val="${val#\'}"
+        [ -n "$val" ] && export "$key=$val" ;;
+    esac
+  done < "$ENV_FILE"
+  { [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ]; } \
+    || { echo "[lf] .env 缺 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY" >&2; exit 3; }
+}
+
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+  # Langfuse v4 弃用 traces v3 端点（2026-11-16 下线，CLI 已拦截），列表一律走 v2 observations
+  traces)   load_env; exec langfuse api observations list "$@" ;;
+  obs)
+    load_env
+    args=()
+    for a in "$@"; do
+      [ "$a" = "--trace" ] && a="--trace-id"
+      args+=("$a")
+    done
+    exec langfuse api observations list "${args[@]}"
+    ;;
+  metrics)
+    load_env
+    days=7
+    if [ $# -gt 0 ]; then
+      case "$1" in
+        [0-9]*) days="$1"; shift ;;
+      esac
+    fi
+    from="$(node -e 'console.log(new Date(Date.now()-'"$days"'*864e5).toISOString())')"
+    to="$(node -e 'console.log(new Date().toISOString())')"
+    # shellcheck disable=SC2016
+    query="{\"view\":\"observations\",\"fromTimestamp\":\"$from\",\"toTimestamp\":\"$to\",\"metrics\":[{\"measure\":\"count\",\"aggregation\":\"count\"},{\"measure\":\"inputTokens\",\"aggregation\":\"sum\"},{\"measure\":\"outputTokens\",\"aggregation\":\"sum\"},{\"measure\":\"totalTokens\",\"aggregation\":\"sum\"},{\"measure\":\"totalCost\",\"aggregation\":\"sum\"}]}"
+    exec langfuse api metrics get --query "$query" "$@"
+    ;;
+  prompts)
+    load_env
+    [ $# -eq 0 ] && set -- list
+    exec langfuse api prompts "$@"
+    ;;
+  scores)
+    load_env
+    exec langfuse api scores list "$@"
+    ;;
+  raw)      load_env; exec langfuse "$@" ;;
+  help|-h|--help) usage ;;
+  *)        echo "[lf] 未知子命令: $cmd" >&2; usage; exit 2 ;;
+esac
