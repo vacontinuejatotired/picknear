@@ -3,6 +3,8 @@ package com.hmdp.agent.orchestration;
 import com.hmdp.agent.config.FeatureProperties;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
+import com.hmdp.agent.honesty.DataIntentEmptyPlanFallback;
+import com.hmdp.agent.honesty.HonestyKeys;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;
 import com.hmdp.agent.observability.model.AgentField;
@@ -69,6 +71,9 @@ public class MultiRoundOrchestrator {
     @Resource
     private FallbackRoundExecutor fallbackRoundExecutor;
 
+    @Resource
+    private DataIntentEmptyPlanFallback dataIntentEmptyPlanFallback;
+
     /**
      * 执行主循环：拆解 -> 执行 -> 聚合，重复至多 MAX_ROUNDS 轮。
      */
@@ -98,6 +103,11 @@ public class MultiRoundOrchestrator {
                     roundSpan.set(AgentField.TOOL_COUNT, String.valueOf(tasks.size()));
                     if (tasks.isEmpty()) {
                         roundSpan.set(AgentField.PLAN_VALID, "false");
+                        // 反编造 L1：数据意图 × 空计划 → 诚实兜底，不放行 Phase1 可能编造的文本作为终答
+                        if (ctx != null && ctx.attribute(HonestyKeys.ATTR_DATA_INTENT) != null) {
+                            log.warn("========== [Round {}] 2) 数据意图空计划, 诚实兜底 ==========", r);
+                            return dataIntentEmptyPlanFallback.fallbackText();
+                        }
                         log.warn("========== [Round {}] 2) 无需执行, 保持原回复 ==========", r);
                         return currentResponse;
                     }
