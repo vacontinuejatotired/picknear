@@ -1,6 +1,6 @@
 package com.hmdp.agent.subagent.loop;
 
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.execution.ToolExecutionRecorder;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;

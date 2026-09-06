@@ -1,5 +1,6 @@
 package com.hmdp.agent.config;
 
+import com.hmdp.agent.config.properties.DagProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

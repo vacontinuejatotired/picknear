@@ -1,5 +1,6 @@
 package com.hmdp.agent.config;
 
+import com.hmdp.agent.config.properties.PromptGuardProperties;
 import com.hmdp.agent.plan.intent.ToolIntentTree;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

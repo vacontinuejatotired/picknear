@@ -1,6 +1,6 @@
 package com.hmdp.agent.history.compression;
 
-import com.hmdp.agent.config.ContextCompressionProperties;
+import com.hmdp.agent.config.properties.ContextCompressionProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.history.pressure.TokenEstimator;
 import com.hmdp.agent.model.Mem;

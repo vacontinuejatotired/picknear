@@ -1,6 +1,6 @@
 package com.hmdp.agent.execution.loop.strategy;
 
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.execution.loop.DagExecutionResult;
 import com.hmdp.agent.execution.loop.PlanExecutor;
 import com.hmdp.agent.execution.loop.ToolInvoker;

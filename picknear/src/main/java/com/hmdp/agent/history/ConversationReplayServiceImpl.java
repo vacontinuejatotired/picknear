@@ -1,7 +1,7 @@
 package com.hmdp.agent.history;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.hmdp.agent.config.ReplayProperties;
+import com.hmdp.agent.config.properties.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.history.ledger.FactLedgerStore;
 import com.hmdp.agent.mapper.AgentMessageMapper;

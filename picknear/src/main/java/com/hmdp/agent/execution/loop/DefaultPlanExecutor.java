@@ -1,6 +1,6 @@
 package com.hmdp.agent.execution.loop;
 
-import com.hmdp.agent.config.DagProperties;
+import com.hmdp.agent.config.properties.DagProperties;
 import com.hmdp.agent.execution.metrics.ToolExecutionMetrics;
 import com.hmdp.agent.execution.strategy.RetryStrategy;
 import com.hmdp.agent.execution.strategy.TimeoutStrategy;

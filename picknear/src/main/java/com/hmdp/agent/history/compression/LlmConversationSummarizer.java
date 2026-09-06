@@ -3,7 +3,7 @@ package com.hmdp.agent.history.compression;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
-import com.hmdp.agent.config.ContextCompressionProperties;
+import com.hmdp.agent.config.properties.ContextCompressionProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.observability.model.CallerType;
 import jakarta.annotation.Resource;

@@ -1,6 +1,6 @@
 package com.hmdp.agent.subagent.loop;
 
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.execution.model.ExecutionInput;

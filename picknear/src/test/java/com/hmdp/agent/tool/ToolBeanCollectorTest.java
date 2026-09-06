@@ -1,7 +1,7 @@
 package com.hmdp.agent.tool;
 
 import com.hmdp.agent.annotation.TargetTool;
-import com.hmdp.agent.config.PromptGuardProperties;
+import com.hmdp.agent.config.properties.PromptGuardProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.ToolGuardManager;
 import com.hmdp.agent.observability.api.AgentTracer;

@@ -1,4 +1,4 @@
-package com.hmdp.agent.config;
+package com.hmdp.agent.config.properties;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
