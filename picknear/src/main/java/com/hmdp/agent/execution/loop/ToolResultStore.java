@@ -65,6 +65,17 @@ public interface ToolResultStore {
     <T> T getByName(String toolName, Class<T> type);
 
     /**
+     * 按工具名获取原始结果，不做类型转换。
+     *
+     * <p>搜索范围：全局（allResults），可跨层获取。当前 ToolCallback 返回的是 JSON
+     * String，参数注入需要原始值而非按业务返回类型强转后的对象。</p>
+     *
+     * @param toolName 工具名称
+     * @return 原始结果（工具失败或返回 null 时为 null）
+     */
+    Object getRawResult(String toolName);
+
+    /**
      * 设置当前执行层的结果条目列表
      *
      * @param entries 结果条目列表

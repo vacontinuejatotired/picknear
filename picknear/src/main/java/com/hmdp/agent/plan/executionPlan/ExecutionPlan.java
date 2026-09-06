@@ -1,5 +1,6 @@
 package com.hmdp.agent.plan.executionPlan;
 
+import com.hmdp.agent.plan.executionPlan.binding.ToolParameterBindingPlan;
 import lombok.Builder;
 import lombok.Data;
 
@@ -40,6 +41,10 @@ public class ExecutionPlan {
     /** 未知工具列表 */
     @Builder.Default
     private List<String> unknownTools = List.of();
+
+    /** 当轮已消歧的参数绑定计划（只包含依赖注入相关的形参） */
+    @Builder.Default
+    private ToolParameterBindingPlan parameterBindings = ToolParameterBindingPlan.empty();
 
     /**
      * 获取执行顺序（展平）

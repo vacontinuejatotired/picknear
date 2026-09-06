@@ -1,6 +1,7 @@
 package com.hmdp.agent.execution.loop.strategy;
 
 import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.execution.loop.DagToolInvokerFactory;
 import com.hmdp.agent.execution.loop.DagExecutionResult;
 import com.hmdp.agent.execution.loop.PlanExecutor;
 import com.hmdp.agent.execution.loop.ToolInvoker;
@@ -8,6 +9,8 @@ import com.hmdp.agent.execution.loop.ToolResultStore;
 import com.hmdp.agent.plan.executionPlan.ExecutionPlan;
 import com.hmdp.agent.plan.executionPlan.PlanGenerator;
 import com.hmdp.agent.plan.review.PlanReviewer;
+import com.hmdp.agent.plan.executionPlan.binding.ToolParameterBinding;
+import com.hmdp.agent.plan.executionPlan.binding.ToolParameterBindingPlan;
 import com.hmdp.agent.plan.executionPlan.model.ToolMetadata;
 import com.hmdp.agent.subagent.loop.AbstractToolLoop;
 import com.hmdp.agent.subagent.loop.ToolLoopContext;
@@ -54,6 +57,9 @@ public class DagStrategy extends AbstractToolLoop {
     private PlanExecutor planExecutor;
 
     @Resource
+    private DagToolInvokerFactory dagToolInvokerFactory;
+
+    @Resource
     private ToolResultStore toolResultStore;
 
     @Resource
@@ -97,10 +103,11 @@ public class DagStrategy extends AbstractToolLoop {
 
         if (!plan.isValid()) {
             log.warn("执行计划无效: {}，降级到串行执行", plan.getInvalidReason());
-            return fallbackSerialExecution(out, doneSummary, remaining, callCounter);
+            return fallbackSerialExecution(out, doneSummary, remaining, callCounter,
+                plan.getInvalidReason());
         }
 
-        Map<String, ToolInvoker> tools = buildToolInvokers(out.getToolCalls(), ctx);
+        Map<String, ToolInvoker> tools = buildToolInvokers(out.getToolCalls(), ctx, plan);
 
         toolResultStore.clearAll();
 
@@ -110,11 +117,15 @@ public class DagStrategy extends AbstractToolLoop {
     }
 
     private ToolResponseMessage fallbackSerialExecution(AssistantMessage out,
-            Map<String, String> doneSummary, List<SubTask> remaining, AtomicInteger callCounter) {
+            Map<String, String> doneSummary, List<SubTask> remaining,
+            AtomicInteger callCounter, String invalidReason) {
         log.warn("降级到串行执行");
+        String message = invalidReason == null
+            ? "错误：执行计划无效，已降级"
+            : "错误：执行计划无效 - " + invalidReason;
         List<ToolResponse> responses = new ArrayList<>();
         for (AssistantMessage.ToolCall tc : out.getToolCalls()) {
-            responses.add(new ToolResponse(tc.id(), tc.name(), "错误：执行计划无效，已降级"));
+            responses.add(new ToolResponse(tc.id(), tc.name(), message));
             callCounter.incrementAndGet();
             removeExecuted(remaining, tc.name());
         }
@@ -122,19 +133,30 @@ public class DagStrategy extends AbstractToolLoop {
     }
 
     private Map<String, ToolInvoker> buildToolInvokers(
-            List<AssistantMessage.ToolCall> toolCalls, ToolLoopContext ctx) {
+            List<AssistantMessage.ToolCall> toolCalls, ToolLoopContext ctx,
+            ExecutionPlan plan) {
 
         Map<String, ToolInvoker> invokers = new HashMap<>();
         ToolContext toolCtx = new ToolContext(ctx.toolContext() == null ? Map.of() : ctx.toolContext());
+        ToolParameterBindingPlan bindingPlan = plan.getParameterBindings();
 
         for (AssistantMessage.ToolCall tc : toolCalls) {
             ToolCallback cb = findByName(ctx.callbacks(), tc.name());
             if (cb != null) {
                 ToolMetadata meta = graphAnalyzer.getMetadata(tc.name());
+                List<ToolParameterBinding> bindings = bindingPlan.bindingsFor(tc.name());
+                ToolInvoker rawInvoker = dagToolInvokerFactory.create(
+                    tc.name(), tc.arguments(), cb, toolCtx, bindings);
                 invokers.put(tc.name(), new ToolInvoker() {
                     @Override
                     public Object invoke() throws Exception {
-                        return invokeToolAndRecord(tc.name(), () -> cb.call(tc.arguments(), toolCtx), ctx);
+                        return invokeToolAndRecord(tc.name(), () -> {
+                            try {
+                                return rawInvoker.invoke();
+                            } catch (Exception e) {
+                                throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+                            }
+                        }, ctx);
                     }
 
                     @Override

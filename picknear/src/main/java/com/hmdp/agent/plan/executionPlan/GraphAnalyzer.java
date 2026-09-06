@@ -2,9 +2,7 @@ package com.hmdp.agent.plan.executionPlan;
 
 import com.hmdp.agent.annotation.ToolMeta;
 import com.hmdp.agent.plan.executionPlan.annotation.DependsOn;
-import com.hmdp.agent.plan.executionPlan.annotation.FromTool;
 import com.hmdp.agent.plan.executionPlan.annotation.SequentialOnly;
-import com.hmdp.agent.plan.executionPlan.model.ParameterInfo;
 import com.hmdp.agent.plan.executionPlan.model.ToolMetadata;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +11,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -23,7 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>负责：</p>
  * <ol>
  *   <li>扫描所有工具类，提取元数据</li>
- *   <li>分析参数依赖关系</li>
  *   <li>构建依赖图</li>
  *   <li>验证依赖完整性</li>
  * </ol>
@@ -85,8 +81,6 @@ public class GraphAnalyzer {
                 ? Arrays.asList(dependsOn.toolName())
                 : List.of();
 
-            List<ParameterInfo> parameters = analyzeParameters(method, dependencies);
-
             SequentialOnly seqOnly = method.getAnnotation(SequentialOnly.class);
 
             // 解析 @ToolMeta 注解（幂等性、重试配置）
@@ -100,7 +94,6 @@ public class GraphAnalyzer {
                 .method(method)
                 .returnType(method.getReturnType())
                 .dependencies(dependencies)
-                .parameters(parameters)
                 .sequentialOnly(seqOnly != null)
                 .sequentialReason(seqOnly != null ? seqOnly.reason() : null)
                 .idempotent(idempotent)
@@ -115,120 +108,11 @@ public class GraphAnalyzer {
         }
     }
 
-    private List<ParameterInfo> analyzeParameters(Method method, List<String> dependencies) {
-        List<ParameterInfo> params = new ArrayList<>();
-        Parameter[] methodParams = method.getParameters();
-
-        for (Parameter param : methodParams) {
-            Class<?> type = param.getType();
-
-            FromTool fromTool = param.getAnnotation(FromTool.class);
-            if (fromTool != null) {
-                ToolMetadata depMeta = toolMetadataMap.get(fromTool.value());
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(true)
-                    .dependencyToolName(fromTool.value())
-                    .dependencyReturnType(depMeta != null ? depMeta.getReturnType() : null)
-                    .explicitSource(true)
-                    .build());
-                continue;
-            }
-
-            String paramDep = findDependencyByParamName(param.getName(), dependencies);
-            if (paramDep != null) {
-                ToolMetadata depMeta = toolMetadataMap.get(paramDep);
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(true)
-                    .dependencyToolName(paramDep)
-                    .dependencyReturnType(depMeta != null ? depMeta.getReturnType() : null)
-                    .explicitSource(false)
-                    .build());
-                continue;
-            }
-
-            List<String> matchingTools = findDependenciesByReturnType(type, dependencies);
-
-            if (matchingTools.size() == 1) {
-                String toolName = matchingTools.get(0);
-                ToolMetadata depMeta = toolMetadataMap.get(toolName);
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(true)
-                    .dependencyToolName(toolName)
-                    .dependencyReturnType(depMeta != null ? depMeta.getReturnType() : null)
-                    .explicitSource(false)
-                    .build());
-            } else if (matchingTools.size() > 1) {
-                log.warn("参数 {} 类型 {} 匹配多个工具 {}，请使用 @FromTool 指定来源",
-                    param.getName(), type.getSimpleName(), matchingTools);
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(true)
-                    .dependencyToolName(null)
-                    .dependencyReturnType(null)
-                    .explicitSource(false)
-                    .ambiguous(true)
-                    .build());
-            } else {
-                params.add(ParameterInfo.builder()
-                    .name(param.getName())
-                    .type(type)
-                    .fromDependency(false)
-                    .build());
-            }
-        }
-
-        return params;
-    }
-
-    private List<String> findDependenciesByReturnType(Class<?> type, List<String> dependencies) {
-        List<String> result = new ArrayList<>();
-        for (String dep : dependencies) {
-            ToolMetadata depMeta = toolMetadataMap.get(dep);
-            if (depMeta != null && type.isAssignableFrom(depMeta.getReturnType())) {
-                result.add(dep);
-            }
-        }
-        return result;
-    }
-
-    private String findDependencyByReturnType(Class<?> type, List<String> dependencies) {
-        for (String dep : dependencies) {
-            ToolMetadata depMeta = toolMetadataMap.get(dep);
-            if (depMeta != null && type.isAssignableFrom(depMeta.getReturnType())) {
-                return dep;
-            }
-        }
-        return null;
-    }
-
-    private String findDependencyByParamName(String paramName, List<String> dependencies) {
-        for (String dep : dependencies) {
-            if (paramName.equals(dep)) {
-                return dep;
-            }
-        }
-        return null;
-    }
-
     private void validateDependencies() {
         for (ToolMetadata meta : toolMetadataMap.values()) {
             for (String dep : meta.getDependencies()) {
                 if (!toolMetadataMap.containsKey(dep)) {
                     log.warn("工具 {} 依赖的工具 {} 尚未注册", meta.getName(), dep);
-                }
-            }
-
-            for (ParameterInfo param : meta.getParameters()) {
-                if (param.isAmbiguous()) {
-                    log.warn("工具 {} 的参数 {} 有歧义（多个工具返回相同类型 {}），请使用 @FromTool 指定来源",
-                        meta.getName(), param.getName(), param.getType().getSimpleName());
                 }
             }
         }

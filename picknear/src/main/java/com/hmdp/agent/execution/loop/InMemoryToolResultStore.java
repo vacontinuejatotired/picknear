@@ -16,6 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class InMemoryToolResultStore implements ToolResultStore {
 
+    /** ConcurrentHashMap 不支持 null value，用哨兵代替“工具结果为空” */
+    private static final Object NULL_RESULT = new Object();
+
     /** 所有工具执行结果 */
     private final Map<String, Object> allResults = new ConcurrentHashMap<>();
 
@@ -31,7 +34,7 @@ public class InMemoryToolResultStore implements ToolResultStore {
 
     @Override
     public void store(String toolName, Object result, Class<?> returnType) {
-        allResults.put(toolName, result);
+        allResults.put(toolName, result == null ? NULL_RESULT : result);
         if (returnType != null) {
             toolReturnTypes.put(toolName, returnType);
         }
@@ -89,7 +92,7 @@ public class InMemoryToolResultStore implements ToolResultStore {
     @SuppressWarnings("unchecked")
     public <T> T getByName(String toolName, Class<T> type) {
         Object result = allResults.get(toolName);
-        if (result == null) return null;
+        if (result == null || result == NULL_RESULT) return null;
 
         Class<?> actualType = toolReturnTypes.get(toolName);
         if (actualType != null && !type.isAssignableFrom(actualType)) {
@@ -99,6 +102,12 @@ public class InMemoryToolResultStore implements ToolResultStore {
         }
 
         return type.cast(result);
+    }
+
+    @Override
+    public Object getRawResult(String toolName) {
+        Object result = allResults.get(toolName);
+        return result == NULL_RESULT ? null : result;
     }
 
     @Override

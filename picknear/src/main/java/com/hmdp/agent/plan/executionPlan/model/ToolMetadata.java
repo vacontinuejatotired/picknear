@@ -9,7 +9,8 @@ import java.util.List;
 /**
  * 工具元数据
  *
- * <p>描述一个工具的完整信息，包括名称、方法、返回类型、依赖关系、幂等性等。</p>
+ * <p>描述一个工具的完整信息，包括名称、方法、返回类型、依赖关系、幂等性等。
+ * 参数绑定不缓存在这里，由当轮执行计划单独生成，避免启动期元数据与运行时绑定耦合。</p>
  * <p>由 {@link com.hmdp.agent.plan.executionPlan.GraphAnalyzer} 在启动时扫描生成。</p>
  *
  * @version 2.0
@@ -30,10 +31,6 @@ public class ToolMetadata {
     /** 依赖的工具名称列表 */
     @Builder.Default
     private List<String> dependencies = List.of();
-
-    /** 参数列表 */
-    @Builder.Default
-    private List<ParameterInfo> parameters = List.of();
 
     /** 是否标记为 SequentialOnly（禁止并行） */
     private boolean sequentialOnly;
