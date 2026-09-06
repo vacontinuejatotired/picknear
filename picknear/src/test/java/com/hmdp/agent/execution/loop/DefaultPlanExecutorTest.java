@@ -122,6 +122,26 @@ class DefaultPlanExecutorTest {
     }
 
     @Test
+    void execute_upstreamFailure_shouldStoreNullAndStillRunDownstreamLayer() {
+        Map<String, ToolInvoker> tools = Map.of(
+                "fail", () -> {
+                    throw new RuntimeException("boom");
+                },
+                "after", () -> {
+                    assertThat(store.getRawResult("fail")).isNull();
+                    return "after-val";
+                });
+
+        DagExecutionResult result = dagExecutor.execute(
+                plan(List.of(List.of("fail"), List.of("after"))), tools);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getFailedTools()).containsExactly("fail");
+        assertThat(result.getResults()).containsEntry("after", "after-val");
+        assertThat(store.getRawResult("fail")).isNull();
+    }
+
+    @Test
     void execute_oneToolFails_shouldNotBlockSameLayerSiblings() {
         Map<String, ToolInvoker> tools = Map.of(
                 "fail", () -> {

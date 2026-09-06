@@ -1,5 +1,6 @@
 package com.hmdp.agent.plan.executionPlan;
 
+import com.hmdp.agent.plan.executionPlan.annotation.FromTool;
 import com.hmdp.agent.plan.executionPlan.model.ToolMetadata;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,6 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,6 +135,107 @@ class PlanGeneratorTest {
         assertThat(plan.getLayers()).hasSize(2);
         assertThat(plan.getLayers().get(0)).containsExactly("lock");
         assertThat(plan.getLayers().get(1)).containsExactly("fast");
+    }
+
+    @Test
+    void plan_dependencyBinding_shouldBeAttachedToExecutionPlan() throws Exception {
+        Map<String, List<String>> graph = new LinkedHashMap<>();
+        graph.put("sourceA", List.of());
+        graph.put("combine", List.of("sourceA"));
+        when(graphAnalyzer.buildGraph(any()))
+                .thenReturn(GraphBuildResult.builder().graph(graph).build());
+        when(graphAnalyzer.getMetadata("sourceA")).thenReturn(toolMetadata(
+                "sourceA", BindingFixture.class.getDeclaredMethod("sourceA"), List.of()));
+        when(graphAnalyzer.getMetadata("combine")).thenReturn(toolMetadata(
+                "combine", BindingFixture.class.getDeclaredMethod(
+                        "consumeByType", BindingFixture.SamplePayload.class),
+                List.of("sourceA")));
+
+        ExecutionPlan plan = planGenerator.plan(List.of("sourceA", "combine"));
+
+        assertThat(plan.isValid()).isTrue();
+        assertThat(plan.getParameterBindings().bindingsFor("combine")).hasSize(1);
+    }
+
+    @Test
+    void plan_ambiguousParameterBinding_shouldRejectPlan() throws Exception {
+        Map<String, List<String>> graph = new LinkedHashMap<>();
+        graph.put("sourceA", List.of());
+        graph.put("sourceB", List.of());
+        graph.put("combine", List.of("sourceA", "sourceB"));
+        when(graphAnalyzer.buildGraph(any()))
+                .thenReturn(GraphBuildResult.builder().graph(graph).build());
+        when(graphAnalyzer.getMetadata("sourceA")).thenReturn(toolMetadata(
+                "sourceA", BindingFixture.class.getDeclaredMethod("sourceA"), List.of()));
+        when(graphAnalyzer.getMetadata("sourceB")).thenReturn(toolMetadata(
+                "sourceB", BindingFixture.class.getDeclaredMethod("sourceB"), List.of()));
+        when(graphAnalyzer.getMetadata("combine")).thenReturn(toolMetadata(
+                "combine", BindingFixture.class.getDeclaredMethod(
+                        "consumeByType", BindingFixture.SamplePayload.class),
+                List.of("sourceA", "sourceB")));
+
+        ExecutionPlan plan = planGenerator.plan(List.of("sourceA", "sourceB", "combine"));
+
+        assertThat(plan.isValid()).isFalse();
+        assertThat(plan.getInvalidReason()).contains("歧义");
+    }
+
+    @Test
+    void plan_fromToolResolvesAmbiguity_shouldRemainValid() throws Exception {
+        Map<String, List<String>> graph = new LinkedHashMap<>();
+        graph.put("sourceA", List.of());
+        graph.put("sourceB", List.of());
+        graph.put("combine", List.of("sourceA", "sourceB"));
+        when(graphAnalyzer.buildGraph(any()))
+                .thenReturn(GraphBuildResult.builder().graph(graph).build());
+        when(graphAnalyzer.getMetadata("sourceA")).thenReturn(toolMetadata(
+                "sourceA", BindingFixture.class.getDeclaredMethod("sourceA"), List.of()));
+        when(graphAnalyzer.getMetadata("sourceB")).thenReturn(toolMetadata(
+                "sourceB", BindingFixture.class.getDeclaredMethod("sourceB"), List.of()));
+        when(graphAnalyzer.getMetadata("combine")).thenReturn(toolMetadata(
+                "combine", BindingFixture.class.getDeclaredMethod(
+                        "consumeExplicit", BindingFixture.SamplePayload.class),
+                List.of("sourceA", "sourceB")));
+
+        ExecutionPlan plan = planGenerator.plan(List.of("sourceA", "sourceB", "combine"));
+
+        assertThat(plan.isValid()).isTrue();
+        assertThat(plan.getParameterBindings().bindingsFor("combine"))
+                .singleElement()
+                .satisfies(binding -> {
+                    assertThat(binding.sourceToolName()).isEqualTo("sourceB");
+                    assertThat(binding.parameterName()).isEqualTo("payload");
+                });
+    }
+
+    private ToolMetadata toolMetadata(String name, Method method, List<String> dependencies) {
+        return ToolMetadata.builder()
+                .name(name)
+                .method(method)
+                .returnType(method.getReturnType())
+                .dependencies(dependencies)
+                .build();
+    }
+
+    private static class BindingFixture {
+
+        SamplePayload sourceA() {
+            return new SamplePayload(1L);
+        }
+
+        SamplePayload sourceB() {
+            return new SamplePayload(2L);
+        }
+
+        String consumeByType(SamplePayload payload) {
+            return "";
+        }
+
+        String consumeExplicit(@FromTool("sourceB") SamplePayload payload) {
+            return "";
+        }
+
+        record SamplePayload(Long id) {}
     }
 
     private void stubGraphAndMetadata(Map<String, List<String>> graph) {
