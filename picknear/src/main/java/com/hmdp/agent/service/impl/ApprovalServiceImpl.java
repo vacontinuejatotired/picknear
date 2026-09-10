@@ -3,7 +3,7 @@ package com.hmdp.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hmdp.agent.config.PromptGuardProperties;
+import com.hmdp.agent.config.properties.PromptGuardProperties;
 import com.hmdp.agent.entity.AgentApproval;
 import com.hmdp.agent.mapper.AgentApprovalMapper;
 import com.hmdp.agent.service.ApprovalService;

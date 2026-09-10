@@ -1,5 +1,8 @@
 package com.hmdp.agent.config;
 
+import com.hmdp.agent.config.properties.FeatureProperties;
+import com.hmdp.agent.config.properties.PromptGuardProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

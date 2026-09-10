@@ -1,8 +1,8 @@
 package com.hmdp.agent.history.compression;
 
-import com.hmdp.agent.config.CompressionExecutorProperties;
-import com.hmdp.agent.config.ContextCompressionProperties;
-import com.hmdp.agent.config.ReplayProperties;
+import com.hmdp.agent.config.properties.CompressionExecutorProperties;
+import com.hmdp.agent.config.properties.ContextCompressionProperties;
+import com.hmdp.agent.config.properties.ReplayProperties;
 import com.hmdp.agent.entity.AgentMessage;
 import com.hmdp.agent.history.ConversationMemoryStore;
 import com.hmdp.agent.history.fidelity.FidelityAssurance;

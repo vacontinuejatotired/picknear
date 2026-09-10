@@ -1,6 +1,6 @@
 package com.hmdp.agent.guard.policy;
 
-import com.hmdp.agent.config.PromptGuardProperties;
+import com.hmdp.agent.config.properties.PromptGuardProperties;
 import com.hmdp.agent.guard.model.ToolInvocationContext;
 import com.hmdp.agent.guard.model.Vote;
 import org.junit.jupiter.api.BeforeEach;

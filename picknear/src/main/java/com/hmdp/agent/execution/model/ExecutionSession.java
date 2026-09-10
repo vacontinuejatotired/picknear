@@ -1,6 +1,6 @@
 package com.hmdp.agent.execution.model;
 
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.subagent.callback.SubAgentProgressCallback;
 import lombok.Builder;

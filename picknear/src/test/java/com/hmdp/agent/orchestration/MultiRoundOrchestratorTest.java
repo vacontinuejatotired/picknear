@@ -1,6 +1,6 @@
 package com.hmdp.agent.orchestration;
 
-import com.hmdp.agent.config.FeatureProperties;
+import com.hmdp.agent.config.properties.FeatureProperties;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.observability.api.AgentTracer;

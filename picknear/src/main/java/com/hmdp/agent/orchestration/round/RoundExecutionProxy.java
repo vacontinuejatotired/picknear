@@ -1,6 +1,6 @@
 package com.hmdp.agent.orchestration.round;
 
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.honesty.gate.EvidenceAnchor;
 import com.hmdp.agent.honesty.gate.EvidenceAssertionGate;
 import com.hmdp.agent.honesty.gate.HonorAction;

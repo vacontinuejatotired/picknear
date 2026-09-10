@@ -5,7 +5,7 @@ import com.hmdp.agent.execution.ToolExecutionRecorder;
 import com.hmdp.agent.execution.evidence.ToolResultCapture;
 import com.hmdp.agent.observability.model.CallerType;
 import com.hmdp.agent.stream.SseEventConstants;
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.prompt.PromptKeys;

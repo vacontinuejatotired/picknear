@@ -1,7 +1,7 @@
 package com.hmdp.agent.history;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hmdp.agent.config.ContextCompressionProperties;
+import com.hmdp.agent.config.properties.ContextCompressionProperties;
 import com.hmdp.agent.model.Mem;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
