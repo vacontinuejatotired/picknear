@@ -1,6 +1,6 @@
 package com.hmdp.agent.execution.strategy;
 
-import com.hmdp.agent.config.DagProperties;
+import com.hmdp.agent.config.properties.DagProperties;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

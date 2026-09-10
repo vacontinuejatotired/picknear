@@ -1,6 +1,6 @@
 package com.hmdp.agent.history.compression;
 
-import com.hmdp.agent.config.CompressionExecutorProperties;
+import com.hmdp.agent.config.properties.CompressionExecutorProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;

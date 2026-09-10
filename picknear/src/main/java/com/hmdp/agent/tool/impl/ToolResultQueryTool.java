@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Description;
 
 import com.hmdp.agent.annotation.TargetTool;
 import com.hmdp.agent.annotation.ToolMeta;
-import com.hmdp.agent.config.PromptGuardProperties.ToolResult;
+import com.hmdp.agent.config.properties.PromptGuardProperties.ToolResult;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

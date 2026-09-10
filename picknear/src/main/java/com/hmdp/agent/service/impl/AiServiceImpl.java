@@ -1,6 +1,6 @@
 package com.hmdp.agent.service.impl;
 
-import com.hmdp.agent.config.ReplayProperties;
+import com.hmdp.agent.config.properties.ReplayProperties;
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.history.ConversationReplayService;
 import com.hmdp.agent.hook.PromptHookExecutor;

@@ -1,6 +1,6 @@
 package com.hmdp.agent.plan;
 
-import com.hmdp.agent.config.FeatureProperties;
+import com.hmdp.agent.config.properties.FeatureProperties;
 import com.hmdp.agent.plan.model.PlanOutcome;
 import com.hmdp.agent.plan.model.PlanRequest;
 import com.hmdp.agent.prompt.PromptKeys;

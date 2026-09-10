@@ -1,5 +1,6 @@
 package com.hmdp.agent.config;
 
+import com.hmdp.agent.config.properties.CompressModelProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.observation.ChatModelObservationConvention;
 import org.springframework.ai.model.tool.ToolCallingManager;

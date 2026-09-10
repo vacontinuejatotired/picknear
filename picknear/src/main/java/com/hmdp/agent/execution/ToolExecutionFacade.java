@@ -1,7 +1,7 @@
 package com.hmdp.agent.execution;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
-import com.hmdp.agent.config.SubTaskProperties;
+import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;

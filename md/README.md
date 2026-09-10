@@ -6,41 +6,81 @@
 
 ## 📂 目录结构
 
-```
+```text
 md/
-├── README.md                 ← 本索引文件
-├── 规范/                     ← 开发规范
-├── agent/                    ← AI Agent 对话模块
-├── auth/                     ← 登录/认证/Token
-├── arch/                     ← 架构设计/审查/优化方案
-├── report/                   ← 报告/亮点/优化记录
-└── ops/                      ← 运维/部署/前端
+├── README.md                          ← 本索引文件
+├── 后端项目简历亮点.md                 ← 全后端简历亮点（面试用）
+├── 规范/                              ← 开发规范
+├── agent/                             ← AI Agent 对话模块
+│   └── observability/                 ← Agent 观测（Langfuse/OTel/SSE）
+├── auth/                              ← 登录/认证/Token
+├── arch/                              ← 架构设计/审查/优化方案
+├── report/                            ← 报告/亮点/优化记录
+└── ops/                               ← 运维/部署/前端
 ```
 
 ---
 
 ## 📋 文档一览
 
-### 🤖 Agent 模块
+### 🤖 Agent 模块：入口与执行链路
 
 | 文档 | 说明 |
 |------|------|
-| [Agent 模块架构设计](agent/Agent模块架构设计.md) | 六层架构详解：注解层→配置层→控制层→服务层→工具层→上下文层 |
+| [Agent 模块总览](agent/README.md) | Spring AI 之上的生产级 Agent 框架：定位/特性/架构/对比/快速开始/配置 |
+| [模块处理流程](agent/Agent模块处理流程.md) | 用户请求从输入到输出的完整业务流，框架自定义组件职责与协作 |
+| [模块架构设计](agent/Agent模块架构设计.md) | 六层架构详解：注解层→配置层→控制层→服务层→工具层→上下文层 |
+| [模块设计模式](agent/Agent模块设计模式.md) | `com.hmdp.agent` 设计模式梳理：出现位置、代码片段与动机 |
+| [模块链路迭代文档](agent/Agent模块链路迭代文档.md) | 从直连 LLM 到两阶段架构的逐轮演进记录 |
+| [模块发展路线图](agent/Agent模块发展路线图.md) | Agent 模块分阶段路线图 |
+| [任务队列方案](agent/Agent任务队列方案.md) | 两阶段架构：Phase1 → AfterAiHook 决策 → Phase2 TaskPlanner |
+| [CONFIRM 审批方案](agent/AgentCONFIRM审批方案.md) | 真暂停 + `agent_approval` 审批流（已落地） |
+| [SubTaskAgent 子 Agent 执行方案](agent/SubTaskAgent子Agent执行方案.md) | 子 Agent 拆分与执行方案 |
+| [DAG 规划执行器设计文档](agent/DAG规划执行器设计文档.md) | 工具依赖分层混合调度：同层并行 + 跨层串行 + 降级兜底 |
+| [规划工具路由设计](agent/规划工具路由设计.md) | 意图→工具组两级路由 v2：紧凑目录选工具 + 规划，保底 legacy |
+| [agent 链路耗时点优化](agent/agent链路耗时点优化.md) | Langfuse 耗时调用树记录与耗时点优化清单 |
+
+### 🧠 Agent 模块：上下文 / 记忆 / 诚实机制
+
+| 文档 | 说明 |
+|------|------|
+| [上下文传递机制设计](agent/Agent上下文传递机制设计.md) | `AgentContext` 跨层/跨线程传递机制 |
+| [上下文传递优化设计](agent/上下文传递优化设计.md) | 子 Agent 上下文传递优化（v1.0 草稿） |
+| [上下文压缩子系统设计文档](agent/上下文压缩子系统设计文档.md) | 记忆/保真体系设计：摘要压缩、回放、保真断言（P1→P3） |
+| [多轮记忆回放实现任务](agent/多轮记忆回放实现任务.md) | 记忆回放地基实现交接稿（独立会话实施） |
+| [反编造机制设计文档](agent/Agent反编造机制设计文档.md) | 诚实作答证据链：L0 证据源 / L1 输入侧 / L3 断言闸 / L4 账本（P0-P2） |
+
+### 🧪 Agent 模块：评测 / SSE / 简历
+
+| 文档 | 说明 |
+|------|------|
+| [评测设计文档](agent/Agent评测设计文档.md) | Langfuse LLM-as-a-judge 评估体系、评估器设计、数据补齐方案 |
+| [评测功能交接文档](agent/Agent评测功能交接文档.md) | 新会话处理评测问题前必读，避免重复踩坑 |
 | [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE 内容协商、数据格式、SseEmitter 配置、错误处理 |
 | [SSE 流式读取方案](agent/SSE流式读取方案.md) | 前端 fetch + ReadableStream 读取 SSE 流 |
 | [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
-| [Agent 历史会话实现方案](agent/Agent历史会话实现方案.md) | 历史会话：agent_conversation/agent_message 两表、会话列表 + 点进查看 |
-| [Agent 评测设计文档](agent/Agent评测设计文档.md) | 任务完成质量评测：Langfuse LLM-as-a-judge 评估体系、评估器设计、数据补齐方案 |
-| [Langfuse CLI 使用指南](agent/observability/Langfuse CLI 使用指南.md) | 命令行查观测/管 prompt/评分（替代 MCP 工具），含 `lf` 封装命令与 MCP 能力对照 |
+| [Agent 模块简历亮点](agent/Agent模块简历亮点.md) | Agent 模块面试讲点（自我介绍用） |
+
+### 📡 Agent 观测（observability）
+
+| 文档 | 说明 |
+|------|------|
+| [全链路观测架构设计](agent/observability/Agent全链路观测架构设计.md) | Agent 观测总体架构（v1.1，四视角评审后修订） |
+| [ObservedSseEmitter 设计方案](agent/observability/ObservedSseEmitter设计方案.md) | 观测型 SSE Emitter 设计（审查后定稿版） |
+| [TraceId 断链排查流程](agent/observability/TraceId断链排查流程.md) | 各 span 各占一个 traceId 的根因排查实录 |
+| [观测后端解耦改造方案](agent/observability/观测后端解耦改造方案.md) | 解除 Langfuse 硬依赖，支持可插拔观测平台 |
+| [Langfuse 云接入说明](agent/observability/Langfuse云接入说明.md) | Langfuse 云 M0/M1 接入实施指南 |
+| [Langfuse MCP 接入与使用指南](agent/observability/Langfuse MCP 接入与使用指南.md) | Langfuse MCP 接入与日常使用 |
+| [Langfuse CLI 使用指南](agent/observability/Langfuse CLI 使用指南.md) | 命令行查观测/管 prompt/评分，含 `lf` 封装与 MCP 能力对照 |
 
 ### 🔐 认证与登录
 
 | 文档 | 说明 |
 |------|------|
-| [登录流程](auth/login-process-flow.md) | 用户登录完整时序图（验证码→双Token生成） |
+| [登录流程](auth/login-process-flow.md) | 用户登录完整时序图（验证码→双 Token 生成） |
 | [Token 刷新拦截器流程](auth/refresh-token-interceptor-flow.md) | RefreshTokenInterceptor 校验与刷新的完整流程 |
 | [过期 Token 刷新流程](auth/refresh-expired-token-flow.md) | Access Token 过期后通过 Refresh Token 续期 |
-| [Login 模块重构方案](auth/login重构方案.md) | v3 — 6 个 Phase，含 AuthService 抽取、拦截器瘦身、密码登录 |
+| [Login 模块重构方案](auth/login重构方案.md) | v3 — 6 个 Phase：AuthService 抽取、拦截器瘦身、密码登录 |
 | [密码登录方案](auth/密码登录方案.md) | Phase 3.4 — BCrypt 升级、账户锁定、频率限制 |
 
 ### 🏗️ 架构与设计
@@ -48,8 +88,9 @@ md/
 | 文档 | 说明 |
 |------|------|
 | [项目文档](arch/project-document.md) | 项目整体架构说明 |
+| [后端架构拆分方案](arch/后端架构拆分方案.md) | 架构拆分设计（设计模式对齐版） |
 | [架构毁灭者审查报告](arch/架构毁灭者-代码挑刺专家.md) | 第三方代码审查发现与修复建议 |
-| [后端架构审查报告](arch/后端架构审查报告.md) | 全后端架构审查（2026-08）：一致性/分层/死代码分级清单 + 测试便利项说明 + 上线前 Checklist |
+| [后端架构审查报告](arch/后端架构审查报告.md) | 全后端架构审查（2026-08）：分层/死代码分级 + 测试便利项 + 上线前 Checklist |
 | [其他模块审查 (Blog/Follow)](arch/其他模块审查-blog-follow.md) | Blog/Follow 模块审查报告 |
 | [商店通用查询接口设计](arch/商店通用查询接口设计方案.md) | 商铺查询接口设计规范 |
 | [项目优化方案](arch/项目优化方案.md) | 秒杀/商铺/Upload/RabbitMQ 等非 Login 模块问题 |
@@ -58,6 +99,7 @@ md/
 
 | 文档 | 说明 |
 |------|------|
+| [后端项目简历亮点](后端项目简历亮点.md) | 全后端简历亮点（面试自我介绍用） |
 | [项目亮点 - 上台讲解](report/项目亮点-上台讲解.md) | 项目亮点演示文稿 |
 | [项目亮点 - 讲解逐字稿](report/项目亮点-讲解逐字稿.md) | 亮点讲解逐字稿 |
 | [下单优化压测报告](report/下单优化压测报告.md) | 秒杀场景 Redis+MQ 异步落库压测数据 |
@@ -70,11 +112,12 @@ md/
 | [前端开发文档](ops/前端开发文档.md) | 完整 API 接口文档（含数据模型、认证、分页） |
 | [阿里云 OSS 图片上传方案](ops/阿里云OSS图片上传方案.md) | FileService 接口设计、本地/OSS 双实现 |
 | [博客图片上传方案](ops/博客图片上传方案.md) | 博客图片上传流程 |
-| [VM交接文档](../../vm-docs/VM交接文档.md) | 开发/测试环境连接说明（VM 专属文档归档在 `vm-docs/`，连接/服务清单） |
+| [VM 运维手册](../../vm-docs/VM运维手册.md) | 开发/测试环境运维说明（归档于 `vm-docs/`） |
 | [日志查看与配置指南](ops/日志查看与配置指南.md) | 日志级别分层、启动时开关、调日志常见坑 |
-| [Docker 部署指南](ops/Docker部署指南.md) | 镜像构建 + 部署全流程（build.sh 本地构建、缓存管理、网桥排查） |
-| [服务器镜像部署指南](ops/服务器镜像部署指南.md) | 服务器不构建镜像，从阿里云 ACR 拉取现成镜像部署（Pull 模式） |
+| [Docker 部署指南](ops/Docker部署指南.md) | 镜像构建 + 部署全流程（缓存管理、网桥排查） |
+| [服务器镜像部署指南](ops/服务器镜像部署指南.md) | 服务器不构建镜像，从阿里云 ACR 拉取部署（Pull 模式） |
 | [CI 流水线说明](ops/CI流水线.md) | GitHub Actions 自动编译测试 + 按需构建镜像推 ACR |
+| [部署与运维总览](../../vm-docs/部署与运维总览.md) | 跨仓库部署与运维统一入口（后端镜像链路 / VM watchtower / 手动兜底） |
 
 ### 📐 开发规范
 
@@ -91,4 +134,4 @@ md/
 2. 文档使用 Markdown 格式，存放在对应子目录下
 3. 涉及 API 变更时同步更新 `前端开发文档.md`
 4. 涉及架构变更时更新对应流程文档
-5. 子目录间引用使用相对路径，如 `[Agent架构](../agent/Agent模块架构设计.md)`
+5. 子目录间引用使用相对路径，如 `[Agent 架构](agent/Agent模块架构设计.md)`

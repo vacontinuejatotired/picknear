@@ -1,7 +1,7 @@
 package com.hmdp.agent.history.compression;
 
-import com.hmdp.agent.config.CompressionExecutorProperties;
-import com.hmdp.agent.config.ContextCompressionProperties;
+import com.hmdp.agent.config.properties.CompressionExecutorProperties;
+import com.hmdp.agent.config.properties.ContextCompressionProperties;
 import com.hmdp.agent.history.ConversationMemoryKeyFactory;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

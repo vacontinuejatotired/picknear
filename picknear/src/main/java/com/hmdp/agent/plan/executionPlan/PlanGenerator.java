@@ -1,11 +1,15 @@
 package com.hmdp.agent.plan.executionPlan;
 
+import com.hmdp.agent.plan.executionPlan.binding.ParameterBindingIssue;
+import com.hmdp.agent.plan.executionPlan.binding.ToolParameterBindingPlan;
+import com.hmdp.agent.plan.executionPlan.binding.ToolParameterBindingPlanFactory;
 import com.hmdp.agent.plan.executionPlan.model.ToolMetadata;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 执行计划生成器
@@ -16,12 +20,16 @@ import java.util.*;
  *   <li>构建依赖图</li>
  *   <li>检测循环依赖</li>
  *   <li>校验依赖完整性</li>
+ *   <li>校验并附加参数绑定计划</li>
  *   <li>拓扑排序分层</li>
  * </ol>
  */
 @Slf4j
 @Component
 public class PlanGenerator {
+
+    private final ToolParameterBindingPlanFactory bindingPlanFactory =
+        new ToolParameterBindingPlanFactory();
 
     @Resource
     private GraphAnalyzer graphAnalyzer;
@@ -72,7 +80,25 @@ public class PlanGenerator {
                 .build();
         }
 
-        // 5. 拓扑排序分层
+        // 5. 解析参数绑定：歧义 / @FromTool 未声明等在此阶段拦截
+        ToolParameterBindingPlan bindingPlan = bindingPlanFactory.create(
+            selectedTools, graphAnalyzer::getMetadata);
+        if (!bindingPlan.isValid()) {
+            String reason = bindingPlan.issues().stream()
+                .map(ParameterBindingIssue::message)
+                .collect(Collectors.joining("; "));
+            log.warn("参数绑定校验失败: {}", reason);
+            return ExecutionPlan.builder()
+                .layers(List.of())
+                .dependencyGraph(graph)
+                .selectedTools(selectedTools)
+                .valid(false)
+                .parameterBindings(bindingPlan)
+                .invalidReason("参数绑定校验失败: " + reason)
+                .build();
+        }
+
+        // 6. 拓扑排序分层
         List<List<String>> layers = topologicalSort(graph);
 
         log.info("生成执行计划: {} 层, 顺序: {}", layers.size(), layers);
@@ -81,6 +107,7 @@ public class PlanGenerator {
             .layers(layers)
             .dependencyGraph(graph)
             .selectedTools(selectedTools)
+            .parameterBindings(bindingPlan)
             .valid(true)
             .build();
     }

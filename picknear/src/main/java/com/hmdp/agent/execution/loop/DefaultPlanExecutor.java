@@ -1,6 +1,6 @@
 package com.hmdp.agent.execution.loop;
 
-import com.hmdp.agent.config.DagProperties;
+import com.hmdp.agent.config.properties.DagProperties;
 import com.hmdp.agent.execution.metrics.ToolExecutionMetrics;
 import com.hmdp.agent.execution.strategy.RetryStrategy;
 import com.hmdp.agent.execution.strategy.TimeoutStrategy;
@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -44,6 +46,9 @@ public class DefaultPlanExecutor implements PlanExecutor {
     @Resource
     private TimeoutStrategy timeoutStrategy;
 
+    //a->b->e
+    //c->d--\
+    //
     @Override
     public DagExecutionResult execute(ExecutionPlan plan, Map<String, ToolInvoker> tools) {
         if (!plan.isValid()) {
@@ -51,7 +56,8 @@ public class DefaultPlanExecutor implements PlanExecutor {
         }
 
         long startTime = System.currentTimeMillis();
-        Map<String, Object> results = new ConcurrentHashMap<>();
+        // HashMap 允许 null value：失败工具的结果按“null”语义保留 key
+        Map<String, Object> results = Collections.synchronizedMap(new HashMap<>());
         Map<String, String> failedReasons = new ConcurrentHashMap<>();
         List<String> executedTools = new ArrayList<>();
         List<String> failedTools = new ArrayList<>();
