@@ -46,6 +46,9 @@ public class DefaultPlanExecutor implements PlanExecutor {
     @Resource
     private TimeoutStrategy timeoutStrategy;
 
+    //a->b->e
+    //c->d--\
+    //
     @Override
     public DagExecutionResult execute(ExecutionPlan plan, Map<String, ToolInvoker> tools) {
         if (!plan.isValid()) {
