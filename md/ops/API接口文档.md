@@ -64,9 +64,9 @@ superseded_by:
 ### 2.1 开发环境
 
 ```yaml
-服务端口: 8081
+服务端口: 8082
 上下文路径: /
-基础URL: http://localhost:8081
+基础URL: http://localhost:8082
 ```
 
 ### 2.2 全局配置说明
@@ -89,7 +89,7 @@ superseded_by:
 # - Refresh-Token 通过 Set-Cookie 存入 httpOnly Cookie
 ```
 
-开发环境默认通过 8081 端口调用后端 API。
+开发环境默认通过 8082 端口调用后端 API。
 
 ### 2.4 公共请求头
 
