@@ -1,3 +1,8 @@
+---
+status: legacy
+superseded_by: md/agent/Agent模块架构设计.md
+---
+
 # Agent 模块处理流程
 
 > 本文档描述一个用户请求从输入到输出的**完整业务流程**，聚焦框架自定义组件的职责与协作关系。
