@@ -3,9 +3,9 @@ status: current
 superseded_by:
 ---
 
-# 探点（picknear）前端开发文档
+# 探点（picknear）API 接口文档
 
-> 后端项目基于 Spring Boot 3.4.4，Java 17  
+> 本文定义后端 HTTP API、请求响应格式、认证契约和数据模型。
 > 最后更新：2026-07（第2轮优化）
 
 ---
@@ -31,8 +31,6 @@ superseded_by:
 6. [数据模型](#6-数据模型)
 7. [关键业务逻辑说明](#7-关键业务逻辑说明)
 8. [附录：HTTP 状态码说明](#8-附录http-状态码说明)
-   - [9. 图片上传前端交互注意事项](#9-图片上传前端交互注意事项)
-   - [9.1 图片选择器 UI 建议](#91-图片选择器-ui-建议)
 
 ---
 
@@ -66,9 +64,9 @@ superseded_by:
 ### 2.1 开发环境
 
 ```yaml
-服务端口: 8082
+服务端口: 8081
 上下文路径: /
-基础URL: http://localhost:8082
+基础URL: http://localhost:8081
 ```
 
 ### 2.2 全局配置说明
@@ -91,7 +89,7 @@ superseded_by:
 # - Refresh-Token 通过 Set-Cookie 存入 httpOnly Cookie
 ```
 
-前端开发时无需额外配置代理即可调用后端 API（端口 8082）。
+开发环境默认通过 8081 端口调用后端 API。
 
 ### 2.4 公共请求头
 
@@ -238,42 +236,6 @@ authorization: Bearer <Access Token>
 > - `ok` — 刷新成功，`authorization` 头中有新 Token
 > - `skipped` — 刷新跳过（并发），无新 Token，前端保持现有 Token
 > - `failed` — 刷新失败，伴随 401
-
-### 4.5 前端 Token 管理最佳实践
-
-```typescript
-// 1. 全局配置：跨域携带 Cookie（SameSite=None 需要 withCredentials）
-axios.defaults.withCredentials = true;
-
-// 2. 请求拦截器
-axios.interceptors.request.use(config => {
-    const accessToken = localStorage.getItem('access_token');
-    if (accessToken) {
-        config.headers['authorization'] = `Bearer ${accessToken}`;
-    }
-    // Refresh-Token 由浏览器通过 httpOnly Cookie 自动携带，前端无需处理
-    return config;
-});
-
-// 3. 响应拦截器
-axios.interceptors.response.use(
-    response => {
-        const newAccess = response.headers['authorization'];  // Axios headers 是对象，不能用 .get()
-        if (newAccess) {
-            localStorage.setItem('access_token', newAccess.replace('Bearer ', ''));
-        }
-        // Refresh-Token 由 Set-Cookie 自动管理
-        return response;
-    },
-    error => {
-        if (error.response?.status === 401) {
-            localStorage.removeItem('access_token');
-            window.location.href = '/login';
-        }
-        return Promise.reject(error);
-    }
-);
-```
 
 ### 4.6 需要登录的接口
 
@@ -1677,27 +1639,6 @@ POST /chat?content={content}
 > - 时间字段格式：`yyyy-MM-dd'T'HH:mm:ss`（ISO-8601，如 `2026-03-01T12:00:00`）
 > - 所有需要登录的接口若未传入有效 Token，后端返回 `401` 状态码（无响应体）
 > - 图片上传及路径兼容详见 §5.8
-
----
-
-## 9. 图片上传前端交互注意事项
-
-> 以下问题来自 2026-07 审查，建议在实现时优先考虑。
-
-| # | 问题 | 级别 | 建议 |
-|:-:|------|:----:|------|
-| F1 | 无"取消发布/放弃草稿"功能，用户无法主动清理已上传的无效图片 | 🟢 P3 | 增加草稿管理 + 过期清理 |
-| F2 | 上传失败无重试策略 | 🟢 P3 | 上传组件增加重试按钮 / 自动重试 |
-| F3 | 发布中未禁用提交按钮，可能重复请求导致数据错乱 | 🟢 P3 | 提交后禁用按钮直到返回 |
-| F4 | 图片选择器不支持多选，逐张选择效率低 | 🟢 P3 | 支持多选图片（不超过 9 张），逐张上传并显示进度 |
-
-### 9.1 图片选择器 UI 建议
-
-- **多选**：支持一次选择多张图片（不超过 9 张）
-- **逐张上传**：循环调用 `POST /upload/blog?blogId={blogId}` 逐张上传，前端维护上传进度条
-- **失败重试**：单张上传失败可点击重试，不影响其他图片
-- **删除已传**：已上传的图片可在列表中预览并单独删除（调用 `DELETE /upload/blog/delete?url={url}` 接口）
-- **禁用提交**：上传过程中禁用"发布"按钮，防止重复请求
 
 ---
 
