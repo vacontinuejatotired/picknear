@@ -1,3 +1,8 @@
+---
+status: legacy
+superseded_by: md/agent/Agent执行链设计.md
+---
+
 # Agent 任务队列方案（v3 迭代记录）
 
 > 两阶段架构：Phase 1（纯文本 AI 回复）→ AfterAiHook 决策 → Phase 2（TaskPlanner 规划执行）

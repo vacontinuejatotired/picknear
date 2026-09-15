@@ -1,3 +1,8 @@
+---
+status: legacy
+superseded_by: md/agent/Agent执行链设计.md
+---
+
 # DAG 规划执行器设计说明
 
 > 版本：v1.11（精简说明版）

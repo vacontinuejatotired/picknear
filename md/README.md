@@ -27,27 +27,16 @@ md/
 
 | 文档 | 说明 |
 |------|------|
-| [Agent 模块总览](agent/README.md) | Spring AI 之上的生产级 Agent 框架：定位/特性/架构/对比/快速开始/配置 |
-| [模块处理流程](agent/Agent模块处理流程.md) | 用户请求从输入到输出的完整业务流，框架自定义组件职责与协作 |
-| [模块架构设计](agent/Agent模块架构设计.md) | 六层架构详解：注解层→配置层→控制层→服务层→工具层→上下文层 |
-| [模块设计模式](agent/Agent模块设计模式.md) | `com.hmdp.agent` 设计模式梳理：出现位置、代码片段与动机 |
-| [模块链路迭代文档](agent/Agent模块链路迭代文档.md) | 从直连 LLM 到两阶段架构的逐轮演进记录 |
-| [模块发展路线图](agent/Agent模块发展路线图.md) | Agent 模块分阶段路线图 |
-| [任务队列方案](agent/Agent任务队列方案.md) | 两阶段架构：Phase1 → AfterAiHook 决策 → Phase2 TaskPlanner |
-| [CONFIRM 审批方案](agent/AgentCONFIRM审批方案.md) | 真暂停 + `agent_approval` 审批流（已落地） |
-| [SubTaskAgent 子 Agent 执行方案](agent/SubTaskAgent子Agent执行方案.md) | 子 Agent 拆分与执行方案 |
-| [DAG 规划执行器设计文档](agent/DAG规划执行器设计文档.md) | 工具依赖分层混合调度：同层并行 + 跨层串行 + 降级兜底 |
-| [规划工具路由设计](agent/规划工具路由设计.md) | 意图→工具组两级路由 v2：紧凑目录选工具 + 规划，保底 legacy |
-| [agent 链路耗时点优化](agent/agent链路耗时点优化.md) | Langfuse 耗时调用树记录与耗时点优化清单 |
+| [Agent 模块入口](agent/README.md) | 模块定位、任务路由和迁移状态 |
+| [Agent 模块架构设计](agent/Agent模块架构设计.md) | 当前入口、两阶段主链和组件边界 |
+| [Agent 执行链设计](agent/Agent执行链设计.md) | 规划路由、工具循环、DAG 和回退路径 |
+| [快速开始与配置](agent/runbook/快速开始与配置.md) | 启动、环境变量、SSE 验证和配置导航 |
 
 ### 🧠 Agent 模块：上下文 / 记忆 / 诚实机制
 
 | 文档 | 说明 |
 |------|------|
-| [上下文传递机制设计](agent/Agent上下文传递机制设计.md) | `AgentContext` 跨层/跨线程传递机制 |
-| [上下文传递优化设计](agent/上下文传递优化设计.md) | 子 Agent 上下文传递优化（v1.0 草稿） |
-| [上下文压缩子系统设计文档](agent/上下文压缩子系统设计文档.md) | 记忆/保真体系设计：摘要压缩、回放、保真断言（P1→P3） |
-| [多轮记忆回放实现任务](agent/多轮记忆回放实现任务.md) | 记忆回放地基实现交接稿（独立会话实施） |
+| [Agent 上下文与记忆设计](agent/Agent上下文与记忆设计.md) | AgentContext、历史回放、字符预算和异步压缩 |
 | [反编造机制设计文档](agent/Agent反编造机制设计文档.md) | 诚实作答证据链：L0 证据源 / L1 输入侧 / L3 断言闸 / L4 账本（P0-P2） |
 
 ### 🧪 Agent 模块：评测 / SSE / 简历

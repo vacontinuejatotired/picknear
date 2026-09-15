@@ -1,3 +1,8 @@
+---
+status: legacy
+superseded_by: md/agent/Agent上下文与记忆设计.md
+---
+
 # Agent 上下文传递机制设计（AgentContext）
 
 > **版本**: v1.3

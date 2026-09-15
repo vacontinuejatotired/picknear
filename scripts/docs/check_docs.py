@@ -106,19 +106,19 @@ def main() -> int:
     migrated_docs = 0
 
     index_files = sorted(DOCS_ROOT.rglob("README.md"))
-    frontmatter_files: list[Path] = []
+    link_checked_docs: list[Path] = []
     for path in sorted(DOCS_ROOT.rglob("*.md")):
         frontmatter = read_frontmatter(path)
         if frontmatter is None:
             continue
         migrated_docs += 1
-        frontmatter_files.append(path)
 
         status = str(frontmatter.get("status", "")).strip()
         if status not in ALLOWED_STATUSES:
             errors.append(f"{path.relative_to(REPO_ROOT)}: invalid status '{status}'")
         elif status == "current":
             current_docs.append(path)
+            link_checked_docs.append(path)
         elif status == "legacy":
             legacy_docs.append(path)
 
@@ -134,7 +134,7 @@ def main() -> int:
                     f"{path.relative_to(REPO_ROOT)}: superseded_by not found: {replacement}"
                 )
 
-    for path in sorted(set(index_files + frontmatter_files)):
+    for path in sorted(set(index_files + link_checked_docs)):
         for raw_link in markdown_links(path):
             target = relative_target(path, raw_link)
             if target is not None and not target.exists():
