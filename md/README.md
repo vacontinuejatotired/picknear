@@ -49,8 +49,8 @@ md/
 
 | 文档 | 说明 |
 |------|------|
-| [评测设计文档](agent/Agent评测设计文档.md) | Langfuse LLM-as-a-judge 评估体系、评估器设计、数据补齐方案 |
-| [评测功能交接文档](agent/Agent评测功能交接文档.md) | 新会话处理评测问题前必读，避免重复踩坑 |
+| [Agent 评测设计](agent/Agent评测设计文档.md) | Langfuse judge、主字段契约和当前完成范围 |
+| [Agent 评测排障](agent/runbook/Agent评测排障.md) | evaluator/rule 配置、验证步骤和已排除问题 |
 | [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE 内容协商、数据格式、SseEmitter 配置、错误处理 |
 | [SSE 流式读取方案](agent/SSE流式读取方案.md) | 前端 fetch + ReadableStream 读取 SSE 流 |
 | [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
