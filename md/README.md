@@ -52,8 +52,6 @@ md/
 | [Agent 评测设计](agent/Agent评测设计文档.md) | Langfuse judge、主字段契约和当前完成范围 |
 | [Agent 评测排障](agent/runbook/Agent评测排障.md) | evaluator/rule 配置、验证步骤和已排除问题 |
 | [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE-only 事件协议、任务状态和连接生命周期 |
-| [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
-| [Agent 模块简历亮点](agent/Agent模块简历亮点.md) | Agent 模块面试讲点（自我介绍用） |
 
 ### 📡 Agent 观测
 
@@ -93,6 +91,8 @@ md/
 | [项目亮点 - 讲解逐字稿](report/项目亮点-讲解逐字稿.md) | 亮点讲解逐字稿 |
 | [下单优化压测报告](report/下单优化压测报告.md) | 秒杀场景 Redis+MQ 异步落库压测数据 |
 | [项目优化记录](report/项目优化记录.md) | Phase 0-4 已落地优化项清单 |
+| [Agent 模块设计模式](report/Agent模块设计模式.md) | Agent 模块设计模式梳理 |
+| [Agent 模块简历亮点](report/Agent模块简历亮点.md) | Agent 模块面试讲点 |
 
 ### 🛠️ 运维与前端
 
