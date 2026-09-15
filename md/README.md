@@ -45,28 +45,22 @@ md/
 | [Agent 安全与审批设计](agent/Agent安全与审批设计.md) | Guard、数据权限和 CONFIRM 审批恢复 |
 | [Agent 诚实机制设计](agent/Agent诚实机制设计.md) | 数据意图、工具证据、输出断言和事实账本 |
 
-### 🧪 Agent 模块：评测 / SSE / 简历
+### 🧪 Agent 模块：评测 / SSE / 其他
 
 | 文档 | 说明 |
 |------|------|
 | [Agent 评测设计](agent/Agent评测设计文档.md) | Langfuse judge、主字段契约和当前完成范围 |
 | [Agent 评测排障](agent/runbook/Agent评测排障.md) | evaluator/rule 配置、验证步骤和已排除问题 |
-| [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE 内容协商、数据格式、SseEmitter 配置、错误处理 |
-| [SSE 流式读取方案](agent/SSE流式读取方案.md) | 前端 fetch + ReadableStream 读取 SSE 流 |
+| [SSE 后端实现规范](agent/SSE后端实现规范.md) | SSE-only 事件协议、任务状态和连接生命周期 |
 | [推荐购买 Agent 前端方案](agent/推荐购买Agent前端方案.md) | 前端对话页设计：ChatBubble / AgentResultCard / mock 降级 |
 | [Agent 模块简历亮点](agent/Agent模块简历亮点.md) | Agent 模块面试讲点（自我介绍用） |
 
-### 📡 Agent 观测（observability）
+### 📡 Agent 观测
 
 | 文档 | 说明 |
 |------|------|
-| [全链路观测架构设计](agent/observability/Agent全链路观测架构设计.md) | Agent 观测总体架构（v1.1，四视角评审后修订） |
-| [ObservedSseEmitter 设计方案](agent/observability/ObservedSseEmitter设计方案.md) | 观测型 SSE Emitter 设计（审查后定稿版） |
-| [TraceId 断链排查流程](agent/observability/TraceId断链排查流程.md) | 各 span 各占一个 traceId 的根因排查实录 |
-| [观测后端解耦改造方案](agent/observability/观测后端解耦改造方案.md) | 解除 Langfuse 硬依赖，支持可插拔观测平台 |
-| [Langfuse 云接入说明](agent/observability/Langfuse云接入说明.md) | Langfuse 云 M0/M1 接入实施指南 |
-| [Langfuse MCP 接入与使用指南](agent/observability/Langfuse MCP 接入与使用指南.md) | Langfuse MCP 接入与日常使用 |
-| [Langfuse CLI 使用指南](agent/observability/Langfuse CLI 使用指南.md) | 命令行查观测/管 prompt/评分，含 `lf` 封装与 MCP 能力对照 |
+| [Agent 观测设计](agent/Agent观测设计.md) | span 树、跨线程传播、后端能力和 SSE 根生命周期 |
+| [Agent 观测排障](agent/runbook/Agent观测排障.md) | TraceId 断链、主字段和 OTLP 排障 |
 
 ### 🔐 认证与登录
 
@@ -112,6 +106,9 @@ md/
 | [Docker 部署指南](ops/Docker部署指南.md) | 镜像构建 + 部署全流程（缓存管理、网桥排查） |
 | [服务器镜像部署指南](ops/服务器镜像部署指南.md) | 服务器不构建镜像，从阿里云 ACR 拉取部署（Pull 模式） |
 | [CI 流水线说明](ops/CI流水线.md) | GitHub Actions 自动编译测试 + 按需构建镜像推 ACR |
+| [Langfuse 云接入说明](ops/Langfuse云接入说明.md) | OTLP 接入、配额和冒烟验证 |
+| [Langfuse MCP 接入与使用指南](ops/Langfuse MCP 接入与使用指南.md) | MCP 查询与管理 |
+| [Langfuse CLI 使用指南](ops/Langfuse CLI 使用指南.md) | `lf` 命令行观测与 Prompt 管理 |
 | [部署与运维总览](../../vm-docs/部署与运维总览.md) | 跨仓库部署与运维统一入口（后端镜像链路 / VM watchtower / 手动兜底） |
 
 ### 📐 开发规范

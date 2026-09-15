@@ -302,6 +302,8 @@ GuardedToolCallback
 
 ## 8. 可观测性
 
+完整观测设计见 [Agent 观测设计](Agent观测设计.md)。
+
 业务埋点唯一入口是 `AgentTracer`，主链不直接依赖 Micrometer 或具体观测后端。
 
 观测层级包括：

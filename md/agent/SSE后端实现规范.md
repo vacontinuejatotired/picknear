@@ -1,40 +1,29 @@
+---
+status: current
+source_of_truth:
+  - picknear/src/main/java/com/hmdp/agent/controller/ChatController.java
+  - picknear/src/main/java/com/hmdp/agent/stream/SseSessionFactory.java
+  - picknear/src/main/java/com/hmdp/agent/stream/SseUtils.java
+  - picknear/src/main/java/com/hmdp/agent/stream/SseEventConstants.java
+  - picknear/src/main/java/com/hmdp/agent/stream/ObservedSseEmitter.java
+superseded_by:
+---
+
 # SSE 后端实现规范
 
-## 1. 概述
+本文定义 Agent 对话的 SSE 传输契约。前端读取实现位于前端仓库，后端不维护前端副本。
 
-本文档定义后端 SSE（Server-Sent Events）流式响应的实现规范，与前端 `md/SSE流式读取方案.md` 配合，实现 AI 聊天接口的逐字流式输出。
+## 1. 端点
 
-### 1.1 核心原则
+| 端点 | 方法 | 响应 |
+|---|---|---|
+| `/agent/string/send` | POST | SSE |
+| `/agent/confirm` | POST | `Accept: text/event-stream` 时 SSE，否则 JSON |
+| `/agent/reject` | POST | JSON |
 
-- **对话固定 SSE 流式（2026-09-03 起）**：`/agent/string/send` 一律 SSE（`Accept` 内容协商已删除，JSON 同步对话废弃）
-- **前端无感切换**：前端统一走 SSE 读取，不改 URL、不改调用方式
-- **向后兼容**：历史数据（agent_conversation / agent_message）与查询接口保持不变
+`/agent/string/send` 不进行 JSON/SSE 内容协商，固定 SSE。JSON 同步对话已经删除。
 
-## 2. 响应模式（对话仅 SSE）
-
-> **2026-09-03 起 `/agent/string/send` 固定 SSE 流式**：`Accept` 内容协商与 JSON 同步模式已废弃删除（`chatReturnStringResult` 移除，见《Agent模块链路迭代文档》Phase 27）。下方 JSON 描述保留为历史参考。
-
-```
-客户端请求                             后端行为
-──────────────────────────────────────────────────────────
-POST /agent/string/send?content=xxx   固定 SSE 流式响应（不再检查 Accept 头）
-```
-
-### 2.1 JSON 模式（历史，已废弃）
-
-```json
-HTTP/1.1 200 OK
-Content-Type: application/json
-
-{
-  "success": true,
-  "data": "AI 回复的完整文本",
-  "errorMsg": null,
-  "total": null
-}
-```
-
-### 2.2 SSE 模式（对话唯一模式）
+## 2. HTTP 契约
 
 ```http
 HTTP/1.1 200 OK
@@ -43,249 +32,174 @@ Cache-Control: no-cache
 Connection: keep-alive
 ```
 
-```text
-data: {逐段AI回复文本}
-data: {逐段AI回复文本}
-data: [DONE]
-```
+请求认证使用：
 
-> **注意**：响应 **不包裹 Result 信封**，`data:` 行直接传输文本内容。
-
-## 3. SSE 数据格式
-
-### 3.1 标准事件格式
-
-每条消息使用 SSE `data:` 字段，每行一个数据帧：
-
-```
-data: <文本内容>
-```
-
-### 3.2 文本分段规则
-
-| 规则 | 说明 |
-|------|------|
-| 分段粒度 | 按语义自然断句分段（句号/问号/感叹号/换行处） |
-| 最小粒度 | 至少 2-4 个汉字或一个完整单词，避免逐字输出 |
-| 最大粒度 | 单帧不超过 1024 字节 |
-| 缓冲区 | 不足一个完整语义片段时，暂不发送，等待更多内容 |
-
-**示例**：
-
-```text
-data: 您好！我是小黑助手。
-data: 您想查询什么商品信息呢？
-data: [DONE]
-```
-
-### 3.3 终止标记
-
-流结束时发送 `[DONE]` 标记：
-
-```
-data: [DONE]
-```
-
-- `[DONE]` **必须**单独占一个 `data:` 行
-- 发送 `[DONE]` 后服务端**必须**关闭连接
-- 前端检测到 `[DONE]` 后停止解析，resolve Promise
-
-### 3.4 结构化数据尾帧（审核建议）
-
-根据前端审核报告（§8.1），当 AI 回复需要携带结构化时，可在纯文本流之后、`[DONE]` 之前发送 JSON 尾帧：
-
-```text
-data: 正在为您查询今日优惠活动...
-data: 已为您找到以下信息：
-data: {"intent":"query","type":"promotion","data":{"count":3}}
-data: [DONE]
-```
-
-前端在遇到以 `{` 开头的 `data:` 行时，按 JSON 解析并提取结构化数据。
-
-### 3.5 任务清单与状态更新事件（2026-09-03 新增）
-
-所有结构化事件均为 JSON 文本行（`{` 开头），前端按 `type` 在 `dispatchStructured` 路由分发，**不混入回答正文**。已有类型：`meta`（会话ID）/ `progress`（阶段文本+工具状态）/ `confirm`（审批）/ `error`（业务错误）。
-
-**任务清单事件 `plan`**（每轮规划产出后推送一次，替代旧的 planning 文本进度）：
-
-```json
-{"type":"plan","round":1,"tasks":[{"id":"t1","description":"查天气","toolName":"queryWeather","type":"TOOL_CALL","status":"PENDING"},{"id":"t2","description":"基于以上数据生成结论","type":"LLM_REASON","status":"PENDING"}]}
-```
-
-- `tasks` 为规划产出的子任务全量清单（初始 `status=PENDING`），前端据此渲染**任务清单卡片**（非文本流）
-- `id` 缺省时后端回退 `sub-N` 占位，保证前端可定位；`type` = `TOOL_CALL` / `LLM_REASON`
-- 触发点：`MultiRoundOrchestrator`（decompose 后、执行前）；不再发送 `progress.stage=planning` 文本
-
-**工具状态事件 `progress.stage=step`**（任务执行状态变更 RUNNING/COMPLETED/FAILED，前端更新清单对应行）：
-
-```json
-{"type":"progress","stage":"step","taskId":"t1","toolName":"queryWeather","description":"查天气","status":"COMPLETED"}
-```
-
-- 带 `taskId` 时按 id 精确定位；仅 `toolName` 时按 toolName 匹配（子 Agent 工具循环 / CONFIRM 恢复推送）
-- 推送来源：
-  - 回退执行器 `FallbackRoundExecutor`（带 taskId + description）
-  - CONFIRM 恢复 `ConfirmFlowManager`（仅 toolName，确认后 RUNNING→COMPLETED）
-  - 子 Agent 工具循环 `AbstractToolLoop`（统一工具执行点，仅 toolName；CONFIRM 上抛不推终态）
-
-## 4. 错误处理
-
-### 4.1 HTTP 层错误（4xx/5xx）
-
-| 场景 | HTTP 状态码 | 响应体 |
-|------|------------|--------|
-| 参数校验失败（content 为空） | 400 | 普通 JSON `Result.fail("参数错误")` |
-| 未认证/Auth 失效 | 401 | 普通 JSON `Result.fail("未登录")` |
-| 流中断/服务端异常 | 500 | 普通 JSON `Result.fail("服务异常")` |
-
-> 即使请求携带 `Accept: text/event-stream`，异常时也返回普通 JSON，不返回 SSE。前端 `readSSE` 已适配：HTTP 非 2xx 直接抛异常，不走流式解析。
-
-### 4.2 业务错误（SSE 模式，200）
-
-AI 服务调用过程中的业务错误（如 AI 超时、内容过滤拦截），通过 SSE 流内传输：
-
-```text
-data: {"error": "AI 服务暂时不可用，请稍后重试", "code": 5001}
-data: [DONE]
-```
-
-- 错误帧按照普通 `data:` 行发送
-- 前端检测到 JSON 格式（以 `{` 开头）且含 `error` 字段，视为业务异常
-- 错误帧后仍需发送 `[DONE]` 标记
-
-## 5. 认证鉴权
-
-### 5.1 Token 传递
-
-SSE 请求使用 `fetch` 原生 API（非 axios），需在请求头中携带 token：
-
-```
+```http
 Authorization: Bearer <access_token>
 ```
 
-服务端通过 `JwtConfig` / `LoginInterceptor` 统一校验。为确保拦截器放行 SSE 异步线程的上下文，需注意：
+请求参数：
 
-- SSE 模式在 `HandlerInterceptor.preHandle` 中完成认证
-- 认证后的 `UserDTO` 通过 `RequestContextHolder` 获取
-- 异步线程中如需用户信息，启动前从 `RequestContextHolder` 提取并传入
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `content` | 是 | 用户输入 |
+| `conversationId` | 否 | 首次为空，后端生成 |
 
-### 5.2 Cookie
+## 3. 帧格式
 
-SSE 请求携带 `credentials: 'include'`，后端可通过 httpOnly Cookie 获取 Refresh-Token。
+服务端使用 `SseEmitter.event().data(...)` 发送 `data:` 帧。
 
-## 6. 后端实现方案
+普通回答文本直接发送：
 
-### 6.1 技术选型
-
-| 组件 | 方案 | 说明 |
-|------|------|------|
-| SSE 容器 | `SseEmitter` | Spring MVC 原生支持，基于 Servlet 异步请求 |
-| AI 流式库 | `ChatClient.stream()` | Spring AI 的 `Flux<String>` 流式响应 |
-| 桥接方式 | 异步线程 | 阻塞 AI 调用在独立线程执行，通过 `SseEmitter` 推送 |
-
-### 6.2 时序
-
-```
-┌──────────┐      ┌──────────────┐      ┌───────────┐      ┌─────────┐
-│  前端     │      │ ChatController│      │ AiService │      │ AI SDK  │
-└────┬─────┘      └──────┬───────┘      └─────┬─────┘      └────┬────┘
-     │ POST /string/send  │                    │                 │
-     │ Accept: text/event-stream               │                 │
-     │─────────────────────►                    │                 │
-     │                     │ 创建 SseEmitter    │                 │
-     │                     │ 开启异步线程        │                 │
-     │                     │────────────────────►                │
-     │                     │   chatStream()     │                 │
-     │                     │                    │────────────────►│
-     │    data: 您好！       │                    │  流式 chunk     │
-     │◄────────────────────│◄───────────────────│◄───────────────│
-     │    data: 您想...     │                    │                 │
-     │◄────────────────────│◄───────────────────│◄───────────────│
-     │    data: [DONE]     │                    │                 │
-     │◄────────────────────│◄───────────────────│                │
-     │                     │ emitter.complete() │                 │
+```text
+data: 你好
+data: ，我来查询。
 ```
 
-### 6.3 SseEmitter 配置
+结构化事件发送 JSON：
 
-```java
-// 超时：30分钟（AI 长思考场景）
-SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
-// 或 0L 表示不超时（由客户端断开驱动）
-SseEmitter emitter = new SseEmitter(0L);
+```text
+data: {"type":"meta","conversationId":"..."}
+data: {"type":"plan","round":1,"tasks":[...]}
 ```
 
-### 6.4 流式推送核心逻辑
+当前后端不以 `[DONE]` 作为终止协议。**流结束以 HTTP/SSE 连接 EOF 为准**，服务端通过
+`emitter.complete()` 结束响应。
 
-```java
-// AiServiceImpl.java — 伪代码
-public void chatStream(String content, SseEmitter emitter) {
-    chatClient.prompt().user(content).stream().content()
-        .subscribe(
-            chunk -> {
-                // 累积到语义完整的片段后发送
-                SseEmitter.SseEventBuilder event = SseEmitter.event()
-                    .data(chunk);
-                emitter.send(event);
-            },
-            error -> {
-                // 业务错误 → 发送错误 JSON 帧
-                emitter.send(SseEmitter.event()
-                    .data("{\"error\":\"" + error.getMessage() + "\",\"code\":5001}"));
-                emitter.complete();
-            },
-            () -> {
-                // 流结束，发送 [DONE]
-                emitter.send(SseEmitter.event().data("[DONE]"));
-                emitter.complete();
-            }
-        );
+`[DONE]` 只存在于旧前端兼容逻辑中，不是当前后端发送的事件。
+
+## 4. 事件类型
+
+### 4.1 meta
+
+```json
+{
+  "type": "meta",
+  "conversationId": "..."
 }
 ```
 
-## 7. 现有代码改造清单
+首个结构化事件，前端保存会话 ID。
 
-### 7.1 ChatController
+### 4.2 plan
 
-修改 `/agent/string/send` 端点：
-- 检查 `Accept` 请求头
-- 如含 `text/event-stream` → 创建 `SseEmitter`，调用 `AiService.chatStream(content, emitter)`，返回 `emitter`
-- 否则 → 保持现有 JSON 行为不变
-
-### 7.2 AiService
-
-新增方法：
-
-```java
-/**
- * 流式 AI 聊天
- * @param content 用户输入
- * @param emitter SSE 发射器，用于推送逐段结果
- */
-void chatStream(String content, SseEmitter emitter);
+```json
+{
+  "type": "plan",
+  "round": 1,
+  "tasks": [
+    {
+      "id": "t1",
+      "description": "查询天气",
+      "toolName": "queryWeather",
+      "type": "TOOL_CALL",
+      "status": "PENDING"
+    }
+  ]
+}
 ```
 
-### 7.3 AiServiceImpl
+每轮规划后发送全量任务清单。
 
-实现 `chatStream`：
-- 使用 `ChatClient.prompt().user(content).stream()` 获取流
-- 订阅 `Flux<String>`，`subscribe(chunk, error, complete)`
-- 设置合理的语义分段缓冲（可选）
+### 4.3 progress
 
-## 8. 边界情况
+普通阶段：
 
-| 场景 | 处理方式 |
-|------|---------|
-| AI 服务超时 | 订阅 error 回调，发送错误 JSON 帧 + `[DONE]` |
-| 客户端断开 | `SseEmitter` 抛 `AsyncRequestTimeoutException` 或 `IOException`，释放资源 |
-| 并发请求 | 每个请求独立 `SseEmitter` 实例，无状态冲突 |
-| 空响应（AI 无回复） | 直接发送 `[DONE]` |
-| 内容过长 | Spring AI 和 SseEmitter 均支持大流，内存受单个 chunk 大小而非总输出控制 |
-| 多次 `[DONE]` | 业务代码确保 `[DONE]` 仅发送一次（在 complete 回调中） |
+```json
+{
+  "type": "progress",
+  "stage": "planning|executing|merging",
+  "text": "..."
+}
+```
 
-## 9. 性能考虑
+工具步骤：
 
-- **线程**：`SseEmitter` 使用 Servlet 异步线程，不占用 Tomcat 请求处理线程
-- **缓冲区**：建议在服务端做 200ms 或语义句段合并，减少 SSE 事件频率
-- **监控**：通过 `SseEmitter` 的 completion/timeout/error 回调做日志记录
+```json
+{
+  "type": "progress",
+  "stage": "step",
+  "taskId": "t1",
+  "toolName": "queryWeather",
+  "description": "查询天气",
+  "status": "RUNNING"
+}
+```
+
+### 4.4 confirm
+
+```json
+{
+  "type": "confirm",
+  "confirmId": "cfm_xxx",
+  "tool": "publishTestBlog",
+  "reason": "需要确认",
+  "arguments": "..."
+}
+```
+
+前端必须提供确认和拒绝操作。确认续流继续使用同一协议。
+
+### 4.5 error
+
+```json
+{
+  "type": "error",
+  "error": "AI 服务暂时不可用",
+  "code": 5001
+}
+```
+
+错误事件后由服务端结束流。
+
+## 5. 工具状态
+
+| status | 含义 |
+|---|---|
+| `RUNNING` | 开始执行 |
+| `COMPLETED` | 执行成功 |
+| `FAILED` | 执行失败 |
+| `SKIPPED` | 计划存在但未调用 |
+
+`taskId` 存在时按 taskId 定位任务；只有 `toolName` 时按工具名更新。
+
+## 6. 生命周期
+
+`SseSessionFactory` 统一创建：
+
+- `agent.session` 根 span；
+- `ObservedSseEmitter`；
+- `meta` 事件。
+
+根 span 生命周期与 emitter 绑定。所有结束路径最终都结束根 span，见
+[Agent 观测设计](Agent观测设计.md)。
+
+## 7. 错误和断开
+
+| 场景 | 行为 |
+|---|---|
+| 初始化异常 | 发送 error 事件后 complete |
+| 模型重试耗尽 | 发送 error 事件后 complete |
+| 客户端断开 | `safeSend` 忽略 IOException / IllegalStateException |
+| emitter 已结束 | 不再发送，静默忽略 |
+| CONFIRM 暂停 | 发送 confirm 并结束当前 SSE，等待续流 |
+
+SSE 响应一旦开始，连接内错误不再回退为普通 JSON。
+
+## 8. 前端对接要求
+
+1. 使用 `fetch` 读取 `ReadableStream`；
+2. 按 SSE 行解析 `data:`；
+3. `meta` 先建立会话；
+4. JSON 事件按 `type` 分发；
+5. 普通文本按 token 追加；
+6. EOF 表示结束；
+7. 同时兼容历史 `[DONE]`，但后端新协议不发送。
+
+## 9. 修改约束
+
+1. 事件类型由 `SseEventConstants` 和 `SseUtils` 单一维护。
+2. 不手工拼接 JSON，统一使用 `SseUtils`。
+3. 修改事件字段必须同时更新前端读取实现。
+4. 协议变更必须在本文更新。
+5. 不允许重新引入 JSON 同步对话入口。

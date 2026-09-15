@@ -1,3 +1,8 @@
+---
+status: current
+superseded_by:
+---
+
 # Langfuse CLI 使用指南（命令行替代 MCP）
 
 > **版本**: v1.0

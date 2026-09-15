@@ -1,8 +1,13 @@
+---
+status: current
+superseded_by:
+---
+
 # Langfuse MCP 接入与使用指南
 
 > **版本**: v1.1（合并接入说明 + 使用指南）  
 > **最后更新**: 2026-08-23  
-> **上游文档**: [Langfuse云接入说明](./Langfuse云接入说明.md)（M1 链路打通）、[Agent全链路观测架构设计](./Agent全链路观测架构设计.md)  
+> **上游文档**: [Langfuse 云接入说明](./Langfuse云接入说明.md)（M1 链路打通）、[Agent 观测设计](../agent/Agent观测设计.md)
 > **官方文档**: [Langfuse MCP Server](https://langfuse.com/docs/api-and-data-platform/features/mcp-server)
 
 ---
