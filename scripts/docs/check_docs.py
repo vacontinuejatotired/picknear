@@ -71,7 +71,13 @@ def relative_target(source: Path, raw_link: str) -> Path | None:
     target = link.split("#", 1)[0].strip()
     if not target or target.startswith(IGNORED_LINK_PREFIXES):
         return None
-    return (source.parent / target).resolve()
+    resolved = (source.parent / target).resolve()
+    try:
+        resolved.relative_to(REPO_ROOT)
+    except ValueError:
+        # Workspace-only links such as ../../vm-docs are not part of the repo.
+        return None
+    return resolved
 
 
 def module_readme(path: Path) -> Path | None:
