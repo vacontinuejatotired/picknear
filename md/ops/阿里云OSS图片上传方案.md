@@ -1,3 +1,8 @@
+---
+status: current
+superseded_by:
+---
+
 # 阿里云 OSS 图片上传方案
 
 > 探点（picknear）图片上传接入阿里云 OSS\

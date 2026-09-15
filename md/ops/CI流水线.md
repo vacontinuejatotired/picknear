@@ -1,3 +1,8 @@
+---
+status: current
+superseded_by:
+---
+
 # CI 流水线说明
 
 > **最后更新**: 2026-08-30

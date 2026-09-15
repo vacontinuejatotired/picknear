@@ -1,3 +1,8 @@
+---
+status: current
+superseded_by:
+---
+
 # PickNear Docker 部署指南
 
 > 前后端分离（Vue + Spring Boot），通过 Docker 镜像 + docker compose 部署到 Linux 虚拟机。
