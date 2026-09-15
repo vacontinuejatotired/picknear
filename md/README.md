@@ -64,11 +64,9 @@ md/
 
 | 文档 | 说明 |
 |------|------|
-| [登录流程](auth/login-process-flow.md) | 用户登录完整时序图（验证码→双 Token 生成） |
-| [Token 刷新拦截器流程](auth/refresh-token-interceptor-flow.md) | RefreshTokenInterceptor 校验与刷新的完整流程 |
-| [过期 Token 刷新流程](auth/refresh-expired-token-flow.md) | Access Token 过期后通过 Refresh Token 续期 |
-| [Login 模块重构方案](auth/login重构方案.md) | v3 — 6 个 Phase：AuthService 抽取、拦截器瘦身、密码登录 |
-| [密码登录方案](auth/密码登录方案.md) | Phase 3.4 — BCrypt 升级、账户锁定、频率限制 |
+| [认证与登录](auth/README.md) | Auth 模块入口和任务路由 |
+| [认证与登录设计](auth/认证与登录设计.md) | 双 Token、刷新、密码登录和会话上下文 |
+| [请求头设计规范](规范/请求头设计规范.md) | Token 请求头、刷新和前端对接约定 |
 
 ### 🏗️ 架构与设计
 
