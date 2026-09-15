@@ -196,6 +196,8 @@ BLOCK > REPLACE > PLANNING > PASS
 
 ### 5.3 Guard 与权限
 
+完整安全和审批边界见 [Agent 安全与审批设计](Agent安全与审批设计.md)。
+
 工具统一包装为 `GuardedToolCallback`：
 
 ```text
@@ -285,6 +287,8 @@ GuardedToolCallback
 数据库中的 `agent_message` 始终是原始历史事实源。
 
 ### 7.4 反编造链路
+
+完整诚实机制见 [Agent 诚实机制设计](Agent诚实机制设计.md)。
 
 当前机制分为：
 

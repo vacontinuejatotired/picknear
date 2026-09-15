@@ -1,3 +1,8 @@
+---
+status: legacy
+superseded_by: md/agent/Agent安全与审批设计.md
+---
+
 # Agent CONFIRM 审批方案 — 真暂停 + agent_approval 审批流
 
 > **状态**: ✅ 已落地（2026-08-06）  
