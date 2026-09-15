@@ -7,7 +7,6 @@ source_of_truth:
   - picknear/src/main/java/com/hmdp/controller/UploadController.java
   - picknear/src/main/java/com/hmdp/config/OssConfig.java
   - picknear/src/main/java/com/hmdp/config/OssProperties.java
-  - picknear/src/main/resources/application-dev.yaml
   - picknear/src/main/resources/application-prod.yaml
 superseded_by:
 ---
