@@ -14,7 +14,7 @@ superseded_by:
 > ## ⚠️ 部署模式说明（2026-08-30 更新）
 >
 > - **开发**：一律在共享文件夹 `/mnt/hgfs/heima`（主机侧 `E:\heima`）进行，`~/.bashrc` 的 `COMPOSE_FILE` 指向共享文件夹的 `/mnt/hgfs/heima/picknear/picknear/docker-compose.yml`
-> - **构建镜像**：**不要在本地 `docker build` / `docker compose build`**。改代码 → push 到 GitHub → 合并到 `master` → `picknear/.github/workflows/build-image.yml` 自动（或手动）构建推送 ACR → 任意机器 `docker compose pull app && docker compose up -d --no-build` 部署
+> - **构建镜像**：**不要在本地 `docker build` / `docker compose build`**。改代码 → push 到 GitHub → 合并到 `master` → `picknear/.github/workflows/ci-cd.yml` 自动（CI 通过后构建，或手动）推送 ACR → 任意机器 `docker compose pull app && docker compose up -d --no-build` 部署
 > - `/opt/picknear` 是旧部署副本（2026-08-01 创建），静态拷贝、不随主机更新，**不再用于开发/构建**；按本指南部署新机器时不复制它
 > - 踩坑史：2026-08-03 曾因 `COMPOSE_FILE` 指向 `/opt/picknear`，compose 一直构建旧代码（镜像缺失 observability 模块），已改回共享文件夹
 
@@ -49,28 +49,28 @@ superseded_by:
 
 ## 1. 构建镜像（CI/CD，不要本地构建）
 
-镜像由**前后端各自仓库**的 `build-image.yml` 工作流构建，推到阿里云 ACR：
+镜像由**前后端各自仓库**的工作流构建，推到阿里云 ACR：
 
 | 仓库 | 工作流 | 触发 | 镜像 |
 |---|---|---|---|
-| `picknear/.github/workflows/build-image.yml` | Build Image | **push master**（自动）+ 手动 `workflow_dispatch`（可填 tag） | `picknear/picknear-app:{tag}` + `:latest` |
+| `picknear/.github/workflows/ci-cd.yml` | CI/CD | push master（自动，CI 通过后构建）+ 手动 `workflow_dispatch`（可填 tag） | `picknear/picknear-app:latest` + `:sha-xxxxxxx` + `:{tag}` |
 | `frontend/.github/workflows/build-image.yml` | Build Image | **push master**（自动）+ 手动 | `picknear/picknear-frontend:{tag}` + `:latest` |
 
 要点：
-- **自动触发**：push 到 `master` 即构建。后端在 `feature` 上开发不触发，**合并到 `master` 的那一刻 = 发布新镜像**（`picknear/CLAUDE.md` 有分支约定）
-- **手动触发**：GitHub 仓库 → Actions → Build Image → Run workflow，可选 tag
+- **自动触发**：push 到 `master` 即构建。后端在 `feature` 上开发不触发，**合并到 `master` 的那一刻 = 发布新镜像**（`picknear/CLAUDE.md` 有分支约定）。CI 与构建在同一个 workflow 中串联（`needs: ci`），CI 失败则不构建镜像
+- **手动触发**：GitHub 仓库 → Actions → CI/CD → Run workflow，可选 tag
 - 构建用 `docker/build-push-action`，**GHA 层缓存**（`type=gha,scope=picknear-app/-frontend`），依赖层复用：后端 pom.xml / 前端 package-lock.json 不变则依赖层命中，不重新下载
 - **必须关闭 provenance/sbom**（已配）：ACR 个人版不支持 OCI attestation 附件，开启会报 `unknown manifest class for application/vnd.oci.empty.v1+json`
 - **不要用 `type=registry` 构建缓存兜底**（2026-09-02 实测）：ACR 个人版拒绝 buildkit 的 cacheconfig manifest，`cache-to: type=registry` 会报 `unknown manifest class for application/vnd.buildkit.cacheconfig.v0` 导致**整个构建失败**；`type=gha` 是唯一可行的层缓存来源
 - ACR 登录凭据来自 GitHub Secrets：`ALIYUN_ACR_USERNAME` / `ALIYUN_ACR_PASSWORD`
 - 构建上下文：后端 `picknear/`（Dockerfile + `docker/maven/settings.xml` 国内镜像源）；前端 `.`（Dockerfile + nginx.conf）
-- 镜像 tag 规则：手动触发可指定 `{tag}`，同时总是更新 `latest`。**`latest` 始终指向最新一次构建**
+- 镜像 tag 规则：后端推 `latest` + `sha-xxxxxxx`（Git commit short SHA，可追溯回滚）；手动触发可指定额外 tag。前端推 `{tag}` + `latest`。**`latest` 始终指向最新一次构建**
 
 ### 构建速度说明（优化已落地）
 
 - 依赖下载走国内镜像源（后端 Maven：华为云→腾讯云→阿里云；前端 npm：npmmirror）
 - 依赖层用**镜像层缓存**（非 `--mount=type=cache`）：GHA runner 每次全新，mount cache 不共享；镜像层 + GHA 缓存才能跨构建复用
-- GHA 缓存加了显式 `scope`，避免与仓库内其他 job（ci.yml）的缓存互相挤占淘汰
+- GHA 缓存加了显式 `scope`，避免 `ci` job 与 `build-image` job 之间的缓存互相挤占淘汰
 - 后端 multi-stage + Spring Boot layertools 分层，依赖/应用层独立 COPY —— VM pull 时只拉差异层
 - 若某次构建"重新全量下载依赖"（依赖文件变化或 GHA 缓存被淘汰），属正常，不必惊慌
 
@@ -203,7 +203,7 @@ curl http://localhost:48080/api/...       # 应返回后端 JSON
 | `unauthorized: authentication required`（拉镜像时） | 未登录 ACR | 重新 `docker login`（§2.2） |
 | 拉官方镜像超时 | 加速器未生效 | 检查 daemon.json → `systemctl restart docker` |
 | app 崩溃 `Could not resolve placeholder 'LANGFUSE_BASE_URL'` | `.env` 缺 LANGFUSE 4 个变量 | 补上真实 Langfuse 云值 |
-| 构建镜像报 `unknown manifest class for application/vnd.oci.empty.v1+json` | 开了 provenance/sbom | `build-image.yml` 已配 `provenance: false, sbom: false`；本地改回 |
+| 构建镜像报 `unknown manifest class for application/vnd.oci.empty.v1+json` | 开了 provenance/sbom | `ci-cd.yml` 已配 `provenance: false, sbom: false`；本地改回 |
 | VM 启动报端口被占 | 宿主机 8080/8082 之类已被占用 | 本机停掉 nginx-1.18.0（占 8080） |
 | 容器 OOM | 内存不够 | 给 VM 加内存/swap；确认各服务 `mem_limit` 已配 |
 | `app` 一直不 healthy | 依赖的 mysql/redis/rabbitmq 未就绪 | `docker compose logs app` 看连接报错，先等依赖 healthy |
@@ -259,4 +259,4 @@ sudo ip route add 172.18.0.0/16 dev br-<id> src 172.18.0.1
 
 ---
 
-*最后更新：2026-09-02(构建缓存优化：注释 spring-milestones、前端跳过 vue-tsc、registry 兜底被 ACR 拒绝) · 端口：原端口 + 40000 · 镜像 tag：`picknear-app:latest` / `picknear-frontend:latest`*
+*最后更新：2026-09-17(合并 CI/CD workflow、新增 Git SHA tag、删除 deploy-vm.sh) · 端口：原端口 + 40000 · 镜像 tag：`picknear-app:latest` / `picknear-app:sha-xxxxxxx` / `picknear-frontend:latest`*

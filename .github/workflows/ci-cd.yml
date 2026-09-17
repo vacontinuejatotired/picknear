@@ -1,0 +1,155 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - 'md/**'
+      - '*.md'
+  pull_request:
+    branches: ['**']
+  # 手动触发（可指定 tag）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '镜像标签（默认 latest）'
+        required: false
+        default: 'latest'
+
+jobs:
+  # ==========================================
+  # CI：编译 + 单测（所有分支、PR 均跑）
+  # ==========================================
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check documentation
+        run: python3 scripts/docs/check_docs.py
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compile
+        working-directory: picknear
+        run: mvn compile -B -q
+
+      - name: Unit tests
+        working-directory: picknear
+        run: |
+          # 跳过需要 MySQL/Redis/RabbitMQ 的 @SpringBootTest 集成测试
+          mvn test -B \
+            -Dtest="\
+              !com.hmdp.TokenTest,\
+              !com.hmdp.agent.observability.AgentTracerIntegrationTest,\
+              !com.hmdp.agent.observability.LangfuseSmokeTest,\
+              !com.hmdp.PickNearApplicationTests" \
+            -DfailIfNoTests=false
+
+  # ==========================================
+  # Build Image：构建镜像推 ACR（仅 push master + 手动触发）
+  # 依赖 CI 通过才执行——CI 失败则不构建镜像
+  # ==========================================
+  build-image:
+    needs: ci
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/master')
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Prepare image tags
+        id: tags
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          IMAGE_REPOSITORY: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com/picknear/picknear-app
+          SHORT_SHA: ${{ steps.sha.outputs.short }}
+        run: |
+          if [ -n "$INPUT_TAG" ] && ! [[ "$INPUT_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid image tag: $INPUT_TAG"
+            exit 1
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_REPOSITORY}:latest"
+            echo "${IMAGE_REPOSITORY}:sha-${SHORT_SHA}"
+            if [ -n "$INPUT_TAG" ] && [ "$INPUT_TAG" != "latest" ] && [ "$INPUT_TAG" != "sha-${SHORT_SHA}" ]; then
+              echo "${IMAGE_REPOSITORY}:${INPUT_TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: crpi-gbihc3e57h3o3f2l.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: picknear
+          push: true
+          # ACR 个人版不支持 provenance/sbom 附件（unknown manifest class 报错），必须关闭
+          provenance: false
+          sbom: false
+          # GHA 层缓存：显式 scope 避免与仓库内其他 job 的缓存挤占淘汰
+          cache-from: type=gha,scope=picknear-app
+          cache-to: type=gha,mode=max,scope=picknear-app
+          # 镜像 tag：latest + sha-xxxxxxx + 手动触发时的自定义 tag
+          tags: ${{ steps.tags.outputs.tags }}
+
+  # ==========================================
+  # 通知：构建成功/失败推送（仅 master push / 手动触发）
+  # 推荐飞书自定义机器人；保留钉钉兼容，详见 md/ops/CI流水线.md
+  # 未配置通知凭据时自动跳过，不影响流水线
+  # ==========================================
+  notify:
+    needs: [ci, build-image]
+    if: always() && (github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Send notification
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          BUILD_RESULT: ${{ needs.build-image.result }}
+          SHORT_SHA: ${{ steps.sha.outputs.short }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTIFY_PROVIDER: ${{ vars.NOTIFY_PROVIDER }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SIGN_SECRET: ${{ secrets.FEISHU_SIGN_SECRET }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SIGN_SECRET: ${{ secrets.DINGTALK_SIGN_SECRET }}
+          NOTIFY_WEBHOOK: ${{ secrets.NOTIFY_WEBHOOK }}
+        run: bash scripts/ci/notify.sh

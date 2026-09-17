@@ -58,7 +58,7 @@ E:\heima\                              # 工作区根目录
 
 - **开发一律在共享文件夹进行**：`/mnt/hgfs/heima`（主机侧 `E:\heima`）是 VMware 共享文件夹，主机写代码 → VM 实时可见，**无需任何拷贝/同步**
 - **docker compose 直接用共享文件夹版本**：`~/.bashrc` 的 `COMPOSE_FILE` 已指向 `/mnt/hgfs/heima/picknear/picknear/docker-compose.yml`
-- **镜像构建已迁到 CI/CD**：`docker-compose.yml` 里 app/frontend 服务**不 build 本地镜像，从阿里云 ACR 拉取**（`build-image.yml` 构建推送）。改完代码的部署链路：push 后端 `feature` → 合并到 `master` → push 自动触发 Build Image → 镜像推 ACR → VM `docker compose pull && docker compose up -d --no-build`。**不要在本机/VM `docker build` / `docker compose build`**（本地构建镜像与 ACR 脱节，且 hgfs 偶发 short read）。详见 `md/ops/Docker部署指南.md`
+- **镜像构建已迁到 CI/CD**：`docker-compose.yml` 里 app/frontend 服务**不 build 本地镜像，从阿里云 ACR 拉取**（`ci-cd.yml` 在 CI 通过后构建推送）。改完代码的部署链路：push 后端 `feature` → 合并到 `master` → CI/CD 自动构建镜像 → 镜像推 ACR → VM `docker compose pull && docker compose up -d --no-build`。**不要在本机/VM `docker build` / `docker compose build`**（本地构建镜像与 ACR 脱节，且 hgfs 偶发 short read）。详见 `md/ops/Docker部署指南.md`
 - **`/opt/picknear` 是旧部署副本**（2026-08-01 按 `md/ops/Docker部署指南.md` 的 scp 流程创建，配套 `vm-docs/deploy-vm.sh`，VM 部署文档已归档到 `vm-docs/`），代码是静态拷贝、**不随主机更新，不再用于开发**。踩坑史：2026-08-03 曾因 `COMPOSE_FILE` 指向它，compose 一直构建旧代码（镜像缺失 observability 模块），已改回共享文件夹
 - 密钥与云服务凭据在 `picknear/picknear/.env`（compose 同级自动读取，已被 .gitignore 忽略），改动后可用 `docker compose config` 校验注入
 
