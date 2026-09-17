@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -54,6 +55,18 @@ def as_paths(value: object) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def is_git_tracked(path: Path) -> bool:
+    relative = path.relative_to(REPO_ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", relative],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def markdown_links(path: Path) -> list[str]:
@@ -127,9 +140,14 @@ def main() -> int:
             legacy_docs.append(path)
 
         for source in as_paths(frontmatter.get("source_of_truth")):
-            if not (REPO_ROOT / source).exists():
+            source_path = (REPO_ROOT / source).resolve()
+            if not source_path.exists():
                 errors.append(
                     f"{path.relative_to(REPO_ROOT)}: source_of_truth not found: {source}"
+                )
+            elif not is_git_tracked(source_path):
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}: source_of_truth not tracked by Git: {source}"
                 )
 
         for replacement in as_paths(frontmatter.get("superseded_by")):
