@@ -55,10 +55,11 @@ send_feishu() {
     return 0
   fi
 
-  local timestamp sign payload response code
+  local timestamp string_to_sign sign payload response code
   if [[ -n "${FEISHU_SIGN_SECRET:-}" ]]; then
     timestamp="$(date +%s)"
-    sign="$(printf '' | openssl dgst -sha256 -hmac "${timestamp}\n${FEISHU_SIGN_SECRET}" -binary | base64 | tr -d '\n')"
+    string_to_sign="${timestamp}"$'\n'"${FEISHU_SIGN_SECRET}"
+    sign="$(printf '' | openssl dgst -sha256 -hmac "$string_to_sign" -binary | base64 | tr -d '\n')"
     payload="$(jq -n \
       --arg timestamp "$timestamp" \
       --arg sign "$sign" \
