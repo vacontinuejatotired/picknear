@@ -1,9 +1,26 @@
+---
+status: current
+source_of_truth:
+  - picknear/src/main/java/com/hmdp/agent/controller/ChatController.java
+  - picknear/src/main/java/com/hmdp/agent/orchestration/TaskPlanner.java
+  - picknear/src/main/java/com/hmdp/agent/guard/ToolGuardManager.java
+  - picknear/src/main/java/com/hmdp/agent/context/AgentContext.java
+  - picknear/src/main/java/com/hmdp/agent/history/ConversationReplayServiceImpl.java
+  - picknear/src/main/java/com/hmdp/agent/observability/api/AgentTracer.java
+  - picknear/src/main/java/com/hmdp/agent/tool/ToolBeanCollector.java
+  - picknear/src/main/resources/application.yaml
+superseded_by:
+---
+
 # Agent 模块 — 简历项目亮点
 
 > **用途**: 面试自我介绍用  
 > **版本**: v5.0 (2026-08-11)  
 > **风格**: 务实工程叙事，非 PPT 包装  
 > **本版新增**: Agent 成本治理（工具路由按需加载 + 上下文 token 滚雪球根治）
+>
+> 本文是面试表达材料，不是架构事实源；实现冲突时以 [Agent 模块架构设计](../agent/Agent模块架构设计.md)
+> 和当前代码为准。
 
 ---
 
@@ -18,7 +35,7 @@
 - **前置闸口（输入阶段）**：PromptHookChain 输入 Hook 链做 Prompt 注入检测（本地关键词 + 正则，Redis 仅辅助限流，Redis 异常降级为本地阈值，不阻塞对话主流程）；命中规划类意图（查/统计/天气等宽触发词）时转两阶段规划。
 - **执行闸口（工具调用阶段）**：GuardedToolCallback 统一包装 ToolCallback，过 4 个 Policy（高危名单、需确认名单、正则匹配、Redis 限流），任一拒绝即拦截；工具方法上的 `@RequiredDataPermission` AOP 切面做数据归属兜底校验。
 
-上线至今未发生工具越权操作。
+内网部署期间未发生工具越权操作。
 
 ---
 

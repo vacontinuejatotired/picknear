@@ -110,6 +110,10 @@ def main() -> int:
     for path in sorted(DOCS_ROOT.rglob("*.md")):
         frontmatter = read_frontmatter(path)
         if frontmatter is None:
+            if path.name != "README.md":
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}: missing frontmatter"
+                )
             continue
         migrated_docs += 1
 

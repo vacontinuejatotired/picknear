@@ -1,6 +1,24 @@
+---
+status: current
+source_of_truth:
+  - picknear/src/main/java/com/hmdp/agent/hook/PromptHookChain.java
+  - picknear/src/main/java/com/hmdp/agent/hook/AfterAiHookChain.java
+  - picknear/src/main/java/com/hmdp/agent/guard/ToolGuardManager.java
+  - picknear/src/main/java/com/hmdp/agent/permission/validator/PermissionValidatorFactory.java
+  - picknear/src/main/java/com/hmdp/agent/stream/SseSessionFactory.java
+  - picknear/src/main/java/com/hmdp/agent/guard/GuardedToolCallback.java
+  - picknear/src/main/java/com/hmdp/agent/context/AgentContext.java
+  - picknear/src/main/java/com/hmdp/agent/observability/api/AgentTracer.java
+  - picknear/src/main/java/com/hmdp/agent/prompt/impl/DefaultPromptService.java
+  - picknear/src/main/java/com/hmdp/agent/response/AiResponseRouter.java
+superseded_by:
+---
+
 # Agent 模块设计模式详解
 
 > 本文档梳理 `com.hmdp.agent` 包中使用的所有设计模式，标注每个模式的出现位置、核心代码片段和设计动机。
+>
+> 本文是设计复盘材料，不是架构事实源；类名和协作关系变化时以 Agent 当前模块文档和代码为准。
 
 ---
 

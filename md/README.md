@@ -10,7 +10,7 @@
 | 认证 | [auth/README.md](auth/README.md) | 验证码、密码、双 Token、刷新和会话 |
 | 架构 | [arch/README.md](arch/README.md) | 后端域划分、请求链和基础设施 |
 | 运维与接口 | [ops/README.md](ops/README.md) | API、上传、部署、日志和 Langfuse |
-| 报告 | [report/README.md](report/README.md) | 审查、优化、压测和面试材料 |
+| 报告 | [report/README.md](report/README.md) | 面试、讲解、简历和设计模式人读材料 |
 | 规范 | [规范/README.md](规范/README.md) | 文档、Git 和请求头规范 |
 
 ## 阅读规则
