@@ -9,7 +9,7 @@ superseded_by:
 # CI 流水线说明
 
 > **最后更新**: 2026-09-17
-> **场景**: GitHub Actions 云 runner 自动编译测试 + push master 自动构建镜像推送 ACR
+> **场景**: GitHub Actions 云 runner 全分支编译测试与提交通知 + push master 自动构建镜像推送 ACR
 
 ---
 
@@ -17,9 +17,11 @@ superseded_by:
 
 | Workflow | 文件 | 触发 | 作用 |
 |----------|------|------|------|
-| CI/CD | `.github/workflows/ci-cd.yml` | push 任意分支 / PR / 手动 | CI 编译 + 单测 → **CI 通过后才构建镜像推 ACR** |
+| CI/CD | `.github/workflows/ci-cd.yml` | push 任意分支（含纯文档）/ PR / 手动 | CI 编译 + 单测 → 代码变更且 CI 通过后才构建镜像推 ACR |
 
 **核心改动（2026-09-17）**：此前 CI 与构建是两条独立 workflow（`ci.yml` + `build-image.yml`），CI 失败不阻断镜像构建。现已合并为 `ci-cd.yml`，用 `needs: ci` 串联——CI job 通过后 build-image job 才执行。
+
+**通知改动（2026-09-17）**：所有分支 push 与手动触发都会发送通知，内容包含提交说明、作者、分支、Commit 和流水线链接；纯文档 push 仍跑 CI 和通知，但通过 `changes` job 跳过镜像构建。
 
 无 CD 自动部署：本地无常在线服务器（VM 不常开），master 上构建出新镜像后，任意有 docker 的机器 `docker compose pull && up -d --no-build` 拉取镜像即可。
 
@@ -29,6 +31,12 @@ superseded_by:
 push/PR/workflow_dispatch
         │
         ▼
+    ┌─ changes ─────────────────────────┐
+    │ 判断是否包含代码变更               │
+    │ 纯文档 push → 跳过镜像构建         │
+    └───────────┬───────────────────────┘
+                │
+                ▼
     ┌─ ci ──────────────────────────────┐
     │ check_docs → setup JDK17 →        │
     │ compile → unit test               │
@@ -36,7 +44,7 @@ push/PR/workflow_dispatch
                 │ (needs: ci)
                 ▼
     ┌─ build-image ─────────────────────┐
-    │ 仅 push master / 手动触发        │
+    │ 仅代码变更 + push master / 手动    │
     │ docker buildx → push ACR          │
     │ tag: latest + sha-xxxxxxx         │
     └───────────┬───────────────────────┘
@@ -44,7 +52,7 @@ push/PR/workflow_dispatch
                 ▼
     ┌─ notify ──────────────────────────┐
     │ 飞书/钉钉通知成功/失败            │
-    │ （仅 master / 手动触发）          │
+    │ 所有 push / 手动触发              │
     └───────────────────────────────────┘
 ```
 
@@ -66,7 +74,7 @@ push/PR/workflow_dispatch
 ## 4. Build Image 细节
 
 **触发条件**：`needs: ci`（CI 通过）且满足以下之一：
-- push 到 `master` 分支（自动触发）
+- push 到 `master` 分支且包含代码变更（自动触发）
 - `workflow_dispatch` 手动触发（可选 tag）
 
 **镜像 tag 策略（2026-09-17 新增）**：
@@ -102,7 +110,7 @@ GitHub 仓库 → Settings → Secrets and variables → Actions：
 |---|---|---|---|
 | Secret | `FEISHU_WEBHOOK` | 是 | 飞书群自定义机器人 Webhook URL |
 | Secret | `FEISHU_SIGN_SECRET` | 否 | 开启签名校验时填写 |
-| Variable | `NOTIFY_PROVIDER` | 否 | 可显式设置为 `feishu` |
+| Variable/Secret | `NOTIFY_PROVIDER` | 否 | 可显式设置为 `feishu`；优先从 Variables 读取，Secrets 作为兼容回退 |
 
 ### 钉钉（兼容保留）
 
@@ -113,15 +121,16 @@ GitHub 仓库 → Settings → Secrets and variables → Actions：
 | Secret | `DINGTALK_WEBHOOK` | 是 | 钉钉自定义机器人 Webhook URL |
 | Secret | `DINGTALK_SIGN_SECRET` | 否 | 开启加签时填写 |
 | Secret | `NOTIFY_WEBHOOK` | 旧名兼容 | 作为 `DINGTALK_WEBHOOK` 的回退值 |
-| Variable | `NOTIFY_PROVIDER` | 否 | 设置为 `dingtalk` |
+| Variable/Secret | `NOTIFY_PROVIDER` | 否 | 设置为 `dingtalk`；优先从 Variables 读取，Secrets 作为兼容回退 |
 
 ### 行为
 
 - 未显式设置 `NOTIFY_PROVIDER` 时，已有 `FEISHU_WEBHOOK` 则走飞书，否则已有 `DINGTALK_WEBHOOK` / `NOTIFY_WEBHOOK` 则走钉钉
 - 未配置任何 Webhook 时自动跳过，不影响流水线
 - 通知失败会检查平台返回码并让 `notify` job 失败，不再静默成功
-- 通知内容：分支、commit SHA、构建状态、流水线链接
-- 仅 master push / 手动触发时推送（feature 分支 CI 不推送）
+- 通知内容：分支、commit SHA、作者、提交说明、构建状态、流水线链接
+- 所有分支 push 和手动触发都会推送；PR 事件不重复推送
+- feature 分支显示“当前分支不构建镜像”，纯文档 push 显示“仅文档变更，未构建镜像”
 
 ## 6. 部署（有机器时）
 
@@ -135,5 +144,5 @@ docker compose pull app && docker compose up -d --no-build
 
 ## 7. 变更记录
 
-- **2026-09-17**：合并 `ci.yml` + `build-image.yml` → `ci-cd.yml`（CI 通过才构建镜像）；镜像新增 `sha-xxxxxxx` tag；通知 provider 化，推荐飞书并保留钉钉兼容；修复手动 tag 未生效；统一 `actions/checkout@v5`；删除半成品 `vm-docs/deploy-vm.sh`
+- **2026-09-17**：合并 `ci.yml` + `build-image.yml` → `ci-cd.yml`（CI 通过才构建镜像）；镜像新增 `sha-xxxxxxx` tag；通知覆盖所有分支并附带作者/提交说明；纯文档 push 跳过镜像构建；通知 provider 化，推荐飞书并保留钉钉兼容；修复手动 tag 未生效；统一 `actions/checkout@v5`；删除半成品 `vm-docs/deploy-vm.sh`
 - **2026-08-30**：首次验证 CI 构建成功；测试代码回归 git 跟踪；删除 `dag/` 废弃包

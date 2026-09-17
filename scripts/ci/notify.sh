@@ -17,32 +17,40 @@ fi
 
 ci_result="${CI_RESULT:-}"
 build_result="${BUILD_RESULT:-}"
+code_changed="${CODE_CHANGED:-true}"
+event_name="${EVENT_NAME:-unknown}"
 branch="${BRANCH:-unknown}"
 short_sha="${SHORT_SHA:-unknown}"
 run_url="${RUN_URL:-}"
+commit_author="${COMMIT_AUTHOR:-unknown}"
+commit_message="${COMMIT_MESSAGE:-unknown}"
 
-case "${ci_result}:${build_result}" in
-  failure:*)
-    title="CI/CD 失败"
-    detail="CI 阶段失败，镜像未构建"
-    ;;
-  *:failure)
-    title="CI/CD 失败"
-    detail="镜像构建失败"
-    ;;
-  *:success)
-    title="CI/CD 成功"
-    detail="镜像构建成功，已推送 latest + sha-${short_sha}"
-    ;;
-  *)
-    echo "Nothing to notify (ci=${ci_result}, build=${build_result})"
-    exit 0
-    ;;
-esac
+if [[ "$ci_result" = "failure" ]]; then
+  title="CI/CD 失败"
+  detail="CI 阶段失败，镜像未构建"
+elif [[ "$build_result" = "failure" ]]; then
+  title="CI/CD 失败"
+  detail="镜像构建失败"
+elif [[ "$build_result" = "success" ]]; then
+  title="CI/CD 成功"
+  detail="镜像构建成功，已推送 latest + sha-${short_sha}"
+elif [[ "$ci_result" = "success" && "$build_result" = "skipped" ]]; then
+  title="CI 成功"
+  if [[ "$event_name" = "push" && "$code_changed" != "true" ]]; then
+    detail="CI 通过；仅文档变更，未构建镜像"
+  else
+    detail="CI 通过；当前分支不构建镜像"
+  fi
+else
+  echo "Nothing to notify (ci=${ci_result}, build=${build_result})"
+  exit 0
+fi
 
 message="${detail}
 分支: ${branch}
-Commit: ${short_sha}"
+Commit: ${short_sha}
+作者: ${commit_author}
+提交说明: ${commit_message}"
 if [[ -n "$run_url" ]]; then
   message="${message}
 流水线: ${run_url}"

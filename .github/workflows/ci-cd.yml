@@ -3,9 +3,6 @@ name: CI/CD
 on:
   push:
     branches: ['**']
-    paths-ignore:
-      - 'md/**'
-      - '*.md'
   pull_request:
     branches: ['**']
   # 手动触发（可指定 tag）
@@ -17,6 +14,45 @@ on:
         default: 'latest'
 
 jobs:
+  # ==========================================
+  # Changes：区分代码变更与纯文档变更
+  # 所有 push 都跑 CI / 通知，但纯文档 push 不构建镜像
+  # ==========================================
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code_changed: ${{ steps.detect.outputs.code_changed }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" != "push" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --name-only "$BEFORE_SHA" "$HEAD_SHA" | grep -Ev '^$|(^|/)md/|\.md$' >/dev/null; then
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ==========================================
   # CI：编译 + 单测（所有分支、PR 均跑）
   # ==========================================
@@ -59,10 +95,13 @@ jobs:
   # 依赖 CI 通过才执行——CI 失败则不构建镜像
   # ==========================================
   build-image:
-    needs: ci
+    needs: [ci, changes]
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/master')
-      || github.event_name == 'workflow_dispatch'
+      needs.changes.outputs.code_changed == 'true'
+      && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/master')
+        || github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -121,13 +160,13 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
 
   # ==========================================
-  # 通知：构建成功/失败推送（仅 master push / 手动触发）
+  # 通知：所有 push + 手动触发，附带作者和提交说明
   # 推荐飞书自定义机器人；保留钉钉兼容，详见 md/ops/CI流水线.md
   # 未配置通知凭据时自动跳过，不影响流水线
   # ==========================================
   notify:
-    needs: [ci, build-image]
-    if: always() && (github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch')
+    needs: [changes, ci, build-image]
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -139,14 +178,38 @@ jobs:
         id: sha
         run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
+      - name: Get commit metadata
+        id: commit
+        shell: bash
+        run: |
+          author="$(git log -1 --pretty=format:'%an')"
+          subject="$(git log -1 --pretty=format:'%s')"
+          body="$(git log -1 --pretty=format:'%b')"
+          {
+            echo "author<<EOF"
+            echo "$author"
+            echo "EOF"
+            echo "message<<EOF"
+            echo "$subject"
+            if [ -n "$body" ]; then
+              echo
+              echo "$body"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Send notification
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_CHANGED: ${{ needs.changes.outputs.code_changed }}
           CI_RESULT: ${{ needs.ci.result }}
           BUILD_RESULT: ${{ needs.build-image.result }}
           SHORT_SHA: ${{ steps.sha.outputs.short }}
           BRANCH: ${{ github.ref_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          NOTIFY_PROVIDER: ${{ vars.NOTIFY_PROVIDER }}
+          COMMIT_AUTHOR: ${{ steps.commit.outputs.author }}
+          COMMIT_MESSAGE: ${{ steps.commit.outputs.message }}
+          NOTIFY_PROVIDER: ${{ vars.NOTIFY_PROVIDER || secrets.NOTIFY_PROVIDER }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SIGN_SECRET: ${{ secrets.FEISHU_SIGN_SECRET }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
