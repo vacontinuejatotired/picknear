@@ -52,6 +52,7 @@ Controller
 - 自造 Graph Engine
 - 自造 State / Checkpoint / Interrupt
 - 自造 Node / Edge / Channel 体系
+- 新 Graph 复用旧 DAG、串行策略、并行策略或 `ToolExecutionFacade`
 - 为每个内部类创建接口
 - 把整条旧链路重新包成一套新框架
 
@@ -235,25 +236,55 @@ Java 接入层负责：
 
 不把 Alibaba Graph 的类型泄漏到 Controller，也不在 Java 里重写 Graph 的核心能力。
 
+### 7.1 Graph 依赖边界
+
+新 Graph 是新的编排根，不能继承旧执行模型的依赖。依赖方向固定为：
+
+```text
+runtime/graph
+  -> access
+  -> prompt（去 Phase 化后的组件）
+  -> history
+  -> compression（后续从 execution 抽取）
+  -> evidence（后续从 execution 抽取）
+  -> tool / guard / permission
+  -> observability
+  -> stream
+```
+
+禁止依赖：
+
+```text
+orchestration
+execution/loop
+plan/executionPlan
+subagent
+task
+legacy
+response
+service/impl/AiServiceImpl
+```
+
+原则：
+
+- Graph 负责路由、循环、并行、重试、interrupt 和 checkpoint。
+- 旧 DAG、串行和并行策略只保留在 legacy。
+- 压缩、证据、Guard、权限和记忆属于领域能力，可以和 Graph 复用。
+- 工具执行由 Graph 自己的节点或后续 ReactAgent 承担，不复用 `ToolExecutionFacade`。
+
 ## 8. DAG 的处理
 
-第一版不修改 DAG，也不为 DAG 新增抽象。
+第一版不修改旧 DAG，也不为新 Graph 复用 DAG。
 
 旧 DAG 继续作为 legacy 运行时内部实现存在。
 
-只有出现以下需求时，才考虑增加 `ToolExecutionPort`：
-
-- Graph Agent 节点需要复用旧 DAG
-- 需要同时支持串行、并行和 DAG 三种策略
-- DAG 需要从旧运行时独立出来
-
-届时该接口也只放在 Graph Runtime 内部：
+新 Graph 后续需要工具时，直接实现自己的 `execute` 节点或 ReactAgent 节点：
 
 ```text
 GraphAgentRuntime
   -> ExecuteAgentNode
-      -> ToolExecutionPort
-          -> DagToolExecution
+      -> Spring AI ToolCallback / ReactAgent
+          -> Guard / Permission
 ```
 
 接入层不感知 DAG。
@@ -267,7 +298,7 @@ GraphAgentRuntime
 | A3 | Graph 依赖接入 | Alibaba Graph Core、`GraphAgentRuntime` 骨架 | Graph Runtime 可独立启动 |
 | A4 | 最小 Graph | Respond、Plan、ExecuteAgent、Finalize | 一条只读查询跑通 |
 | A5 | 审批接入 | interrupt、checkpoint、confirm/resume | 审批可恢复 |
-| A6 | 内层执行演进 | 复用 DAG 或替换 ReactAgent | 不影响接入层接口 |
+| A6 | 内层执行演进 | Graph 自有工具节点或 ReactAgent，不复用旧执行策略 | 不影响接入层接口 |
 
 ## 10. 技术债红线
 
@@ -281,6 +312,7 @@ GraphAgentRuntime
 - 为“未来可能扩展”增加 Registry、Provider、Capability
 - 两套 SSE 协议长期并存且没有映射层
 - DAG 重新承担循环、审批或最终回答职责
+- Graph 直接依赖 `execution/loop`、`orchestration` 或 `subagent`
 
 控制原则：
 
