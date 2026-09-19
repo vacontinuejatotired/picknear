@@ -18,7 +18,7 @@ superseded_by:
 - A1 已完成初步落地：`AgentRuntime`、`AgentCommand`、`AgentAccessService`。
 - A2 已完成初步落地：`LegacyAgentRuntime`、`AgentV2Controller`，旧聊天入口复用接入服务。
 - A3 已完成初步落地：引入 Alibaba Graph Core，提供 `GraphAgentRuntime` 最小骨架。
-- A4 已完成第一阶段：Graph 模式支持真实 Phase1，并按 `StreamingOutput` 逐段推送 SSE。
+- A4 已完成第一阶段：Graph 模式支持 `respond` 节点，并按 `StreamingOutput` 逐段推送 SSE。
 - 当前 V2 只提供 `/agent/v2/string/send`。
 - 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、规划和审批。
 - `confirm`、`reject`、工具节点、审批 checkpoint 仍待后续实施。
@@ -199,6 +199,9 @@ POST /agent/v2/string/send
 
 ## 7. Alibaba Graph 接入边界
 
+新 Graph 不使用 `Phase 1`、`Phase 2` 这类线性阶段命名。节点名、边、循环和预算
+才是 Graph Runtime 的语义单位；`Phase 1` 只保留在旧链路的当前架构描述中。
+
 接入 Alibaba Graph 后，Java 侧只做适配：
 
 ```text
@@ -262,7 +265,7 @@ GraphAgentRuntime
 | A1 | 最小接入层 | `AgentRuntime`、`AgentCommand`、`AgentAccessService` | 接入层只依赖接口 |
 | A2 | 旧链路适配 | `LegacyAgentRuntime`、V2 Controller | 旧兼容接口行为不变，V2 可运行 |
 | A3 | Graph 依赖接入 | Alibaba Graph Core、`GraphAgentRuntime` 骨架 | Graph Runtime 可独立启动 |
-| A4 | 最小 Graph | Phase1、Plan、ExecuteAgent、Finalize | 一条只读查询跑通 |
+| A4 | 最小 Graph | Respond、Plan、ExecuteAgent、Finalize | 一条只读查询跑通 |
 | A5 | 审批接入 | interrupt、checkpoint、confirm/resume | 审批可恢复 |
 | A6 | 内层执行演进 | 复用 DAG 或替换 ReactAgent | 不影响接入层接口 |
 

@@ -25,9 +25,9 @@ import java.util.Map;
 /**
  * Alibaba Graph Agent 运行时骨架。
  *
- * <p>当前支持最小流式 Phase1：读取历史和系统提示，订阅 Graph 的 StreamingOutput
- * 并逐段推送 SSE。默认不启用，只有 {@code agent.access.runtime=graph} 时才会
- * 替代 Legacy 实现。</p>
+ * <p>当前支持最小流式 respond：读取历史和系统提示，订阅 Graph 的
+ * StreamingOutput 并逐段推送 SSE。默认不启用，只有
+ * {@code agent.access.runtime=graph} 时才会替代 Legacy 实现。</p>
  */
 @Slf4j
 @Component

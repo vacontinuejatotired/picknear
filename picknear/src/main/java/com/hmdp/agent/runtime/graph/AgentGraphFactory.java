@@ -26,14 +26,15 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 /**
  * Alibaba Graph 最小工厂。
  *
- * <p>当前提供最小 Phase1：组装系统提示、历史消息和当前输入后调用 ChatModel，
- * 并以 Flux 形式交给 Graph 流式输出。
+ * <p>当前提供最小 respond 节点：组装系统提示、历史消息和当前输入后调用
+ * ChatModel，并以 Flux 形式交给 Graph 流式输出。
  * 规划、工具执行、审批和 checkpoint 都在后续批次扩展。</p>
  */
 @Component
 public class AgentGraphFactory {
 
     public static final String OUTPUT = "output";
+    public static final String RESPOND_NODE = "respond";
     private static final String SYSTEM_TEXT = "systemText";
     private static final String HISTORY = "history";
 
@@ -81,7 +82,7 @@ public class AgentGraphFactory {
                 OUTPUT, new ReplaceStrategy()
         ));
 
-        graph.addNode("phase1", node_async(state -> {
+        graph.addNode(RESPOND_NODE, node_async(state -> {
             String input = state.value(OverAllState.DEFAULT_INPUT_KEY, String.class)
                     .orElse("");
             String systemText = state.value(SYSTEM_TEXT, String.class)
@@ -94,8 +95,8 @@ public class AgentGraphFactory {
             );
             return Map.of(OUTPUT, chatModel.stream(prompt));
         }));
-        graph.addEdge(START, "phase1");
-        graph.addEdge("phase1", END);
+        graph.addEdge(START, RESPOND_NODE);
+        graph.addEdge(RESPOND_NODE, END);
 
         return graph.compile(CompileConfig.builder()
                 .recursionLimit(10)

@@ -20,7 +20,7 @@ import static org.mockito.Mockito.when;
 class AgentGraphFactoryTest {
 
     @Test
-    void should_invoke_phase1_graph() throws Exception {
+    void should_stream_respond_graph() throws Exception {
         ChatModel chatModel = mock(ChatModel.class);
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(new ChatResponse(List.of(
                 new Generation(AssistantMessage.builder()

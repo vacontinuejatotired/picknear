@@ -69,7 +69,7 @@ class GraphAgentRuntimeTest {
         ));
         StreamingOutput<ChatResponse> streamingOutput = new StreamingOutput<>(
                 chunk,
-                "phase1",
+                AgentGraphFactory.RESPOND_NODE,
                 "agent",
                 new OverAllState(),
                 OutputType.GRAPH_NODE_STREAMING
