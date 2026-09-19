@@ -76,9 +76,9 @@ SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束�
 当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。
 Graph 先执行 `route`：普通对话进入 `respond`，由 `ChatModel.stream` 产生
 `StreamingOutput` 并推送 SSE；数据意图进入 `plan -> execute -> verify`。
-`execute` 每轮只调用一次 ChatModel 并执行一个工具批次，工具委托 Spring AI
-`ToolCallingManager`；`verify` 根据工具轮数、工具调用数、模型调用数和截止时间决定
-继续循环或进入 `finalize`。当前尚未接入审批 interrupt、checkpoint 和人工恢复。
+`execute` 当前只保留节点契约和状态读写说明，工具执行由项目作者实现；`verify` 已按
+工具轮数、工具调用数、模型调用数和截止时间实现循环收口判断。当前尚未接入审批
+interrupt、checkpoint 和人工恢复。
 
 ## 3. Phase 1：输入决策与文本回复
 

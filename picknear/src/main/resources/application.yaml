@@ -90,9 +90,9 @@ agent:
     runtime: legacy                           # Agent 接入层运行时：legacy（当前）| graph（后续接入）
     graph:
       max-plan-iterations: 3                  # Graph 单次 turn 最多进入 plan 节点次数
-      max-tool-rounds: 4                      # Graph 单次 turn 最多工具执行轮数
-      max-total-tool-calls: 10                # Graph 单次 turn 最多工具调用数
-      max-model-calls: 12                     # Graph 单次 turn 最多模型调用数
+      max-tool-rounds: 4                      # Graph 单次 turn 最多工具执行轮数（ExecuteNode 实现后生效）
+      max-total-tool-calls: 10                # Graph 单次 turn 最多工具调用数（ExecuteNode 实现后生效）
+      max-model-calls: 12                     # Graph 单次 turn 最多模型调用数（ExecuteNode 实现后生效）
       total-timeout-seconds: 90               # 单次 turn 总超时（秒）
   subtask:
     timeout: 30s                              # 子 Agent 单次 LLM 调用超时
