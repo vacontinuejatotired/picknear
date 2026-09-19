@@ -8,6 +8,8 @@ import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.hmdp.agent.access.AgentCommand;
+import com.hmdp.agent.honesty.DataIntent;
+import com.hmdp.agent.honesty.DataIntentClassifier;
 import com.hmdp.agent.prompt.ConversationPromptComposer;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
@@ -21,6 +23,7 @@ import java.util.Map;
 
 import static com.alibaba.cloud.ai.graph.StateGraph.END;
 import static com.alibaba.cloud.ai.graph.StateGraph.START;
+import static com.alibaba.cloud.ai.graph.action.AsyncEdgeAction.edge_async;
 import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 
 /**
@@ -33,16 +36,19 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 @Component
 public class AgentGraphFactory {
 
-    public static final String OUTPUT = "output";
+    public static final String OUTPUT = GraphStateKeys.OUTPUT;
     public static final String RESPOND_NODE = "respond";
-    private static final String SYSTEM_TEXT = "systemText";
-    private static final String HISTORY = "history";
+    private static final String ROUTE_NODE = "route";
+    private static final String PLAN_NODE = "plan";
+    private static final String FINALIZE_NODE = "finalize";
 
     private final CompiledGraph graph;
 
-    public AgentGraphFactory(ChatModel chatModel) {
+    public AgentGraphFactory(ChatModel chatModel,
+                             DataIntentClassifier dataIntentClassifier,
+                             GraphRuntimeProperties properties) {
         try {
-            this.graph = buildGraph(chatModel);
+            this.graph = buildGraph(chatModel, dataIntentClassifier, properties);
         } catch (GraphStateException e) {
             throw new IllegalStateException("Agent Graph 初始化失败", e);
         }
@@ -61,8 +67,8 @@ public class AgentGraphFactory {
             List<Message> history) {
         Map<String, Object> input = new HashMap<>();
         input.put(OverAllState.DEFAULT_INPUT_KEY, command.content());
-        input.put(SYSTEM_TEXT, systemText);
-        input.put(HISTORY, history);
+        input.put(GraphStateKeys.SYSTEM_TEXT, systemText);
+        input.put(GraphStateKeys.HISTORY, history);
 
         RunnableConfig config = RunnableConfig.builder()
                 .threadId(command.conversationId())
@@ -71,21 +77,27 @@ public class AgentGraphFactory {
         return graph.stream(input, config);
     }
 
-    private CompiledGraph buildGraph(ChatModel chatModel)
+    private CompiledGraph buildGraph(ChatModel chatModel,
+                                     DataIntentClassifier dataIntentClassifier,
+                                     GraphRuntimeProperties properties)
             throws GraphStateException {
         StateGraph graph = new StateGraph(() -> Map.of(
                 OverAllState.DEFAULT_INPUT_KEY, new ReplaceStrategy(),
-                SYSTEM_TEXT, new ReplaceStrategy(),
-                HISTORY, new ReplaceStrategy(),
-                OUTPUT, new ReplaceStrategy()
+                GraphStateKeys.SYSTEM_TEXT, new ReplaceStrategy(),
+                GraphStateKeys.HISTORY, new ReplaceStrategy(),
+                OUTPUT, new ReplaceStrategy(),
+                GraphStateKeys.NEEDS_PLANNING, new ReplaceStrategy(),
+                GraphStateKeys.PLAN_ITERATIONS, new ReplaceStrategy(),
+                GraphStateKeys.STOP_REASON, new ReplaceStrategy()
         ));
 
         graph.addNode(RESPOND_NODE, node_async(state -> {
             String input = state.value(OverAllState.DEFAULT_INPUT_KEY, String.class)
                     .orElse("");
-            String systemText = state.value(SYSTEM_TEXT, String.class)
+            String systemText = state.value(GraphStateKeys.SYSTEM_TEXT, String.class)
                     .orElse("");
-            List<Message> history = castHistory(state.value(HISTORY).orElse(List.of()));
+            List<Message> history = castHistory(
+                    state.value(GraphStateKeys.HISTORY).orElse(List.of()));
 
             Prompt prompt = ConversationPromptComposer.compose(
                     systemText,
@@ -94,8 +106,51 @@ public class AgentGraphFactory {
             );
             return Map.of(OUTPUT, chatModel.stream(prompt));
         }));
+
+        graph.addNode(ROUTE_NODE, node_async(state -> {
+            String input = state.value(OverAllState.DEFAULT_INPUT_KEY, String.class)
+                    .orElse("");
+            DataIntent intent = dataIntentClassifier.classify(input);
+            return Map.of(
+                    GraphStateKeys.NEEDS_PLANNING, intent.isDataQuery(),
+                    GraphStateKeys.PLAN_ITERATIONS, 0
+            );
+        }));
+
+        graph.addNode(PLAN_NODE, node_async(state -> {
+            boolean needsPlanning = state.value(
+                    GraphStateKeys.NEEDS_PLANNING, Boolean.class).orElse(false);
+            if (!needsPlanning) {
+                return Map.of();
+            }
+            int current = state.value(
+                    GraphStateKeys.PLAN_ITERATIONS, Integer.class).orElse(0);
+            if (current >= properties.getMaxPlanIterations()) {
+                return Map.of(GraphStateKeys.STOP_REASON, "MAX_PLAN_ITERATIONS");
+            }
+            return Map.of(
+                    GraphStateKeys.PLAN_ITERATIONS, current + 1,
+                    GraphStateKeys.STOP_REASON, "PLANNING"
+            );
+        }));
+
+        graph.addNode(FINALIZE_NODE, node_async(state -> Map.of(
+                GraphStateKeys.STOP_REASON,
+                state.value(GraphStateKeys.STOP_REASON, String.class).orElse("COMPLETED")
+        )));
+
         graph.addEdge(START, RESPOND_NODE);
-        graph.addEdge(RESPOND_NODE, END);
+        graph.addEdge(RESPOND_NODE, ROUTE_NODE);
+        graph.addConditionalEdges(
+                ROUTE_NODE,
+                edge_async(state -> state.value(
+                        GraphStateKeys.NEEDS_PLANNING, Boolean.class).orElse(false)
+                        ? PLAN_NODE
+                        : FINALIZE_NODE),
+                Map.of(PLAN_NODE, PLAN_NODE, FINALIZE_NODE, FINALIZE_NODE)
+        );
+        graph.addEdge(PLAN_NODE, FINALIZE_NODE);
+        graph.addEdge(FINALIZE_NODE, END);
 
         return graph.compile(CompileConfig.builder()
                 .recursionLimit(10)

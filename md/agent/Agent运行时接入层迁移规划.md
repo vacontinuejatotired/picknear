@@ -22,8 +22,9 @@ superseded_by:
 - Graph 已抽离中性 `ConversationPromptComposer`，不再直接依赖 `Phase1PromptAssembler`。
 - 压缩组件已从 `execution` 抽到中性 `compression` 包，Graph 后续可直接复用。
 - 证据模型与采集接口已抽到中性 `evidence` 包；旧 `DefaultToolResultCapture` 继续作为 legacy ThreadLocal 适配。
+- Graph 已加入 `respond -> route -> plan -> finalize` 骨架和显式循环预算，数据意图会进入 plan 计数。
 - 当前 V2 只提供 `/agent/v2/string/send`。
-- 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、规划和审批。
+- 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、真实规划和审批。
 - `confirm`、`reject`、工具节点、审批 checkpoint 仍待后续实施。
 
 ## 1. 目标

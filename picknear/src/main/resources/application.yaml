@@ -88,6 +88,12 @@ hmdp:
 agent:
   access:
     runtime: legacy                           # Agent 接入层运行时：legacy（当前）| graph（后续接入）
+    graph:
+      max-plan-iterations: 3                  # Graph 单次 turn 最多进入 plan 节点次数
+      max-tool-rounds: 4                      # 单个计划内最多工具轮数（预算字段，待 execute 接入）
+      max-total-tool-calls: 10                # 单次 turn 最多工具调用数（预算字段）
+      max-model-calls: 12                     # 单次 turn 最多模型调用数（预算字段）
+      total-timeout-seconds: 90               # 单次 turn 总超时（秒）
   subtask:
     timeout: 30s                              # 子 Agent 单次 LLM 调用超时
     total-timeout: 60s                        # 整个 execute() 总超时（含重试）
