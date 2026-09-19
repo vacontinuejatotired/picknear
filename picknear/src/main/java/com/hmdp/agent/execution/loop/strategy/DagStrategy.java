@@ -63,7 +63,7 @@ public class DagStrategy extends AbstractToolLoop {
     private ToolResultStore toolResultStore;
 
     @Resource
-    private com.hmdp.agent.execution.strategy.ToolResultCompressor dagCompressor;
+    private com.hmdp.agent.compression.ToolResultCompressor dagCompressor;
 
     @Resource
     private SubTaskProperties subTaskProperties;

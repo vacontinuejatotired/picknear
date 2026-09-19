@@ -1,7 +1,7 @@
 package com.hmdp.agent.execution.loop.strategy;
 
 import com.hmdp.agent.config.properties.SubTaskProperties;
-import com.hmdp.agent.execution.ResultCompressor;
+import com.hmdp.agent.compression.ResultCompressor;
 import com.hmdp.agent.execution.ToolExecutionRecorder;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;

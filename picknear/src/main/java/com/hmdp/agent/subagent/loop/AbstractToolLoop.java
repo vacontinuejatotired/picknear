@@ -9,7 +9,7 @@ import com.hmdp.agent.config.properties.SubTaskProperties;
 import com.hmdp.agent.guard.GuardedToolCallback;
 import com.hmdp.agent.guard.model.ConfirmRequiredException;
 import com.hmdp.agent.prompt.PromptKeys;
-import com.hmdp.agent.execution.ResultCompressor;
+import com.hmdp.agent.compression.ResultCompressor;
 import com.hmdp.agent.execution.model.ExecutionInput;
 import com.hmdp.agent.prompt.builder.ExecutionPromptBuilder;
 import com.hmdp.agent.plan.model.SubTask;

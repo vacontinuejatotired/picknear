@@ -20,6 +20,7 @@ superseded_by:
 - A3 已完成初步落地：引入 Alibaba Graph Core，提供 `GraphAgentRuntime` 最小骨架。
 - A4 已完成第一阶段：Graph 模式支持 `respond` 节点，并按 `StreamingOutput` 逐段推送 SSE。
 - Graph 已抽离中性 `ConversationPromptComposer`，不再直接依赖 `Phase1PromptAssembler`。
+- 压缩组件已从 `execution` 抽到中性 `compression` 包，Graph 后续可直接复用。
 - 当前 V2 只提供 `/agent/v2/string/send`。
 - 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、规划和审批。
 - `confirm`、`reject`、工具节点、审批 checkpoint 仍待后续实施。
@@ -246,7 +247,7 @@ runtime/graph
   -> access
   -> prompt（去 Phase 化后的组件）
   -> history
-  -> compression（后续从 execution 抽取）
+  -> compression
   -> evidence（后续从 execution 抽取）
   -> tool / guard / permission
   -> observability

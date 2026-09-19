@@ -1,4 +1,4 @@
-package com.hmdp.agent.execution;
+package com.hmdp.agent.compression;
 
 import com.hmdp.agent.config.ChatModelObservationConventionConfig;
 import com.hmdp.agent.observability.model.CallerType;
@@ -11,9 +11,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * 结果压缩器。
- * <p>
- * 把工具返回的原始结果压成 ≤ 上限字数的要点摘要。
- * </p>
+ *
+ * <p>把工具返回的原始结果压成不超过上限字数的要点摘要。与 Agent 编排方式无关，
+ * Graph 和旧执行链都可以复用。</p>
  */
 @Slf4j
 @Component

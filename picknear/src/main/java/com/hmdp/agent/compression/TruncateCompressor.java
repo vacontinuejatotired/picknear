@@ -1,13 +1,11 @@
-package com.hmdp.agent.execution.strategy;
+package com.hmdp.agent.compression;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * 截断压缩策略（默认）
- *
- * <p>简单截断超出长度的结果。</p>
+ * 截断压缩策略（默认）。
  */
 @Slf4j
 @Component
