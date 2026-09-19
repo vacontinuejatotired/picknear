@@ -59,6 +59,14 @@ superseded_by:
 
 SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束。
 
+### 2.3 Agent V2 接入层
+
+`AgentV2Controller` 提供 `/agent/v2/string/send`，只负责接收参数并委托
+`AgentAccessService`。接入服务构造请求模型后，通过 `AgentRuntime` 接口调用当前
+运行时；默认实现为 `LegacyAgentRuntime`，用于把请求转交现有 `AiService` 链路。
+
+旧 `/agent/string/send` 也复用同一接入服务，当前不会改变既有 SSE 协议。
+
 ## 3. Phase 1：输入决策与文本回复
 
 ### 3.1 PromptHookExecutor

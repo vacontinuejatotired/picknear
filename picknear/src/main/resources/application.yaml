@@ -86,6 +86,8 @@ hmdp:
 #    com.hmdp.interceptor: DEBUG                       # 拦截器链执行
 
 agent:
+  access:
+    runtime: legacy                           # Agent 接入层运行时：legacy（当前）| graph（后续接入）
   subtask:
     timeout: 30s                              # 子 Agent 单次 LLM 调用超时
     total-timeout: 60s                        # 整个 execute() 总超时（含重试）
