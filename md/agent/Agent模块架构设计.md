@@ -2,6 +2,12 @@
 status: current
 source_of_truth:
   - picknear/src/main/java/com/hmdp/agent/controller/ChatController.java
+  - picknear/src/main/java/com/hmdp/agent/access/AgentRuntime.java
+  - picknear/src/main/java/com/hmdp/agent/access/AgentAccessService.java
+  - picknear/src/main/java/com/hmdp/agent/access/AgentV2Controller.java
+  - picknear/src/main/java/com/hmdp/agent/runtime/legacy/LegacyAgentRuntime.java
+  - picknear/src/main/java/com/hmdp/agent/runtime/graph/AgentGraphFactory.java
+  - picknear/src/main/java/com/hmdp/agent/runtime/graph/GraphAgentRuntime.java
   - picknear/src/main/java/com/hmdp/agent/service/impl/AiServiceImpl.java
   - picknear/src/main/java/com/hmdp/agent/orchestration/TaskPlanner.java
   - picknear/src/main/java/com/hmdp/agent/orchestration/MultiRoundOrchestrator.java
@@ -66,6 +72,10 @@ SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束�
 运行时；默认实现为 `LegacyAgentRuntime`，用于把请求转交现有 `AiService` 链路。
 
 旧 `/agent/string/send` 也复用同一接入服务，当前不会改变既有 SSE 协议。
+
+当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。当前
+Graph 实现只包含最小 `echo` 图和 SSE 输出，用于验证 Alibaba Graph Core 依赖、
+Graph 编译与运行时切换；真实规划和工具节点仍待后续接入。
 
 ## 3. Phase 1：输入决策与文本回复
 

@@ -17,8 +17,10 @@ superseded_by:
 
 - A1 已完成初步落地：`AgentRuntime`、`AgentCommand`、`AgentAccessService`。
 - A2 已完成初步落地：`LegacyAgentRuntime`、`AgentV2Controller`，旧聊天入口复用接入服务。
+- A3 已完成初步落地：引入 Alibaba Graph Core，提供 `GraphAgentRuntime` 最小骨架。
 - 当前 V2 只提供 `/agent/v2/string/send`。
-- `confirm`、`reject`、Graph Runtime、审批 checkpoint 仍待后续实施。
+- 当前默认运行时仍为 `legacy`；`graph` 模式只验证最小 Graph 链路。
+- `confirm`、`reject`、真实规划节点、审批 checkpoint 仍待后续实施。
 
 ## 1. 目标
 
