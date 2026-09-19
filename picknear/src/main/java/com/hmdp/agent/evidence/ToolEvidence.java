@@ -1,7 +1,7 @@
-package com.hmdp.agent.execution.model;
+package com.hmdp.agent.evidence;
 
 /**
- * 单次工具执行的真值证据（反编造 L0，{@link ExecutionOutput#getToolEvidence()} 元素）。
+ * 单次工具执行的真值证据（反编造 L0）。
  * <p>
  * raw = 该工具经 guard 截断（现 maxResultChars=1200）后回灌进本轮上下文的文本，即"模型可见超集"；
  * 输出断言闸（L3）与事实账本（L4）以它（而非模型自转写的 rawResults）为锚。

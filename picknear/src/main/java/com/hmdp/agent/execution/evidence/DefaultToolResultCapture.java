@@ -2,7 +2,8 @@ package com.hmdp.agent.execution.evidence;
 
 import com.hmdp.agent.context.AgentContext;
 import com.hmdp.agent.context.AgentContextHolder;
-import com.hmdp.agent.execution.model.ToolEvidence;
+import com.hmdp.agent.evidence.ToolEvidence;
+import com.hmdp.agent.evidence.ToolResultCapture;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

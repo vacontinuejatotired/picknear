@@ -1,6 +1,6 @@
 package com.hmdp.agent.history.ledger;
 
-import com.hmdp.agent.execution.model.ToolEvidence;
+import com.hmdp.agent.evidence.ToolEvidence;
 
 /**
  * 事实账本行合成器（反编造 L4，纯函数）——把一条工具真值证据压成单行短文本。

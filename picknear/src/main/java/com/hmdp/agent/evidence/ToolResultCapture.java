@@ -1,6 +1,4 @@
-package com.hmdp.agent.execution.evidence;
-
-import com.hmdp.agent.execution.model.ToolEvidence;
+package com.hmdp.agent.evidence;
 
 import java.util.List;
 
@@ -8,12 +6,11 @@ import java.util.List;
  * 轮级工具真值证据累加器（反编造 L0，端口）。
  * <p>
  * 职责：在工具执行点 {@link #capture} 登记本轮每个工具的真实返回，供编排层执行完成后
- * {@link #snapshot} 快照并挂到 {@code ExecutionOutput.toolEvidence}。
+ * {@link #snapshot} 快照。
  * </p>
  * <p>
- * 轮级隔离约定：编排层每次 executeRound 前 {@link #begin}、成功后 {@link #snapshot}；
- * 累加器状态放在 {@code AgentContext.attributes}（已由 AgentContextPropagator 跨线程传播，
- * 并行策略子线程同样可写）。
+ * 轮级隔离约定：编排层每次 executeRound 前 {@link #begin}、成功后 {@link #snapshot}。
+ * 具体状态载体由实现决定；Graph 实现应使用显式执行上下文，而不是 ThreadLocal。
  * </p>
  */
 public interface ToolResultCapture {
