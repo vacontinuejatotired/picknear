@@ -1,10 +1,16 @@
-package com.hmdp.agent.runtime.graph;
+package com.hmdp.agent.runtime.graph.definition;
 
 import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.hmdp.agent.access.AgentCommand;
 import com.hmdp.agent.honesty.DataIntentClassifier;
+import com.hmdp.agent.runtime.graph.config.GraphRuntimeProperties;
+import com.hmdp.agent.runtime.graph.node.FinalizeNode;
+import com.hmdp.agent.runtime.graph.node.PlanNode;
+import com.hmdp.agent.runtime.graph.node.RespondNode;
+import com.hmdp.agent.runtime.graph.node.RouteNode;
+import com.hmdp.agent.runtime.graph.state.GraphStateKeys;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -32,11 +38,7 @@ class AgentGraphFactoryTest {
                         .content("模型回复")
                         .build())
         ))));
-        AgentGraphFactory factory = new AgentGraphFactory(
-                chatModel,
-                new DataIntentClassifier(),
-                new GraphRuntimeProperties()
-        );
+        AgentGraphFactory factory = createFactory(chatModel);
 
         var outputs = factory.stream(
                 new AgentCommand("你好", "conv-1", 1010L),
@@ -55,11 +57,7 @@ class AgentGraphFactoryTest {
                         .content("我来查询")
                         .build())
         ))));
-        AgentGraphFactory factory = new AgentGraphFactory(
-                chatModel,
-                new DataIntentClassifier(),
-                new GraphRuntimeProperties()
-        );
+        AgentGraphFactory factory = createFactory(chatModel);
 
         Map<String, Object> input = new HashMap<>();
         input.put(OverAllState.DEFAULT_INPUT_KEY, "平台一共有多少家店");
@@ -74,5 +72,15 @@ class AgentGraphFactoryTest {
                 .contains(true);
         assertThat(last.state().value(GraphStateKeys.PLAN_ITERATIONS, Integer.class))
                 .contains(1);
+    }
+
+    private static AgentGraphFactory createFactory(ChatModel chatModel) {
+        GraphRuntimeProperties properties = new GraphRuntimeProperties();
+        return new AgentGraphFactory(
+                new RespondNode(chatModel),
+                new RouteNode(new DataIntentClassifier()),
+                new PlanNode(properties),
+                new FinalizeNode()
+        );
     }
 }

@@ -23,6 +23,7 @@ superseded_by:
 - 压缩组件已从 `execution` 抽到中性 `compression` 包，Graph 后续可直接复用。
 - 证据模型与采集接口已抽到中性 `evidence` 包；旧 `DefaultToolResultCapture` 继续作为 legacy ThreadLocal 适配。
 - Graph 已加入 `respond -> route -> plan -> finalize` 骨架和显式循环预算，数据意图会进入 plan 计数。
+- Graph 已按 `definition`、`node`、`state`、`config`、`runtime` 子包拆分，节点不再内联在图工厂中。
 - 当前 V2 只提供 `/agent/v2/string/send`。
 - 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、真实规划和审批。
 - `confirm`、`reject`、工具节点、审批 checkpoint 仍待后续实施。
@@ -77,7 +78,19 @@ com/hmdp/agent
 │
 └── runtime
     └── graph
-        └── GraphAgentRuntime.java   # 接入 Alibaba Graph 后再新增
+        ├── definition
+        │   └── AgentGraphFactory.java
+        ├── node
+        │   ├── RespondNode.java
+        │   ├── RouteNode.java
+        │   ├── PlanNode.java
+        │   └── FinalizeNode.java
+        ├── state
+        │   └── GraphStateKeys.java
+        ├── config
+        │   └── GraphRuntimeProperties.java
+        └── runtime
+            └── GraphAgentRuntime.java
 ```
 
 `LegacyAgentRuntime` 负责把接入层请求转交现有 `AiService` 链路，不复制规划、

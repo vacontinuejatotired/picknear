@@ -1,4 +1,4 @@
-package com.hmdp.agent.runtime.graph;
+package com.hmdp.agent.runtime.graph.runtime;
 
 import com.hmdp.agent.access.AgentCommand;
 import com.hmdp.agent.config.properties.ReplayProperties;
@@ -6,6 +6,8 @@ import com.hmdp.agent.history.ConversationReplayService;
 import com.hmdp.agent.observability.api.AgentSpan;
 import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
+import com.hmdp.agent.runtime.graph.definition.AgentGraphFactory;
+import com.hmdp.agent.runtime.graph.node.GraphNodeNames;
 import com.hmdp.agent.stream.SseSessionFactory;
 import com.hmdp.agent.stream.SseSessionFactory.ChatSseSession;
 import com.alibaba.cloud.ai.graph.OverAllState;
@@ -69,7 +71,7 @@ class GraphAgentRuntimeTest {
         ));
         StreamingOutput<ChatResponse> streamingOutput = new StreamingOutput<>(
                 chunk,
-                AgentGraphFactory.RESPOND_NODE,
+                GraphNodeNames.RESPOND,
                 "agent",
                 new OverAllState(),
                 OutputType.GRAPH_NODE_STREAMING

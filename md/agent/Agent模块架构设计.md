@@ -6,8 +6,8 @@ source_of_truth:
   - picknear/src/main/java/com/hmdp/agent/access/AgentAccessService.java
   - picknear/src/main/java/com/hmdp/agent/access/AgentV2Controller.java
   - picknear/src/main/java/com/hmdp/agent/runtime/legacy/LegacyAgentRuntime.java
-  - picknear/src/main/java/com/hmdp/agent/runtime/graph/AgentGraphFactory.java
-  - picknear/src/main/java/com/hmdp/agent/runtime/graph/GraphAgentRuntime.java
+  - picknear/src/main/java/com/hmdp/agent/runtime/graph/definition/AgentGraphFactory.java
+  - picknear/src/main/java/com/hmdp/agent/runtime/graph/runtime/GraphAgentRuntime.java
   - picknear/src/main/java/com/hmdp/agent/service/impl/AiServiceImpl.java
   - picknear/src/main/java/com/hmdp/agent/orchestration/TaskPlanner.java
   - picknear/src/main/java/com/hmdp/agent/orchestration/MultiRoundOrchestrator.java
@@ -76,7 +76,8 @@ SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束�
 当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。当前
 Graph 实现已接入最小 `respond` 节点：组装系统提示、历史消息和当前输入，调用
 ChatModel，并由 Graph 的 `StreamingOutput` 逐段推送 SSE。当前不包含工具、规划和
-审批；Graph 已预留 `route -> plan` 骨架和循环预算，真实规划与工具执行仍待接入。
+审批；Graph 已预留 `route -> plan` 骨架和循环预算，节点、图装配、状态键、配置和
+运行时已按子包拆分，真实规划与工具执行仍待接入。
 
 ## 3. Phase 1：输入决策与文本回复
 

@@ -1,4 +1,4 @@
-package com.hmdp.agent.runtime.graph;
+package com.hmdp.agent.runtime.graph.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
