@@ -1,7 +1,6 @@
 package com.hmdp.agent.prompt;
 
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
@@ -24,10 +23,7 @@ public class Phase1PromptAssembler {
      * 循环外构建一次，保证重试时历史固定。
      */
     public List<Message> assembleBase(String systemText, List<Message> historyMessages) {
-        List<Message> base = new ArrayList<>(historyMessages.size() + 1);
-        base.add(new SystemMessage(systemText));
-        base.addAll(historyMessages);
-        return base;
+        return ConversationPromptComposer.composeBase(systemText, historyMessages);
     }
 
     /**

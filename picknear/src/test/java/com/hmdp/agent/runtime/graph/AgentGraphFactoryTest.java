@@ -1,7 +1,6 @@
 package com.hmdp.agent.runtime.graph;
 
 import com.hmdp.agent.access.AgentCommand;
-import com.hmdp.agent.prompt.Phase1PromptAssembler;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -27,10 +26,7 @@ class AgentGraphFactoryTest {
                         .content("模型回复")
                         .build())
         ))));
-        AgentGraphFactory factory = new AgentGraphFactory(
-                chatModel,
-                new Phase1PromptAssembler()
-        );
+        AgentGraphFactory factory = new AgentGraphFactory(chatModel);
 
         var outputs = factory.stream(
                 new AgentCommand("你好", "conv-1", 1010L),

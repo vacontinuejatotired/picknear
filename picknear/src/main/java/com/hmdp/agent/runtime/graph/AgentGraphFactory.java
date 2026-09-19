@@ -8,7 +8,7 @@ import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.hmdp.agent.access.AgentCommand;
-import com.hmdp.agent.prompt.Phase1PromptAssembler;
+import com.hmdp.agent.prompt.ConversationPromptComposer;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -40,10 +40,9 @@ public class AgentGraphFactory {
 
     private final CompiledGraph graph;
 
-    public AgentGraphFactory(ChatModel chatModel,
-                             Phase1PromptAssembler promptAssembler) {
+    public AgentGraphFactory(ChatModel chatModel) {
         try {
-            this.graph = buildGraph(chatModel, promptAssembler);
+            this.graph = buildGraph(chatModel);
         } catch (GraphStateException e) {
             throw new IllegalStateException("Agent Graph 初始化失败", e);
         }
@@ -72,8 +71,7 @@ public class AgentGraphFactory {
         return graph.stream(input, config);
     }
 
-    private CompiledGraph buildGraph(ChatModel chatModel,
-                                     Phase1PromptAssembler promptAssembler)
+    private CompiledGraph buildGraph(ChatModel chatModel)
             throws GraphStateException {
         StateGraph graph = new StateGraph(() -> Map.of(
                 OverAllState.DEFAULT_INPUT_KEY, new ReplaceStrategy(),
@@ -89,8 +87,9 @@ public class AgentGraphFactory {
                     .orElse("");
             List<Message> history = castHistory(state.value(HISTORY).orElse(List.of()));
 
-            Prompt prompt = promptAssembler.withCurrentUser(
-                    promptAssembler.assembleBase(systemText, history),
+            Prompt prompt = ConversationPromptComposer.compose(
+                    systemText,
+                    history,
                     input
             );
             return Map.of(OUTPUT, chatModel.stream(prompt));
