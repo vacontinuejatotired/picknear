@@ -11,14 +11,13 @@ import com.hmdp.agent.access.AgentCommand;
 import com.hmdp.agent.prompt.Phase1PromptAssembler;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static com.alibaba.cloud.ai.graph.StateGraph.END;
 import static com.alibaba.cloud.ai.graph.StateGraph.START;
@@ -27,7 +26,8 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 /**
  * Alibaba Graph 最小工厂。
  *
- * <p>当前提供最小 Phase1：组装系统提示、历史消息和当前输入后调用 ChatModel。
+ * <p>当前提供最小 Phase1：组装系统提示、历史消息和当前输入后调用 ChatModel，
+ * 并以 Flux 形式交给 Graph 流式输出。
  * 规划、工具执行、审批和 checkpoint 都在后续批次扩展。</p>
  */
 @Component
@@ -55,9 +55,10 @@ public class AgentGraphFactory {
     /**
      * 执行当前最小图，返回输出节点写入的状态。
      */
-    public String invoke(AgentCommand command,
-                         String systemText,
-                         List<Message> history) throws Exception {
+    public Flux<com.alibaba.cloud.ai.graph.NodeOutput> stream(
+            AgentCommand command,
+            String systemText,
+            List<Message> history) {
         Map<String, Object> input = new HashMap<>();
         input.put(OverAllState.DEFAULT_INPUT_KEY, command.content());
         input.put(SYSTEM_TEXT, systemText);
@@ -67,9 +68,7 @@ public class AgentGraphFactory {
                 .threadId(command.conversationId())
                 .build();
 
-        Optional<OverAllState> result = graph.invoke(input, config);
-        return result.flatMap(state -> state.value(OUTPUT, String.class))
-                .orElse("");
+        return graph.stream(input, config);
     }
 
     private CompiledGraph buildGraph(ChatModel chatModel,
@@ -93,13 +92,7 @@ public class AgentGraphFactory {
                     promptAssembler.assembleBase(systemText, history),
                     input
             );
-            ChatResponse response = chatModel.call(prompt);
-            String output = response != null
-                    && response.getResult() != null
-                    && response.getResult().getOutput() != null
-                    ? response.getResult().getOutput().getText()
-                    : "";
-            return Map.of(OUTPUT, output != null ? output : "");
+            return Map.of(OUTPUT, chatModel.stream(prompt));
         }));
         graph.addEdge(START, "phase1");
         graph.addEdge("phase1", END);

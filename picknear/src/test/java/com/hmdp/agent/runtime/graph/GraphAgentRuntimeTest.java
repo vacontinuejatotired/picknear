@@ -8,12 +8,19 @@ import com.hmdp.agent.prompt.PromptKeys;
 import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.stream.SseSessionFactory;
 import com.hmdp.agent.stream.SseSessionFactory.ChatSseSession;
+import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.streaming.OutputType;
+import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -55,13 +62,25 @@ class GraphAgentRuntimeTest {
         when(replayProperties.getKeepRecentTurns()).thenReturn(6);
         when(conversationReplayService.recentMessages(1010L, "conv-1", 6))
                 .thenReturn(List.of());
-        when(graphFactory.invoke(any(AgentCommand.class), anyString(), any()))
-                .thenReturn("Graph 回复");
+        ChatResponse chunk = new ChatResponse(List.of(
+                new Generation(AssistantMessage.builder()
+                        .content("Graph 回复")
+                        .build())
+        ));
+        StreamingOutput<ChatResponse> streamingOutput = new StreamingOutput<>(
+                chunk,
+                "phase1",
+                "agent",
+                new OverAllState(),
+                OutputType.GRAPH_NODE_STREAMING
+        );
+        when(graphFactory.stream(any(AgentCommand.class), anyString(), any()))
+                .thenReturn(Flux.just(streamingOutput));
 
         SseEmitter result = runtime.run(new AgentCommand("你好", "conv-1", 1010L));
 
         assertThat(result).isSameAs(emitter);
-        verify(graphFactory).invoke(any(AgentCommand.class), eq("系统提示"), any());
+        verify(graphFactory).stream(any(AgentCommand.class), eq("系统提示"), any());
         verify(emitter).complete();
     }
 }
