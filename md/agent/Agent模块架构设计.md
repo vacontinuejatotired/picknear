@@ -73,11 +73,12 @@ SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束�
 
 旧 `/agent/string/send` 也复用同一接入服务，当前不会改变既有 SSE 协议。
 
-当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。当前
-Graph 实现已接入最小 `respond` 节点：组装系统提示、历史消息和当前输入，调用
-ChatModel，并由 Graph 的 `StreamingOutput` 逐段推送 SSE。当前不包含工具、规划和
-审批；Graph 已预留 `route -> plan` 骨架和循环预算，节点、图装配、状态键、配置和
-运行时已按子包拆分，真实规划与工具执行仍待接入。
+当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。
+Graph 先执行 `route`：普通对话进入 `respond`，由 `ChatModel.stream` 产生
+`StreamingOutput` 并推送 SSE；数据意图进入 `plan -> execute -> verify`。
+`execute` 每轮只调用一次 ChatModel 并执行一个工具批次，工具委托 Spring AI
+`ToolCallingManager`；`verify` 根据工具轮数、工具调用数、模型调用数和截止时间决定
+继续循环或进入 `finalize`。当前尚未接入审批 interrupt、checkpoint 和人工恢复。
 
 ## 3. Phase 1：输入决策与文本回复
 

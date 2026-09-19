@@ -18,15 +18,22 @@ superseded_by:
 - A1 已完成初步落地：`AgentRuntime`、`AgentCommand`、`AgentAccessService`。
 - A2 已完成初步落地：`LegacyAgentRuntime`、`AgentV2Controller`，旧聊天入口复用接入服务。
 - A3 已完成初步落地：引入 Alibaba Graph Core，提供 `GraphAgentRuntime` 最小骨架。
-- A4 已完成第一阶段：Graph 模式支持 `respond` 节点，并按 `StreamingOutput` 逐段推送 SSE。
+- A4 已完成第一版：Graph 模式支持 `respond` 流式输出，以及
+  `plan -> execute -> verify` 有界工具循环。
 - Graph 已抽离中性 `ConversationPromptComposer`，不再直接依赖 `Phase1PromptAssembler`。
 - 压缩组件已从 `execution` 抽到中性 `compression` 包，Graph 后续可直接复用。
 - 证据模型与采集接口已抽到中性 `evidence` 包；旧 `DefaultToolResultCapture` 继续作为 legacy ThreadLocal 适配。
-- Graph 已加入 `respond -> route -> plan -> finalize` 骨架和显式循环预算，数据意图会进入 plan 计数。
+- Graph 普通对话走 `route -> respond -> finalize`，数据意图走
+  `route -> plan -> execute -> verify -> finalize`；`verify` 可回到 `execute`。
+- `execute` 使用 Spring AI `ToolCallingManager` 执行单轮工具批次，不复用旧 DAG、
+  串行/并行策略或 `ToolExecutionFacade`。
+- 工具循环受工具轮数、工具调用总数、模型调用数和总超时预算约束；超限返回固定
+  收口消息并进入 `finalize`。
 - Graph 已按 `definition`、`node`、`state`、`config`、`runtime` 子包拆分，节点不再内联在图工厂中。
 - 当前 V2 只提供 `/agent/v2/string/send`。
-- 当前默认运行时仍为 `legacy`；`graph` 模式暂不包含工具、真实规划和审批。
-- `confirm`、`reject`、工具节点、审批 checkpoint 仍待后续实施。
+- 当前默认运行时仍为 `legacy`；`graph` 模式的 `plan` 目前只做预算准入，
+  独立规划器和审批 checkpoint 仍待后续实施。
+- `confirm`、`reject` 和审批恢复仍未接入 Graph。
 
 ## 1. 目标
 
@@ -84,6 +91,8 @@ com/hmdp/agent
         │   ├── RespondNode.java
         │   ├── RouteNode.java
         │   ├── PlanNode.java
+        │   ├── ExecuteNode.java
+        │   ├── VerifyNode.java
         │   └── FinalizeNode.java
         ├── state
         │   └── GraphStateKeys.java
@@ -295,15 +304,16 @@ service/impl/AiServiceImpl
 
 旧 DAG 继续作为 legacy 运行时内部实现存在。
 
-新 Graph 后续需要工具时，直接实现自己的 `execute` 节点或 ReactAgent 节点：
+新 Graph 的工具执行由自己的 `execute` 节点承担：
 
 ```text
 GraphAgentRuntime
-  -> ExecuteAgentNode
-      -> Spring AI ToolCallback / ReactAgent
+  -> ExecuteNode
+      -> Spring AI ToolCallingManager
           -> Guard / Permission
 ```
 
+`ExecuteNode` 每轮调用模型并执行一个工具批次，`VerifyNode` 决定继续循环还是收口。
 接入层不感知 DAG。
 
 ## 9. 分阶段实施
@@ -313,7 +323,7 @@ GraphAgentRuntime
 | A1 | 最小接入层 | `AgentRuntime`、`AgentCommand`、`AgentAccessService` | 接入层只依赖接口 |
 | A2 | 旧链路适配 | `LegacyAgentRuntime`、V2 Controller | 旧兼容接口行为不变，V2 可运行 |
 | A3 | Graph 依赖接入 | Alibaba Graph Core、`GraphAgentRuntime` 骨架 | Graph Runtime 可独立启动 |
-| A4 | 最小 Graph | Respond、Plan、ExecuteAgent、Finalize | 一条只读查询跑通 |
+| A4 | 最小 Graph | Respond、Plan、Execute、Verify、Finalize | 有界工具循环测试通过，Graph 模式只读查询待联调 |
 | A5 | 审批接入 | interrupt、checkpoint、confirm/resume | 审批可恢复 |
 | A6 | 内层执行演进 | Graph 自有工具节点或 ReactAgent，不复用旧执行策略 | 不影响接入层接口 |
 

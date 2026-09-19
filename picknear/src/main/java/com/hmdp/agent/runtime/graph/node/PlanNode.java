@@ -1,6 +1,7 @@
 package com.hmdp.agent.runtime.graph.node;
 
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
+import com.alibaba.cloud.ai.graph.action.AsyncEdgeAction;
 import com.hmdp.agent.runtime.graph.config.GraphRuntimeProperties;
 import com.hmdp.agent.runtime.graph.state.GraphStateKeys;
 import com.hmdp.agent.runtime.graph.state.GraphStopReasons;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
+import static com.alibaba.cloud.ai.graph.action.AsyncEdgeAction.edge_async;
 
 /**
  * 规划预算节点。
@@ -48,5 +50,12 @@ public class PlanNode {
                     GraphStateKeys.STOP_REASON, GraphStopReasons.PLANNING
             );
         });
+    }
+
+    public AsyncEdgeAction edge() {
+        return edge_async(state -> GraphStopReasons.MAX_PLAN_ITERATIONS.equals(
+                state.value(GraphStateKeys.STOP_REASON, String.class).orElse(""))
+                ? GraphNodeNames.FINALIZE
+                : GraphNodeNames.EXECUTE);
     }
 }

@@ -6,6 +6,7 @@ import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.hmdp.agent.honesty.DataIntent;
 import com.hmdp.agent.honesty.DataIntentClassifier;
 import com.hmdp.agent.runtime.graph.state.GraphStateKeys;
+import com.hmdp.agent.runtime.graph.state.GraphStopReasons;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -34,9 +35,12 @@ public class RouteNode {
             String input = state.value(OverAllState.DEFAULT_INPUT_KEY, String.class)
                     .orElse("");
             DataIntent intent = dataIntentClassifier.classify(input);
+            boolean needsPlanning = intent.isDataQuery();
             return Map.of(
-                    GraphStateKeys.NEEDS_PLANNING, intent.isDataQuery(),
-                    GraphStateKeys.PLAN_ITERATIONS, 0
+                    GraphStateKeys.NEEDS_PLANNING, needsPlanning,
+                    GraphStateKeys.STOP_REASON, needsPlanning
+                            ? GraphStopReasons.PLANNING
+                            : GraphStopReasons.COMPLETED
             );
         });
     }
@@ -45,6 +49,6 @@ public class RouteNode {
         return edge_async(state -> state.value(
                 GraphStateKeys.NEEDS_PLANNING, Boolean.class).orElse(false)
                 ? GraphNodeNames.PLAN
-                : GraphNodeNames.FINALIZE);
+                : GraphNodeNames.RESPOND);
     }
 }
