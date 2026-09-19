@@ -74,8 +74,9 @@ SSE 的完成、异常、超时和兜底 TTL 最终都收敛到根 span 结束�
 旧 `/agent/string/send` 也复用同一接入服务，当前不会改变既有 SSE 协议。
 
 当配置 `agent.access.runtime=graph` 时，接入层切换到 `GraphAgentRuntime`。当前
-Graph 实现只包含最小 `echo` 图和 SSE 输出，用于验证 Alibaba Graph Core 依赖、
-Graph 编译与运行时切换；真实规划和工具节点仍待后续接入。
+Graph 实现已接入最小 Phase1：组装系统提示、历史消息和当前输入，经 Graph 节点
+调用 ChatModel 并输出最终文本。当前生成仍为非流式，且不包含工具、规划和审批；
+这些能力仍待后续接入。
 
 ## 3. Phase 1：输入决策与文本回复
 

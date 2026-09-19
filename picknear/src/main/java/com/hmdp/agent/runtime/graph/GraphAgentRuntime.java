@@ -2,21 +2,29 @@ package com.hmdp.agent.runtime.graph;
 
 import com.hmdp.agent.access.AgentCommand;
 import com.hmdp.agent.access.AgentRuntime;
+import com.hmdp.agent.config.properties.ReplayProperties;
+import com.hmdp.agent.history.ConversationReplayService;
+import com.hmdp.agent.prompt.PromptKeys;
+import com.hmdp.agent.prompt.PromptService;
 import com.hmdp.agent.stream.SseSessionFactory;
 import com.hmdp.agent.stream.SseSessionFactory.ChatSseSession;
 import com.hmdp.agent.stream.SseUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Alibaba Graph Agent 运行时骨架。
  *
- * <p>当前仅用于验证 Graph Runtime 接线和配置切换，不承载完整 Agent 行为。默认
- * 不启用，只有 {@code agent.access.runtime=graph} 时才会替代 Legacy 实现。</p>
+ * <p>当前支持最小 Phase1：读取历史和系统提示，执行 Graph 中的模型节点并返回
+ * 最终文本。默认不启用，只有 {@code agent.access.runtime=graph} 时才会替代
+ * Legacy 实现。</p>
  */
 @Slf4j
 @Component
@@ -29,11 +37,20 @@ public class GraphAgentRuntime implements AgentRuntime {
 
     private final AgentGraphFactory graphFactory;
     private final SseSessionFactory sseSessionFactory;
+    private final PromptService promptService;
+    private final ConversationReplayService conversationReplayService;
+    private final ReplayProperties replayProperties;
 
     public GraphAgentRuntime(AgentGraphFactory graphFactory,
-                             SseSessionFactory sseSessionFactory) {
+                             SseSessionFactory sseSessionFactory,
+                             PromptService promptService,
+                             ConversationReplayService conversationReplayService,
+                             ReplayProperties replayProperties) {
         this.graphFactory = graphFactory;
         this.sseSessionFactory = sseSessionFactory;
+        this.promptService = promptService;
+        this.conversationReplayService = conversationReplayService;
+        this.replayProperties = replayProperties;
     }
 
     @Override
@@ -46,7 +63,18 @@ public class GraphAgentRuntime implements AgentRuntime {
 
         try {
             sseSessionFactory.sendConversationId(emitter, command.conversationId());
-            String output = graphFactory.invoke(command);
+            String systemText = promptService.render(
+                    PromptKeys.SYSTEM_MAIN,
+                    Map.of("userId", command.userId() != null
+                            ? String.valueOf(command.userId())
+                            : "")
+            );
+            List<Message> history = conversationReplayService.recentMessages(
+                    command.userId(),
+                    command.conversationId(),
+                    replayProperties.getKeepRecentTurns()
+            );
+            String output = graphFactory.invoke(command, systemText, history);
             SseUtils.safeSend(emitter, SseUtils.escapeJson(output));
             emitter.complete();
         } catch (IOException e) {
