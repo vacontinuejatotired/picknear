@@ -12,7 +12,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -59,8 +58,9 @@ public class DefaultPlanExecutor implements PlanExecutor {
         // HashMap 允许 null value：失败工具的结果按“null”语义保留 key
         Map<String, Object> results = Collections.synchronizedMap(new HashMap<>());
         Map<String, String> failedReasons = new ConcurrentHashMap<>();
-        List<String> executedTools = new ArrayList<>();
-        List<String> failedTools = new ArrayList<>();
+        // 工具在层内并发写执行结果，必须使用并发安全列表，避免 add 竞态丢项
+        List<String> executedTools = new CopyOnWriteArrayList<>();
+        List<String> failedTools = new CopyOnWriteArrayList<>();
         List<ToolExecutionMetrics> metrics = new CopyOnWriteArrayList<>();
 
         try {
