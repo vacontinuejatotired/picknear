@@ -23,7 +23,9 @@ superseded_by:
 
 **通知改动（2026-09-17）**：所有分支 push 与手动触发都会发送通知，内容包含提交说明、作者、分支、Commit 和流水线链接；纯文档 push 仍跑 CI 和通知，但通过 `changes` job 跳过镜像构建。
 
-无 CD 自动部署：本地无常在线服务器（VM 不常开），master 上构建出新镜像后，任意有 docker 的机器 `docker compose pull && up -d --no-build` 拉取镜像即可。
+**CD 是有的**（2026-10-05 更正）：VM 上跑了 `picknear-watchtower` 服务，每 30s 轮询 ACR digest，
+有变化就自动 `pull` 并重建 `app` / `frontend` 容器（只更新带 `com.centurylinklabs.watchtower.enable=true` label 的容器）。
+详见 `vm-docs/picknear-watchtower/`。VM 不常开时，开机后手动 `docker compose pull && up -d --no-build` 补齐。
 
 ## 2. Job 结构
 
@@ -70,6 +72,16 @@ push/PR/workflow_dispatch
 
 - 其余测试全部为纯 Mockito 单测，可在云端跑（surefire 已配 `-XX:+EnableDynamicAgentLoading`，JDK 17 无 mock maker 问题）
 - 测试代码在 `picknear/src/test/`，**必须保持 `mvn test -DskipITs` 可全绿**——新增/修改主代码时同步更新测试
+- **失败时上传 surefire 报告**（2026-10-05）：runner 是一次性的，跑完即销毁，报告不留存就只能本地复现。
+  失败后在 Actions → 对应 run → **Artifacts** 里下载 `surefire-reports-<run_id>`
+- **并发控制**（2026-10-05）：`concurrency: group: ci-cd-${{ github.ref }}`，同一 ref 上的多次触发排队执行。
+  PR 事件允许取消（`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`），
+  push / 手动触发排队等待，**不中断镜像构建**——推到一半被打断会留下残缺 digest，
+  且两个构建并行时后完成的那个可能是旧 commit，会把它推成 `latest`
+
+> 前端仓库（`frontend`）已于 2026-10-05 对齐同一套结构：`ci.yml` + `build-image.yml` 合并为 `ci-cd.yml`，
+> `build-image` job 声明 `needs: build-and-test`。此前两条 workflow 互不相识，类型检查失败照样推镜像，
+> watchtower 30s 后直接部署到生产。详见 `nginx-1.18.0heima/frontend/CLAUDE.md`。
 
 ## 4. Build Image 细节
 
@@ -144,5 +156,14 @@ docker compose pull app && docker compose up -d --no-build
 
 ## 7. 变更记录
 
+- **2026-10-05**：
+  - 加 `concurrency` 并发控制，避免并行构建争抢 `latest` tag
+  - CI 失败时上传 `surefire-reports` 产物，便于云端排查
+  - 生产密钥参数化：`application-{dev,prod}.yaml` 与 `docker-compose.yml` 里的 MySQL/Redis/RabbitMQ 密码
+    改为 `${DB_PASSWORD}` / `${REDIS_PASSWORD}` / `${RABBITMQ_PASSWORD}` 占位符，从 `.env` 注入，配置里不再有明文
+  - 接入 Flyway 管理 schema 增量（仅 prod profile，baseline 版本 1），详见 `Docker部署指南.md` §3.5
+  - 修正 `notify.sh` 飞书签名：此前把待签名串当成了 HMAC 的 key、输入给空，开了 `FEISHU_SIGN_SECRET` 会被飞书拒绝
+  - 前端 nginx.conf 单一来源：compose 不再用跨仓库 `../../` 路径挂载覆盖，配置随镜像分发
+  - 更正"无 CD 自动部署"的描述：VM 上有 watchtower 每 30s 自动拉取部署
 - **2026-09-17**：合并 `ci.yml` + `build-image.yml` → `ci-cd.yml`（CI 通过才构建镜像）；镜像新增 `sha-xxxxxxx` tag；通知覆盖所有分支并附带作者/提交说明；纯文档 push 跳过镜像构建；通知 provider 化，推荐飞书并保留钉钉兼容；修复手动 tag 未生效；统一 `actions/checkout@v5`；删除半成品 `vm-docs/deploy-vm.sh`
 - **2026-08-30**：首次验证 CI 构建成功；测试代码回归 git 跟踪；删除 `dag/` 废弃包

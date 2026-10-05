@@ -39,7 +39,7 @@ E:\heima\                              # 工作区根目录
 | 层 | 技术栈 | 位置 | 端口 |
 |---|--------|------|------|
 | **前端** | Vue 3.5 + Vite 8 + TypeScript 6 + Element Plus | `E:\heima\nginx-1.18.0heima\frontend\` | 3000 (dev) |
-| **后端** | Spring Boot 3.4.4 + Maven + Java 17 | `E:\heima\picknear\picknear\` | 8081 |
+| **后端** | Spring Boot 3.4.4 + Maven + Java 17 | `E:\heima\picknear\picknear\` | 8082 |
 | **反向代理** | Nginx 1.18 | `E:\heima\nginx-1.18.0heima\nginx-1.18.0\` | 80 |
 
 ## Git 仓库

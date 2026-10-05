@@ -54,17 +54,18 @@ superseded_by:
 | 仓库 | 工作流 | 触发 | 镜像 |
 |---|---|---|---|
 | `picknear/.github/workflows/ci-cd.yml` | CI/CD | push master（自动，CI 通过后构建）+ 手动 `workflow_dispatch`（可填 tag） | `picknear/picknear-app:latest` + `:sha-xxxxxxx` + `:{tag}` |
-| `frontend/.github/workflows/build-image.yml` | Build Image | **push master**（自动）+ 手动 | `picknear/picknear-frontend:{tag}` + `:latest` |
+| `frontend/.github/workflows/ci-cd.yml` | CI/CD | push master（自动，CI 通过后构建）+ 手动 `workflow_dispatch`（可填 tag） | `picknear/picknear-frontend:latest` + `:sha-xxxxxxx` + `:{tag}` |
 
 要点：
-- **自动触发**：push 到 `master` 即构建。后端在 `feature` 上开发不触发，**合并到 `master` 的那一刻 = 发布新镜像**（`picknear/CLAUDE.md` 有分支约定）。CI 与构建在同一个 workflow 中串联（`needs: ci`），CI 失败则不构建镜像
+- **自动触发**：push 到 `master` 即构建。后端在 `feature` 上开发不触发，**合并到 `master` 的那一刻 = 发布新镜像**（`picknear/CLAUDE.md` 有分支约定）。前后端都已改成 CI 与构建在同一 workflow 中串联（`needs:`），CI 失败则不构建镜像
+- **并发控制**：两端都配了 `concurrency: group: ci-cd-${{ github.ref }}`，同一 ref 上的多次触发排队执行，避免两个构建并行跑、后完成的旧构建把 `latest` 覆盖成旧 commit
 - **手动触发**：GitHub 仓库 → Actions → CI/CD → Run workflow，可选 tag
 - 构建用 `docker/build-push-action`，**GHA 层缓存**（`type=gha,scope=picknear-app/-frontend`），依赖层复用：后端 pom.xml / 前端 package-lock.json 不变则依赖层命中，不重新下载
 - **必须关闭 provenance/sbom**（已配）：ACR 个人版不支持 OCI attestation 附件，开启会报 `unknown manifest class for application/vnd.oci.empty.v1+json`
 - **不要用 `type=registry` 构建缓存兜底**（2026-09-02 实测）：ACR 个人版拒绝 buildkit 的 cacheconfig manifest，`cache-to: type=registry` 会报 `unknown manifest class for application/vnd.buildkit.cacheconfig.v0` 导致**整个构建失败**；`type=gha` 是唯一可行的层缓存来源
 - ACR 登录凭据来自 GitHub Secrets：`ALIYUN_ACR_USERNAME` / `ALIYUN_ACR_PASSWORD`
 - 构建上下文：后端 `picknear/`（Dockerfile + `docker/maven/settings.xml` 国内镜像源）；前端 `.`（Dockerfile + nginx.conf）
-- 镜像 tag 规则：后端推 `latest` + `sha-xxxxxxx`（Git commit short SHA，可追溯回滚）；手动触发可指定额外 tag。前端推 `{tag}` + `latest`。**`latest` 始终指向最新一次构建**
+- 镜像 tag 规则：两端都推 `latest` + `sha-xxxxxxx`（Git commit short SHA）+ 手动触发时的自定义 tag。**`latest` 始终指向最新一次构建**，也是 compose 与 watchtower 实际引用的 tag
 
 ### 构建速度说明（优化已落地）
 
@@ -112,37 +113,80 @@ docker compose up -d --no-build         # --no-build 强制用已拉镜像，避
 
 ## 3. 部署目录与 .env
 
-compose 从 **compose 文件同目录**的 `.env` 读取变量。后端实际引用的环境变量有 4 个：
+compose 从 **compose 文件同目录**的 `.env` 读取变量。后端实际引用的环境变量：
 
 | 变量 | 值来源 | 说明 |
 |---|---|---|
 | `DB_PASSWORD` | 自定义 | MySQL root 密码，**必须与 `heima-init.sql` 或现有库一致** |
+| `REDIS_PASSWORD` | 自定义 | Redis 密码。compose 用它启动 redis、app 用它连接，**两处同源必须一致** |
+| `RABBITMQ_USERNAME` | 默认 `qyh` | RabbitMQ 用户，可省略 |
+| `RABBITMQ_PASSWORD` | 自定义 | RabbitMQ 密码。⚠️ 仅在 `rabbitmq-data` 卷首次创建时写入，见下方说明 |
 | `DASHSCOPE_API_KEY` | `E:\heima\picknear\默认业务空间-apiKey-6132121.csv`（apiKey 字段，`sk-ws-...`） | 通义千问 AI |
 | `OSS_ACCESS_KEY_ID` | 阿里云控制台 → RAM 访问密钥 | 图片上传 |
 | `OSS_ACCESS_KEY_SECRET` | 同上 | 图片上传 |
 
-> `OSS_ENDPOINT` / `bucket` / `region` 已硬编码在 `application-prod.yaml`（cn-beijing / ntwitm1）。Langfuse 4 个变量缺一 app 启动即崩（见 `服务器镜像部署指南.md` §4）。`.env` 含密钥，**不要提交进 git**（`.gitignore` 已忽略）。
+> **密码不再写进配置文件**（2026-10-05）：`application-prod.yaml` / `application-dev.yaml` 里的
+> Redis、RabbitMQ、MySQL 密码都已改成 `${REDIS_PASSWORD}` 这类占位符，缺失即启动失败，强制从 `.env` 注入。
+> `OSS_ENDPOINT` / `bucket` / `region` 已硬编码在 `application-prod.yaml`（cn-beijing / ntwitm1）。
+> Langfuse 4 个变量缺一 app 启动即崩（见 `服务器镜像部署指南.md` §4）。`.env` 含密钥，**不要提交进 git**（`.gitignore` 已忽略）。
+
+**RabbitMQ 改密码**：`RABBITMQ_DEFAULT_USER/PASS` 只在数据卷**首次创建**时生效，之后改 `.env` 无效。
+要么进容器改（`docker compose exec rabbitmq rabbitmqctl change_password <user> <新密码>`，保留队列数据），
+要么删卷重建（`docker volume rm picknear-rabbitmq-data`，**队列数据全丢**）。
 
 ```bash
 cd /mnt/hgfs/heima/picknear/picknear
 cp .env.example .env    # 然后编辑填入真实值
 ```
 
-**任意新机器部署**都需要一份目录布局（compose 用了相对路径 bind mount，含前端 `../../` 路径，见 `服务器镜像部署指南.md` §3）：
+**任意新机器部署**都需要一份目录布局（2026-10-05 起不再需要前端 `../../` 路径，nginx.conf 已并入镜像）：
 
 ```
 <部署根>/
-├── picknear/
-│   ├── docker-compose.yml              # ① compose 文件
-│   ├── .env                            # ② 密钥 + 全部配置
-│   └── src/main/resources/db/
-│       └── heima-init.sql              # ③ MySQL 首次初始化脚本
-└── nginx-1.18.0heima/
-    └── frontend/
-        └── nginx.conf                  # ④ 前端 nginx 配置
+└── picknear/
+    ├── docker-compose.yml              # ① compose 文件
+    ├── .env                            # ② 密钥 + 全部配置
+    └── src/main/resources/db/
+        └── heima-init.sql              # ③ MySQL 首次初始化脚本（仅数据卷为空时执行）
 ```
 
 > ⚠️ 服务器上**不需要** Dockerfile / src / 前端源码（构建源），`--no-build` 直接用镜像。
+> 前端 `nginx.conf` 由前端仓库 CI 构建进镜像，改配置走 push → CI → watchtower。
+
+---
+
+## 3.5 数据库迁移（Flyway）
+
+`heima-init.sql` 挂的是 MySQL 的 `/docker-entrypoint-initdb.d/`，**只在 `mysql-data` 卷为空（首次创建）时执行**。
+之后的 schema 变更它完全管不着——以前只能手工上机器改库，或者删卷重建（数据全丢）。
+
+2026-10-05 起接入 Flyway，增量变更统一走迁移脚本：
+
+| 项 | 值 |
+|---|---|
+| 依赖 | `org.flywaydb:flyway-core` + `flyway-mysql`（版本由 Spring Boot 3.4.4 统一管理，当前 10.20.1） |
+| 脚本目录 | `picknear/src/main/resources/db/migration/` |
+| 命名 | `V2__简短描述.sql`（**从 2 开始**，见下） |
+| 历史表 | `flyway_schema_history` |
+| 启用范围 | 仅 `prod` profile（`application-prod.yaml` 里配），本地开发不受影响 |
+
+**为什么从 V2 开始**：现有库是 `heima-init.sql` 建的，此前没有版本记录。
+`application-prod.yaml` 配了 `baseline-on-migrate: true` + `baseline-version: 1`，
+Flyway 首次接管时把当前 schema 记为版本 1（只插一条历史记录，**不执行任何脚本**），所以你的第一个增量是 `V2__`。
+
+**⚠️ 两条红线**：
+
+1. **不要把 `heima-init.sql` 拷进 migration 目录**。它是 mysqldump 产物，开头全是 `DROP TABLE IF EXISTS`，
+   一旦被当迁移脚本执行就是**删库**。它的唯一用途是全新环境 bootstrap。
+2. **已执行过的脚本禁止再改**。`validate-on-migrate: true` 会校验 checksum，改了应用直接启动失败——
+   要修正就新写一个更高版本的脚本。
+
+脚本模板见 `src/main/resources/db/migration/README.md`。查看执行记录：
+
+```bash
+docker compose exec mysql mysql -uroot -p"$DB_PASSWORD" heima \
+  -e "SELECT installed_rank, version, description, success, installed_on FROM flyway_schema_history ORDER BY installed_rank;"
+```
 
 ---
 
@@ -189,7 +233,7 @@ curl http://localhost:48080/api/...       # 应返回后端 JSON
 | 重启某服务 | `docker compose restart app` |
 | 查看健康状态 | `docker compose ps` |
 | 进入容器 | `docker compose exec app sh` |
-| 更新前端配置 | 改 nginx.conf → `docker compose exec frontend nginx -s reload` |
+| 更新前端配置 | 改**前端仓库**的 `nginx.conf` → push → CI 重建镜像 → watchtower 自动部署（不再支持容器内热改，配置在镜像里） |
 | 关闭全部 | `docker compose down`（保留数据卷） |
 | 清空重建 | `docker compose down -v`（**删除数据卷**，慎用） |
 
@@ -207,7 +251,10 @@ curl http://localhost:48080/api/...       # 应返回后端 JSON
 | VM 启动报端口被占 | 宿主机 8080/8082 之类已被占用 | 本机停掉 nginx-1.18.0（占 8080） |
 | 容器 OOM | 内存不够 | 给 VM 加内存/swap；确认各服务 `mem_limit` 已配 |
 | `app` 一直不 healthy | 依赖的 mysql/redis/rabbitmq 未就绪 | `docker compose logs app` 看连接报错，先等依赖 healthy |
-| 前端能开但接口 502 | nginx.conf 挂载未生效 / 后端未起 | 检查 `/etc/nginx/conf.d/default.conf` 内容，`nginx -s reload` |
+| app 崩溃 `Could not resolve placeholder 'REDIS_PASSWORD'` | `.env` 缺 Redis/RabbitMQ 密码 | 补上真值（§3）。2026-10-05 起密码不再写在配置里，缺了就是这个错 |
+| Flyway 启动失败 `Found non-empty schema without metadata table` | 库已建表但无 `flyway_schema_history` | 已开 `baseline-on-migrate: true`，正常不会出现 |
+| Flyway `Validate failed: Migration checksum mismatch` | 改了已执行过的迁移脚本 | 脚本执行过就不能改，新写更高版本脚本修正（§3.5） |
+| 前端能开但接口 502 | 后端未起 / nginx 配置问题 | `docker compose ps` 看 app 是否 healthy；nginx.conf 随镜像分发，改它要走前端仓库 push → CI |
 | VM 挂起/恢复后容器间网络全断（`NoRouteToHostException: Host is unreachable`） | VMware 挂起后 Docker 网桥 `br-*` 停在 DOWN、宿主路由表丢网段路由 | `sudo systemctl restart docker`（容器 `restart: unless-stopped` 自动拉起）；详见 §8 |
 
 ### 7.1 VM 挂起/恢复导致容器间网络全断
