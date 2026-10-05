@@ -13,6 +13,13 @@ on:
         required: false
         default: 'latest'
 
+# 并发控制：同一 ref 上的多次触发排队执行，避免两个 build-image 并行跑、
+# 谁后完成谁覆盖 latest（可能把旧 commit 推成 latest）。
+# PR 事件可以取消（纯粹是验证，没有副作用）；push/手动触发排队等，不中断。
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ==========================================
   # Changes：区分代码变更与纯文档变更
@@ -89,6 +96,15 @@ jobs:
               !com.hmdp.agent.observability.LangfuseSmokeTest,\
               !com.hmdp.PickNearApplicationTests" \
             -DfailIfNoTests=false
+
+      # 失败排查：surefire 报告是云端唯一线索（runner 是一次性的，跑完即销毁）
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-${{ github.run_id }}
+          path: picknear/target/surefire-reports/
+          if-no-files-found: ignore
 
   # ==========================================
   # Build Image：构建镜像推 ACR（仅 push master + 手动触发）
