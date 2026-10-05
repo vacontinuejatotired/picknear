@@ -21,7 +21,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3307/heima?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: ${DB_PASSWORD:123456}
+    # 密码一律从环境变量注入（compose 的 .env），配置里不再出现明文
+    password: ${DB_PASSWORD}
     hikari:
       maximum-pool-size: 50
       minimum-idle: 10
@@ -35,7 +36,7 @@ spring:
     redis:
       host: 192.168.49.130
       port: 6379
-      password: 281458
+      password: ${REDIS_PASSWORD}
       lettuce:
         pool:
           max-active: 50
@@ -44,8 +45,8 @@ spring:
           time-between-eviction-runs: 10s
   rabbitmq:
     host: 192.168.49.130
-    password: 123321
-    username: qyh
+    password: ${RABBITMQ_PASSWORD}
+    username: ${RABBITMQ_USERNAME:qyh}
     virtual-host: /
   sql:
     init:

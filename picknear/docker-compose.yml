@@ -41,12 +41,12 @@ services:
       - "46379:6379"
     command: >
       redis-server
-      --requirepass 281458
+      --requirepass ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
       --appendonly yes
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "281458", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -67,8 +67,10 @@ services:
       - "45672:5672"
       - "55672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: qyh
-      RABBITMQ_DEFAULT_PASS: 123321
+      # ⚠️ 用户名/密码只在数据卷首次创建时生效；已存在 rabbitmq-data 卷时改这里不生效，
+      #     需先 docker compose down + 删除 rabbitmq-data 卷（会丢失队列数据）
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-qyh}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?请在 .env 中设置 RABBITMQ_PASSWORD}
       RABBITMQ_DEFAULT_VHOST: /
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
@@ -107,13 +109,13 @@ services:
       # Redis
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      SPRING_DATA_REDIS_PASSWORD: 281458
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
 
       # RabbitMQ
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
-      SPRING_RABBITMQ_USERNAME: qyh
-      SPRING_RABBITMQ_PASSWORD: 123321
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-qyh}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?请在 .env 中设置 RABBITMQ_PASSWORD}
 
       # 云服务（需从宿主机环境变量传入）
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
