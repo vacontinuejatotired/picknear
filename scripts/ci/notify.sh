@@ -67,7 +67,9 @@ send_feishu() {
   if [[ -n "${FEISHU_SIGN_SECRET:-}" ]]; then
     timestamp="$(date +%s)"
     string_to_sign="${timestamp}"$'\n'"${FEISHU_SIGN_SECRET}"
-    sign="$(printf '' | openssl dgst -sha256 -hmac "$string_to_sign" -binary | base64 | tr -d '\n')"
+    # HMAC-SHA256 的 key 是 FEISHU_SIGN_SECRET，待签名内容是 string_to_sign（timestamp\nsecret）。
+    # 二者写反（把 string_to_sign 当 -hmac 的 key、输入给空）会算出错误签名，飞书以签名不合法拒绝。
+    sign="$(printf '%s' "$string_to_sign" | openssl dgst -sha256 -hmac "$FEISHU_SIGN_SECRET" -binary | base64 | tr -d '\n')"
     payload="$(jq -n \
       --arg timestamp "$timestamp" \
       --arg sign "$sign" \
