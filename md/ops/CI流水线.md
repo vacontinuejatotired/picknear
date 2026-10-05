@@ -162,7 +162,9 @@ docker compose pull app && docker compose up -d --no-build
   - 生产密钥参数化：`application-{dev,prod}.yaml` 与 `docker-compose.yml` 里的 MySQL/Redis/RabbitMQ 密码
     改为 `${DB_PASSWORD}` / `${REDIS_PASSWORD}` / `${RABBITMQ_PASSWORD}` 占位符，从 `.env` 注入，配置里不再有明文
   - 接入 Flyway 管理 schema 增量（仅 prod profile，baseline 版本 1），详见 `Docker部署指南.md` §3.5
-  - 修正 `notify.sh` 飞书签名：此前把待签名串当成了 HMAC 的 key、输入给空，开了 `FEISHU_SIGN_SECRET` 会被飞书拒绝
+  - `notify.sh` 飞书签名：一度按标准 HMAC 用法改写，线上即报 sign match fail（code 19021）、
+    通知全部失败；已还原为飞书官方算法（拼接串作 HMAC key、消息传空）并在代码内加注释警示。
+    飞书与钉钉的签名算法不同，改动前务必对照官方文档
   - 前端 nginx.conf 单一来源：compose 不再用跨仓库 `../../` 路径挂载覆盖，配置随镜像分发
   - 更正"无 CD 自动部署"的描述：VM 上有 watchtower 每 30s 自动拉取部署
 - **2026-09-17**：合并 `ci.yml` + `build-image.yml` → `ci-cd.yml`（CI 通过才构建镜像）；镜像新增 `sha-xxxxxxx` tag；通知覆盖所有分支并附带作者/提交说明；纯文档 push 跳过镜像构建；通知 provider 化，推荐飞书并保留钉钉兼容；修复手动 tag 未生效；统一 `actions/checkout@v5`；删除半成品 `vm-docs/deploy-vm.sh`
