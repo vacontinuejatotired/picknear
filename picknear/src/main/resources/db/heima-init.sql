@@ -1,3 +1,12 @@
+-- ============================================================
+-- ⚠️ 本文件仅用于「全新环境 bootstrap」：由 docker-compose.yml 挂到
+--    /docker-entrypoint-initdb.d/，只在 mysql-data 数据卷为空时执行一次。
+--
+--    ★ 不要把它拷进 db/migration/ 当 Flyway 脚本 ★
+--    这是 mysqldump 产物，开头全是 DROP TABLE IF EXISTS，
+--    一旦被迁移执行就是删库。增量变更请写到 db/migration/V2__xxx.sql，
+--    详见 db/migration/README.md。
+-- ============================================================
 -- MySQL dump 10.13  Distrib 8.0.44, for Win64 (x86_64)
 --
 -- Host: 127.0.0.1    Database: heima

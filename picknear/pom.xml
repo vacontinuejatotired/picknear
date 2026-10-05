@@ -149,6 +149,17 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Flyway：schema 版本化管理。版本由 spring-boot-starter-parent 统一管理。
+             flyway-mysql 是 Flyway 10+ 拆出的 MySQL 支持模块，缺了会报
+             "Unsupported Database: MySQL"。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-boot-starter</artifactId>
