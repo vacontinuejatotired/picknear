@@ -169,8 +169,8 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    volumes:
-      - ../../nginx-1.18.0heima/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # nginx.conf 已由前端仓库 CI 构建进镜像（/etc/nginx/conf.d/default.conf），此处不再挂载覆盖。
+    # 单一来源 = 前端仓库的 nginx.conf，改配置 → push → CI 重建镜像，避免"镜像内一份、宿主机一份"漂移。
     networks:
       - picknear-net
 
