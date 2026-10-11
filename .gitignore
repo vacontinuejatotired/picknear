@@ -20,3 +20,11 @@ langfuse-prompts-latest-*.json
 
 # Tools
 .reasonix/
+
+# Claude Code
+.claude/settings.local.json
+.claude/doc-sync/
+
+# Python
+__pycache__/
+*.pyc

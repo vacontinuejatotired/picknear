@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/scripts/docs/doc_sync_hook.sh\" doc_sync_record.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/scripts/docs/doc_sync_hook.sh\" doc_sync_stop.py",
+            "timeout": 30,
+            "statusMessage": "doc-sync 检查"
+          }
+        ]
+      }
+    ]
+  }
+}

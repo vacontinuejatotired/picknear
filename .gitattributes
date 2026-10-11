@@ -1,0 +1,31 @@
+# 换行符与文本属性规范化
+#
+# 前置项：hook 脚本经 hgfs 共享目录在 host(Windows) / VM(Linux) 两侧执行，
+# CRLF 会破坏 shebang 与 sh 语法。必须在启用 hook 之前提交本文件。
+#
+# 规则：
+# - 默认文本自动识别、统一 LF 入库（Windows 侧检出仍为 LF，因为脚本必须 LF）
+# - .sh / .py 显式锁定 LF（hook 包装脚本与全部 doc-sync 脚本）
+# - .json 锁定 LF（doc-map 等配置，避免 diff 噪音）
+# - Windows 专用批处理保留 CRLF（如未来引入）
+
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制（不做文本转换）
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.jar  binary

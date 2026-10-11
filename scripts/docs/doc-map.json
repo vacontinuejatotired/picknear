@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "repo": "picknear",
+  "owner": "Ntwitm",
+  "updated": "2026-10-11",
+  "hook":  { "mode": "remind" },
+  "gates": { "mode": "observe" },
+  "coverage_threshold_pct": 70,
+  "orphan_exempt": ["md/report/**", "md/规范/**"],
+  "rules": [
+    {
+      "id": "agent-api",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/java/com/hmdp/agent/controller/**",
+        "picknear/src/main/java/com/hmdp/agent/access/**"
+      ],
+      "required_docs": [
+        { "type": "api",      "path": "md/ops/API接口文档.md" },
+        { "type": "protocol", "path": "md/agent/SSE后端实现规范.md" }
+      ],
+      "optional_docs": ["md/agent/**"],
+      "note": "对外接口与 SSE 协议；至少更新 required_docs 中与改动面相关的一项"
+    },
+    {
+      "id": "agent-protocol",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/java/com/hmdp/agent/stream/**"
+      ],
+      "required_docs": [
+        { "type": "protocol", "path": "md/agent/SSE后端实现规范.md" }
+      ],
+      "optional_docs": ["md/agent/**"],
+      "note": "SSE 事件类型/字段契约；事件常量分散在各模块，改 stream 包即可能动契约"
+    },
+    {
+      "id": "agent-security",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/java/com/hmdp/agent/guard/**",
+        "picknear/src/main/java/com/hmdp/agent/hook/**",
+        "picknear/src/main/java/com/hmdp/agent/permission/**"
+      ],
+      "required_docs": [
+        { "type": "security", "path": "md/agent/Agent安全与审批设计.md" }
+      ],
+      "optional_docs": ["md/agent/**"],
+      "note": "工具审批（ToolGuard）、Prompt 注入 Hook 链、权限策略；安全行为变化会让该文档失真"
+    },
+    {
+      "id": "agent-core",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/java/com/hmdp/agent/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/agent/**"],
+      "note": "内部结构；建议核对（兜底规则，须列在 must 规则之后）"
+    },
+    {
+      "id": "auth-security",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/java/com/hmdp/auth/**",
+        "picknear/src/main/java/com/hmdp/utils/security/**",
+        "picknear/src/main/java/com/hmdp/interceptor/**"
+      ],
+      "required_docs": [
+        { "type": "security", "path": "md/auth/认证与登录设计.md" },
+        { "type": "api",      "path": "md/规范/请求头设计规范.md" }
+      ],
+      "optional_docs": [],
+      "note": "双 Token/请求头行为"
+    },
+    {
+      "id": "config-surface",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-11",
+      "code": [
+        "picknear/src/main/resources/application*.yaml",
+        "picknear/docker-compose.yml",
+        "picknear/Dockerfile"
+      ],
+      "required_docs": [
+        { "type": "config", "path": "md/ops/Docker部署指南.md" }
+      ],
+      "optional_docs": ["md/ops/**"],
+      "note": "配置键/环境变量变化"
+    }
+  ],
+  "unmanaged": [
+    "picknear/src/test/**",
+    "picknear/src/main/java/com/hmdp/entity/**",
+    "picknear/src/main/java/com/hmdp/mapper/**"
+  ],
+  "exclude": [
+    "**/*.md",
+    "**/target/**",
+    "**/logs/**",
+    "**/.claude/**"
+  ]
+}
