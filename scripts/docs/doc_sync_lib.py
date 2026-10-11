@@ -331,10 +331,24 @@ def classify_files(repo_root: Path, doc_map: dict, files: list[str]) -> dict:
     """把仓库根相对 POSIX 文件列表分类。
 
     返回 {code: [...], docs: [...], unmanaged: [...], no_rule: [...], matched_rules: {rid: [...]}}
+
+    **"文档编辑"的判定必须收窄**（P0b 实测踩坑）：
+    不能简单地用 `endswith('.md')`——那会把工作区级文件（如 `.claude/doc-sync/HANDOFF.md`）
+    和任何非本仓库文档体系的 .md 都算成"文档已同步"，从而**整体放行本次提醒**。
+    实测后果：会话里碰过任意 .md，之后所有 Stop 全部走 skip_docs_edited，提醒永久失效。
+
+    真正的"文档编辑"= 命中任一 rule 的 required_docs/optional_docs，
+    或位于 `doc_root`（默认 `md/`）下的被跟踪 .md。
     """
     rules = doc_map.get("rules") or []
     unmanaged_globs = _glob_list(doc_map.get("unmanaged"))
     exclude_globs = _glob_list(doc_map.get("exclude"))
+    doc_root = str(doc_map.get("doc_root") or "md").strip("/")
+
+    # 所有规则登记的文档路径（精确匹配集）
+    registered_docs: set[str] = set()
+    for rule in rules:
+        registered_docs.update(rule_doc_paths(rule))
 
     result: dict = {
         "code": [],
@@ -345,8 +359,11 @@ def classify_files(repo_root: Path, doc_map: dict, files: list[str]) -> dict:
     }
 
     for path in files:
-        if any_glob_match(path, exclude_globs) or path.lower().endswith(".md"):
+        if _is_doc_edit(path, doc_root, registered_docs):
             result["docs"].append(path)
+            continue
+
+        if any_glob_match(path, exclude_globs):
             continue
 
         if any_glob_match(path, unmanaged_globs):
@@ -365,6 +382,17 @@ def classify_files(repo_root: Path, doc_map: dict, files: list[str]) -> dict:
             result["no_rule"].append(path)
 
     return result
+
+
+def _is_doc_edit(path: str, doc_root: str, registered_docs: set[str]) -> bool:
+    """该文件是否算"文档编辑"（会触发整体放行）。"""
+    if path in registered_docs:
+        return True
+    if not path.lower().endswith(".md"):
+        return False
+    # 仅认本仓库文档根目录下的 .md（如 md/），工作区级/其它目录的 .md 不算
+    root = doc_root.rstrip("/") + "/" if doc_root else ""
+    return bool(root) and path.startswith(root)
 
 
 def strongest_tier(doc_map: dict, rule_ids: list[str]) -> str | None:

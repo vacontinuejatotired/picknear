@@ -6,6 +6,7 @@
   "hook":  { "mode": "remind" },
   "gates": { "mode": "observe" },
   "coverage_threshold_pct": 70,
+  "doc_root": "md",
   "orphan_exempt": ["md/report/**", "md/规范/**"],
   "rules": [
     {

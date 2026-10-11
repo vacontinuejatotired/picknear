@@ -219,7 +219,61 @@ def main() -> int:
             original, encoding="utf-8", newline="\n"
         )
 
-    print("== 7. 豁免理由解析 ==")
+    print("== 8. 会话累积与轮次游标（P0b 实测踩坑的回归）==")
+    # 背景：edits.jsonl 按会话累积。若每轮读全量，则本会话早期碰过任意 .md 后，
+    # 后续所有 Stop 都会走 "有文档编辑→整体放行"，提醒永久失效。
+    # 修法：①".md 算文档编辑"必须收窄到 md/ 下或规则登记的文档；
+    #       ②按游标只消费"上次 Stop 之后新增"的记录。
+    MUST_A = r"picknear\src\main\java\com\hmdp\agent\controller\ChatController.java"
+    MUST_B = r"picknear\src\main\java\com\hmdp\agent\stream\SseEventConstants.java"
+    WS_MD = r".claude\doc-sync\HANDOFF.md"
+    REPO_MD = r"md\ops\API接口文档.md"
+    ROOT_MD = r"README.md"
+
+    def append_edit(rec: dict) -> None:
+        with (STATE / "edits.jsonl").open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    def edit(path: str, session: str) -> dict:
+        return {"session_id": session, "tool_name": "Edit", "file_path": path}
+
+    # 8.1 文档编辑的收窄判定
+    (STATE / "edits.jsonl").write_text("", encoding="utf-8")
+    (STATE / "last-report.json").unlink(missing_ok=True)
+    append_edit(edit(WS_MD, "cx1")); append_edit(edit(MUST_A, "cx1"))
+    out = run_stop(stop_payload("cx1"))
+    check("工作区 .claude/*.md 不算文档同步 → 仍提醒", "systemMessage" in out, str(out)[:120])
+
+    (STATE / "edits.jsonl").write_text("", encoding="utf-8")
+    (STATE / "last-report.json").unlink(missing_ok=True)
+    append_edit(edit(ROOT_MD, "cx2")); append_edit(edit(MUST_A, "cx2"))
+    out = run_stop(stop_payload("cx2"))
+    check("仓库根 README.md 不算文档同步 → 仍提醒", "systemMessage" in out, str(out)[:120])
+
+    (STATE / "edits.jsonl").write_text("", encoding="utf-8")
+    (STATE / "last-report.json").unlink(missing_ok=True)
+    append_edit(edit(REPO_MD, "cx3")); append_edit(edit(MUST_A, "cx3"))
+    out = run_stop(stop_payload("cx3"))
+    check("md/ 下文档 → 放行（回归）", out == {}, str(out)[:120])
+
+    # 8.2 游标：只消费本轮新增
+    (STATE / "edits.jsonl").write_text("", encoding="utf-8")
+    (STATE / "last-report.json").unlink(missing_ok=True)
+    append_edit(edit(MUST_A, "cy"))
+    out = run_stop(stop_payload("cy"))
+    check("轮1 新增 must → 提醒", "systemMessage" in out)
+
+    out = run_stop(stop_payload("cy"))
+    check("轮2 无新编辑 → 静默（游标生效）", out == {}, str(out)[:120])
+
+    append_edit(edit(WS_MD, "cy"))
+    append_edit(edit(MUST_B, "cy"))
+    out = run_stop(stop_payload("cy"))
+    txt = out.get("systemMessage") or ""
+    check("轮3 只报本轮新增的 stream", "stream" in txt, txt[:160])
+    check("轮3 不重复报上轮的 controller", "controller" not in txt, txt[:160])
+
+    print("== 9. 豁免理由解析 ==")
     import argparse as _ap
 
     def exemption(body: str, labels: str = "docs-exempt", labeled: str = "", sync: str = ""):
@@ -256,7 +310,7 @@ def main() -> int:
     ok, _ = exemption("理由：x", labeled="2026-10-11T10:00:00Z", sync="2026-10-11T09:00:00Z")
     check("标签晚于同步 → 豁免成立", ok)
 
-    print("== 8. fail-open ==")
+    print("== 10. fail-open ==")
     (STATE / "edits.jsonl").write_text("{这不是合法 JSON\n", encoding="utf-8", newline="\n")
     (STATE / "last-report.json").unlink(missing_ok=True)
     out = run_stop(stop_payload("s10"))

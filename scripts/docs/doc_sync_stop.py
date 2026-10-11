@@ -31,12 +31,20 @@ REMIND_FOOTER = (
 )
 
 
-def _collect_edits(project_dir: str | None, session_id: str | None) -> tuple[list[str], int]:
-    """返回 (去重后的归一化绝对路径列表, 原始记录数)。"""
+def _collect_edits(project_dir: str | None, session_id: str | None) -> tuple[list[str], int, int]:
+    """返回 (去重后的归一化绝对路径列表, 原始记录数, 本轮起始行号)。
+
+    **只取"上次 Stop 之后新增"的记录**（P0b 实测踩坑）：
+    记录按会话累积，若每轮都读全量，则本会话早期改过任一文档后，
+    后续每次 Stop 都会走"有文档编辑→整体放行"，提醒**永久失效**。
+    游标（已消费到第几行）存在 last-report.json，按会话隔离。
+    """
     records = lib.read_edits(project_dir, session_id)
+    watermark = _read_cursor(project_dir, session_id)
+    fresh = records[watermark:] if watermark < len(records) else []
     seen: set[str] = set()
     files: list[str] = []
-    for rec in records:
+    for rec in fresh:
         raw = str(rec.get("path") or rec.get("file_path") or "").strip()
         if not raw:
             continue
@@ -46,7 +54,7 @@ def _collect_edits(project_dir: str | None, session_id: str | None) -> tuple[lis
             continue
         seen.add(key)
         files.append(norm)
-    return files, len(records)
+    return files, len(fresh), len(records)
 
 
 def _group_by_repo(files: list[str]) -> dict[Path, list[str]]:
@@ -100,20 +108,26 @@ def main() -> int:
         session_id = data.get("session_id")
         declared = lib.detect_declaration(data.get("last_assistant_message"))
 
-        # 3. 本会话编辑
-        files, raw_count = _collect_edits(project_dir, session_id)
+        # 3. 本会话编辑（只取上次 Stop 之后新增的；cursor 记录已消费行数）
+        files, raw_count, total = _collect_edits(project_dir, session_id)
         if lib.last_bad_line_count() > 0:
             lib.log_error(
                 project_dir, "read_edits",
                 f"{lib.last_bad_line_count()} corrupt line(s) skipped in edits.jsonl",
             )
-        if not files:
+
+        def _done(key: str | None = None) -> int:
+            """统一出口：推进游标后返回 0（放行）。"""
+            _remember(project_dir, session_id, key, total)
             return 0
+
+        if not files:
+            return _done()
 
         # 4. 按仓库归属
         groups = _group_by_repo(files)
         if not groups:
-            return 0
+            return _done()
 
         repo_reports: list[dict] = []
         for repo_root, rel_files in groups.items():
@@ -152,7 +166,7 @@ def main() -> int:
             })
 
         if not repo_reports:
-            return 0
+            return _done()
 
         all_code = sorted({f for r in repo_reports for f in r["code"]})
         key = lib.dedup_key(session_id or "", all_code, declared)
@@ -163,11 +177,11 @@ def main() -> int:
                 project_dir, "declared",
                 session_id=session_id, key=key, files=all_code[:50],
             )
-            return 0
+            return _done(key)
 
         # 5.d 内容键去重
         if _already_reported(project_dir, session_id, key):
-            return 0
+            return _done(key)
 
         overall_tier = (
             "must" if any(r["tier"] == "must" for r in repo_reports) else "should"
@@ -188,7 +202,7 @@ def main() -> int:
             session_id=session_id, key=key, tier=overall_tier,
             hook_mode=hook_mode, files=all_code[:50],
         )
-        _remember(project_dir, session_id, key)
+        _remember(project_dir, session_id, key, total)
 
         # 5.e / 5.f
         if hook_mode == "block-must" and overall_tier == "must":
@@ -238,25 +252,53 @@ def _dedup_path(project_dir: str | None) -> Path:
     return lib.state_dir(project_dir) / "last-report.json"
 
 
-def _already_reported(project_dir: str | None, session_id: str | None, key: str) -> bool:
+def _read_state(project_dir: str | None) -> dict:
     import json
     path = _dedup_path(project_dir)
     try:
         if not path.exists():
-            return False
+            return {}
         data = json.loads(path.read_text(encoding="utf-8"))
-        return isinstance(data, dict) and data.get("session_id") == session_id and data.get("key") == key
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return False
+        return {}
 
 
-def _remember(project_dir: str | None, session_id: str | None, key: str) -> None:
+def _read_cursor(project_dir: str | None, session_id: str | None) -> int:
+    """上次 Stop 已消费到 edits.jsonl 的第几行（按会话隔离）。"""
+    state = _read_state(project_dir)
+    if state.get("session_id") != session_id:
+        return 0
+    try:
+        return max(0, int(state.get("cursor") or 0))
+    except Exception:
+        return 0
+
+
+def _already_reported(project_dir: str | None, session_id: str | None, key: str) -> bool:
+    state = _read_state(project_dir)
+    return state.get("session_id") == session_id and state.get("key") == key
+
+
+def _remember(
+    project_dir: str | None,
+    session_id: str | None,
+    key: str | None,
+    cursor: int,
+) -> None:
+    """持久化去重键与游标。
+
+    游标必须**每个 Stop 都推进**（包括放行的那些），否则放行路径会造成记录重复消费。
+    """
     import json
     try:
         path = _dedup_path(project_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps({"session_id": session_id, "key": key}, ensure_ascii=True),
+            json.dumps(
+                {"session_id": session_id, "key": key, "cursor": cursor},
+                ensure_ascii=True,
+            ),
             encoding="utf-8",
         )
     except Exception:
