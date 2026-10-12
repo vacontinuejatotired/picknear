@@ -5,8 +5,8 @@
 - 单一方言：glob 一律"仓库根相对 POSIX + gitignore 风格"，hook/CI/审计共用本模块的匹配器，禁止各写一套。
 - 文件全集一律取 `git ls-files`（不用文件系统枚举——工作区有空目录残骸与非跟踪文件）。
 - 路径一律先归一化 `\\`→`/`（Windows hook 传入的是反斜杠绝对路径）。
-- 一切 git 子进程失败 → 降级为"未能判定" + 日志，不得把 git 报错当结论（hgfs 上 dubious ownership 会假失败）。
-- 仅标准库；host(Windows/Git Bash) 与 VM(Linux) 两侧同源运行。
+- 一切 git 子进程失败 → 降级为"未能判定" + 日志，不得把 git 报错当结论。
+- 仅标准库；机制只在 Windows 宿主侧运行（VM 已转只读，不跑本机制）。
 
 DOC_SYNC_HOOK_VERSION 供审计比对两仓库脚本是否漂移（计划 §11）。
 """
@@ -37,7 +37,7 @@ VALID_HOOK_MODES = {"remind", "block-must"}
 def normalize_path(raw: str) -> str:
     """把任意来源的路径归一为 POSIX 风格。
 
-    Windows hook 传入 ``E:\\heima\\picknear\\x.py``；CI/VM 传入 ``picknear/x.py``。
+    Windows hook 传入 ``E:\\heima\\picknear\\x.py``；CI 传入 ``picknear/x.py``。
     统一为 ``/``，并去掉开头的 ``./``。
     """
     if not raw:
@@ -466,7 +466,7 @@ def append_jsonl(path: Path, record: dict) -> bool:
 
 
 def log_event(project_dir: str | None, event: str, **fields) -> None:
-    """写 events-<hostname>.jsonl（按 hostname 分文件，host/VM 并发 append 不交错）。"""
+    """写 events-<hostname>.jsonl（按 hostname 分文件，便于区分产生日志的机器）。"""
     record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": event}
     record.update(fields)
     append_jsonl(state_dir(project_dir) / f"events-{sanitize_hostname()}.jsonl", record)

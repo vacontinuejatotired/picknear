@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Codex hook 参考配置（与 Claude Code 共用同一套 doc-sync 脚本）。",
+    "部署：复制到工作区根 E:\\heima\\.codex\\hooks.json（该目录不在任何 git 仓库内，故以本文件为准）。",
+    "要点：Codex 项目级 hook 不注入 CLAUDE_PROJECT_DIR，命令必须用相对项目根的路径",
+    "（Codex 以 payload 的 cwd 作为 hook 进程工作目录）；matcher 必须含 apply_patch。",
+    "详见 md/ops/文档同步运维手册.md §3.6。"
+  ],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"picknear/scripts/docs/doc_sync_hook.sh\" doc_sync_record.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"picknear/scripts/docs/doc_sync_hook.sh\" doc_sync_stop.py",
+            "timeout": 30,
+            "statusMessage": "doc-sync 检查"
+          }
+        ]
+      }
+    ]
+  }
+}

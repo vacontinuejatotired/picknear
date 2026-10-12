@@ -384,7 +384,66 @@ def main() -> int:
     out = run_stop({})
     check("空 stdin → 静默", out == {}, str(out)[:200])
 
-    print("== 12. 隔离回归：selftest 不得写入生产状态目录 ==")
+    print("== 12. cross-harness: Codex apply_patch payload ==")
+    # 背景（2026-10-12）：Codex 项目 hook 不注入 CLAUDE_PROJECT_DIR，且 apply_patch 的
+    # tool_input 只有整段 patch 文本，没有 file_path。回归上面两处兼容改动。
+    import doc_sync_record as _rec
+
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: picknear/picknear/src/main/java/com/hmdp/agent/controller/ChatController.java\n"
+        "@@\n- a\n+ b\n"
+        "*** Update File: picknear/picknear/src/main/java/com/hmdp/agent/stream/SseEventConstants.java\n"
+        "@@\n- c\n+ d\n"
+        "*** Add File: docs/new.md\n"
+        "*** Delete File: docs/gone.md\n"
+        "*** End Patch"
+    )
+    parsed = _rec.extract_patch_paths(patch)
+    check("apply_patch 解析出 4 条路径", len(parsed) == 4, str(parsed))
+    check("apply_patch 保留 update 路径",
+          "picknear/picknear/src/main/java/com/hmdp/agent/controller/ChatController.java" in parsed)
+    check("apply_patch 覆盖 add/delete", "docs/new.md" in parsed and "docs/gone.md" in parsed)
+    check("apply_patch 重复路径去重",
+          _rec.extract_patch_paths("*** Update File: a.java\n*** Update File: a.java") == ["a.java"])
+    check("apply_patch 非法输入返回空", _rec.extract_patch_paths("") == [] and _rec.extract_patch_paths(None) == [])
+
+    (STATE / "edits.jsonl").write_text("", encoding="utf-8", newline="\n")
+    (STATE / "last-report.json").unlink(missing_ok=True)
+    rec_payload = {
+        "session_id": "codex1", "hook_event_name": "PostToolUse", "cwd": str(REPO),
+        "tool_name": "apply_patch", "tool_input": {"command": patch},
+    }
+    proc = subprocess.run(
+        ["sh", str(HERE / "doc_sync_hook.sh"), "doc_sync_record.py"],
+        input=json.dumps(rec_payload).encode("utf-8"), capture_output=True,
+        cwd=str(REPO), env={**os.environ, "CLAUDE_PROJECT_DIR": str(TMP_ROOT)}, timeout=60,
+    )
+    check("record 对 apply_patch 静默 exit 0",
+          proc.returncode == 0 and not (proc.stdout or b"").strip(), str(proc)[:160])
+    lines = [ln for ln in (STATE / "edits.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    check("record 落盘 4 条 apply_patch 记录", len(lines) == 4, str(len(lines)))
+    check("record 记录 tool_name=apply_patch",
+          all(json.loads(ln).get("tool_name") == "apply_patch" for ln in lines))
+    first = json.loads(lines[0]) if lines else {}
+    check("record 保留 cwd 供归属使用", first.get("cwd") == str(REPO), str(first)[:160])
+
+    # stop 必须像真实 Codex 一样以 payload.cwd（工作区根）为进程 cwd，
+    # 这样 apply_patch 里相对 cwd 的路径才能被正确解析/归属。
+    stop_p = stop_payload("codex1")
+    stop_p["cwd"] = str(REPO.parent)
+    proc = subprocess.run(
+        ["sh", str(HERE / "doc_sync_hook.sh"), "doc_sync_stop.py"],
+        input=json.dumps(stop_p).encode("utf-8"), capture_output=True,
+        cwd=str(REPO.parent), env={**os.environ, "CLAUDE_PROJECT_DIR": str(TMP_ROOT)}, timeout=60,
+    )
+    raw = (proc.stdout or b"").decode("utf-8", "replace").strip()
+    out = json.loads(raw) if raw else {}
+    txt = out.get("systemMessage") or ""
+    check("apply_patch only -> must 提醒", "systemMessage" in out, raw[:160])
+    check("apply_patch 归属到 controller 规则", "controller" in txt, txt[:200])
+
+    print("== 13. 隔离回归：selftest 不得写入生产状态目录 ==")
     prod_after = _snapshot(PROD_STATE)
     check(
         "生产 .claude/doc-sync 未被 selftest 修改",
