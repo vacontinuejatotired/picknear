@@ -88,7 +88,7 @@
       "id": "config-surface",
       "tier": "must",
       "owner": "Ntwitm",
-      "last_verified": "2026-10-11",
+      "last_verified": "2026-10-12",
       "code": [
         "picknear/src/main/resources/application*.yaml",
         "picknear/docker-compose.yml",
@@ -99,17 +99,105 @@
       ],
       "optional_docs": ["md/ops/**"],
       "note": "配置键/环境变量变化"
+    },
+    {
+      "id": "app-config",
+      "tier": "must",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/config/**"
+      ],
+      "required_docs": [
+        { "type": "config", "path": "md/ops/Docker部署指南.md" },
+        { "type": "arch",   "path": "md/arch/系统架构设计.md" }
+      ],
+      "optional_docs": ["md/ops/**", "md/arch/**"],
+      "note": "Spring 配置类（缓存/Redis/CORS/JWT/MQ/OSS 等）；改行为契约会让部署与架构文档失真"
+    },
+    {
+      "id": "cross-cutting",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/utils/**",
+        "picknear/src/main/java/com/hmdp/service/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/arch/**"],
+      "note": "工具类与公共服务（缓存键、ID 生成、常量收口）；建议核对架构文档"
+    },
+    {
+      "id": "voucher-domain",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/voucher/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/ops/API接口文档.md"],
+      "note": "优惠券业务；无专属设计文档，接口契约以 API 接口文档为准（端点清单自动派生）"
+    },
+    {
+      "id": "shop-content",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/shop/**",
+        "picknear/src/main/java/com/hmdp/content/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/shop/**"],
+      "note": "店铺与内容（博客/关注/评论）业务"
+    },
+    {
+      "id": "user-domain",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/user/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/auth/**"],
+      "note": "用户资料/签到等；认证登录见 auth-security（must）"
+    },
+    {
+      "id": "root-controller",
+      "tier": "should",
+      "owner": "Ntwitm",
+      "last_verified": "2026-10-12",
+      "code": [
+        "picknear/src/main/java/com/hmdp/controller/**"
+      ],
+      "required_docs": [],
+      "optional_docs": ["md/ops/**"],
+      "note": "顶层通用 controller（上传、压测等）；接口契约以 API 接口文档为准"
     }
   ],
   "unmanaged": [
     "picknear/src/test/**",
     "picknear/src/main/java/com/hmdp/entity/**",
-    "picknear/src/main/java/com/hmdp/mapper/**"
+    "picknear/src/main/java/com/hmdp/mapper/**",
+    "picknear/src/main/java/com/hmdp/dto/**",
+    "picknear/src/main/java/com/hmdp/enums/**",
+    "picknear/src/main/java/com/hmdp/exception/**",
+    "picknear/src/main/java/com/hmdp/common/**",
+    "picknear/src/main/java/com/hmdp/annotation/**",
+    "picknear/**.jmx",
+    "picknear/src/main/resources/public.pem"
   ],
   "exclude": [
     "**/*.md",
+    "**/*.png",
     "**/target/**",
     "**/logs/**",
-    "**/.claude/**"
+    "**/.claude/**",
+    "scripts/**",
+    "reasonix.toml",
+    "*.csv"
   ]
 }
