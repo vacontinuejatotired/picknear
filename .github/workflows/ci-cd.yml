@@ -91,6 +91,11 @@ jobs:
       - name: docs-sync validate
         run: python3 scripts/docs/doc_sync_check.py --validate
 
+      # API 端点清单派生校验：controller 注解变了但文档区块没重生成 → 红。
+      # 先 observe 后转 FAIL 的过渡已由 P0b 的 P0c 观察期覆盖（本检查为确定性检查，直接生效）。
+      - name: docs-api-index
+        run: python3 scripts/docs/gen_api_index.py --check
+
       - name: docs-sync gate
         if: github.event_name == 'pull_request'
         env:

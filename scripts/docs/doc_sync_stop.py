@@ -240,7 +240,7 @@ def _format_lines(repo_reports: list[dict]) -> list[str]:
                 if dirs:
                     docs = "、".join(f"{d}/ 下相关文档" for d in dirs)
                 else:
-                    docs = "（无指定文档，建议核对对应模块 md/）"
+                    docs = "（该规则未登记文档，属提醒性质；确有文档请补进 doc-map 的 required_docs）"
             shown = "、".join(hit_files[:5])
             if len(hit_files) > 5:
                 shown += f" 等 {len(hit_files)} 个文件"

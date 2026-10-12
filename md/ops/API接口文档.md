@@ -1,12 +1,30 @@
 ---
 status: current
+source_of_truth:
+  - picknear/src/main/java/com/hmdp/agent/controller/ChatController.java
+  - picknear/src/main/java/com/hmdp/agent/controller/HistoryController.java
+  - picknear/src/main/java/com/hmdp/agent/access/AgentV2Controller.java
+  - picknear/src/main/java/com/hmdp/agent/prompt/seed/PromptAdminController.java
+  - picknear/src/main/java/com/hmdp/auth/controller/AuthController.java
+  - picknear/src/main/java/com/hmdp/content/controller/BlogController.java
+  - picknear/src/main/java/com/hmdp/content/controller/FollowController.java
+  - picknear/src/main/java/com/hmdp/controller/UploadController.java
+  - picknear/src/main/java/com/hmdp/shop/controller/ShopController.java
+  - picknear/src/main/java/com/hmdp/shop/controller/ShopTypeController.java
+  - picknear/src/main/java/com/hmdp/user/controller/UserController.java
+  - picknear/src/main/java/com/hmdp/voucher/controller/VoucherController.java
+  - picknear/src/main/java/com/hmdp/voucher/controller/VoucherOrderController.java
 superseded_by:
 ---
 
 # 探点（picknear）API 接口文档
 
 > 本文定义后端 HTTP API、请求响应格式、认证契约和数据模型。
-> 最后更新：2026-07（第2轮优化）
+>
+> **端点清单为自动派生**：文末「自动生成的端点清单」区块由
+> `python scripts/docs/gen_api_index.py` 从上述 `source_of_truth` 的 controller 注解生成，
+> **请勿手工编辑该区块**；改接口后重跑生成器并提交，CI 会校验一致性。
+> 手工撰写的章节（概述、认证、响应格式、各模块详述）不受影响。
 
 ---
 
@@ -1642,3 +1660,68 @@ POST /chat?content={content}
 
 ---
 
+<!-- doc-sync:api-index begin -->
+
+### 自动生成的端点清单
+
+> 本节由 `scripts/docs/gen_api_index.py` 从 controller 注解派生，**请勿手工编辑**。
+> 覆盖 15 个 Controller，共 51 个端点。
+> 修改接口后运行 `python scripts/docs/gen_api_index.py` 重新生成。
+
+> 以下 Controller 无方法级映射（空实现或未完成），故无端点：`BlogCommentsController`
+
+| 方法 | 路径 | 所在类 |
+|---|---|---|
+| `POST` | `/agent/confirm` | `ChatController` |
+| `GET` | `/agent/conversations` | `HistoryController` |
+| `GET` | `/agent/conversations/{conversationId}/messages` | `HistoryController` |
+| `POST` | `/agent/prompt/reload` | `PromptAdminController` |
+| `POST` | `/agent/prompt/seed` | `PromptAdminController` |
+| `POST` | `/agent/reject` | `ChatController` |
+| `POST` | `/agent/string/send` | `ChatController` |
+| `POST` | `/agent/v2/string/send` | `AgentV2Controller` |
+| `POST` | `/blog` | `BlogController` |
+| `GET` | `/blog/hot` | `BlogController` |
+| `PUT` | `/blog/like/{id}` | `BlogController` |
+| `GET` | `/blog/likes/{id}` | `BlogController` |
+| `GET` | `/blog/of/follow` | `BlogController` |
+| `GET` | `/blog/of/me` | `BlogController` |
+| `GET` | `/blog/of/user` | `BlogController` |
+| `GET` | `/blog/{id}` | `BlogController` |
+| `PUT` | `/blog/{id}/images` | `BlogController` |
+| `GET` | `/follow/common/{id}` | `FollowController` |
+| `GET` | `/follow/or/not/{targetId}` | `FollowController` |
+| `PUT` | `/follow/{id}/{isfollow}` | `FollowController` |
+| `POST` | `/shop` | `ShopController` |
+| `PUT` | `/shop` | `ShopController` |
+| `GET` | `/shop-type/list` | `ShopTypeController` |
+| `GET` | `/shop/near/{typeId}` | `ShopController` |
+| `GET` | `/shop/of/name` | `ShopController` |
+| `GET` | `/shop/of/type` | `ShopController` |
+| `GET` | `/shop/{id}` | `ShopController` |
+| `GET` | `/test/checkSnowFlake/{num}` | `TestCostTimeController` |
+| `GET` | `/test/costTime` | `TestCostTimeController` |
+| `POST` | `/test/generateToken/{num}` | `TestCostTimeController` |
+| `GET` | `/test/mq/order/save/{voucherId}/{orderNum}` | `TestCostTimeController` |
+| `POST` | `/test/restart/{num}/{voucherId}` | `TestCostTimeController` |
+| `GET` | `/test/void` | `TestCostTimeController` |
+| `POST` | `/upload/blog` | `UploadController` |
+| `DELETE` | `/upload/blog/delete` | `UploadController` |
+| `POST` | `/user/code` | `AuthController` |
+| `GET` | `/user/info/{id}` | `UserController` |
+| `POST` | `/user/login` | `AuthController` |
+| `POST` | `/user/logout` | `AuthController` |
+| `GET` | `/user/me` | `UserController` |
+| `PUT` | `/user/password` | `AuthController` |
+| `PUT` | `/user/password/reset` | `AuthController` |
+| `PUT` | `/user/profile` | `UserController` |
+| `POST` | `/user/sign` | `UserController` |
+| `GET` | `/user/sign/count` | `UserController` |
+| `GET` | `/user/{id}` | `UserController` |
+| `POST` | `/voucher` | `VoucherController` |
+| `POST` | `/voucher-order/seckill/saveOrder/{id}` | `VoucherOrderController` |
+| `POST` | `/voucher-order/seckill/{id}` | `VoucherOrderController` |
+| `GET` | `/voucher/list/{shopId}` | `VoucherController` |
+| `POST` | `/voucher/seckill` | `VoucherController` |
+
+<!-- doc-sync:api-index end -->

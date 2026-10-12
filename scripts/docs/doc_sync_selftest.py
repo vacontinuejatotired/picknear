@@ -310,7 +310,35 @@ def main() -> int:
     ok, _ = exemption("理由：x", labeled="2026-10-11T10:00:00Z", sync="2026-10-11T09:00:00Z")
     check("标签晚于同步 → 豁免成立", ok)
 
-    print("== 10. fail-open ==")
+    print("== 10. API 端点派生（gen_api_index）==")
+    sys.path.insert(0, str(HERE))
+    try:
+        import gen_api_index as gai
+
+        entries, skipped, controllers, empty = gai.collect()
+        check("扫到 controller", len(controllers) >= 10, f"n={len(controllers)}")
+        check("派生出端点", len(entries) >= 30, f"n={len(entries)}")
+        check("路径均为绝对（以 / 开头）",
+              all(e["path"].startswith("/") for e in entries))
+        check("路径无重复斜杠", all("//" not in e["path"] for e in entries))
+        check("verb 合法",
+              all(e["verb"] in {"GET", "POST", "PUT", "DELETE", "PATCH"} for e in entries))
+        # 已知样本：VoucherController 的 /voucher/seckill（方法级无前导斜杠，须正确拼接）
+        paths = {(e["verb"], e["path"]) for e in entries}
+        check("拼接正确 /voucher/seckill", ("POST", "/voucher/seckill") in paths)
+        check("拼接正确 /test/costTime", ("GET", "/test/costTime") in paths)
+        check("空 controller 被识别", isinstance(empty, list))
+
+        # 文档区块存在且与代码一致
+        doc = (REPO / "md" / "ops" / "API接口文档.md").read_text(encoding="utf-8")
+        check("文档含托管区块", gai.BEGIN in doc and gai.END in doc)
+        rendered = gai.render(entries, skipped, controllers, empty)
+        check("区块与代码一致（--check 语义）",
+              doc.strip() == gai.splice(doc, rendered).strip())
+    except Exception as exc:
+        check("gen_api_index 可导入并可运行", False, f"{type(exc).__name__}: {exc}")
+
+    print("== 11. fail-open ==")
     (STATE / "edits.jsonl").write_text("{这不是合法 JSON\n", encoding="utf-8", newline="\n")
     (STATE / "last-report.json").unlink(missing_ok=True)
     out = run_stop(stop_payload("s10"))
