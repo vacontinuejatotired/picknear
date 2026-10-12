@@ -14,15 +14,49 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-STATE = REPO.parent / ".claude" / "doc-sync"
+
+# 生产运行态目录（真实 hook 的 edits/events/last-report 落点）。
+# 自测**绝不**写入这里：每次运行创建一个独立临时工程根，把 CLAUDE_PROJECT_DIR
+# 指向它，脚本的 state_dir() 便落在临时目录内（见 §"隔离"回归断言）。
+PROD_STATE = REPO.parent / ".claude" / "doc-sync"
+TMP_ROOT = Path(tempfile.mkdtemp(prefix="doc-sync-selftest-"))
+STATE = TMP_ROOT / ".claude" / "doc-sync"
+atexit.register(lambda: shutil.rmtree(str(TMP_ROOT), ignore_errors=True))
+
+# GBK/cp936 控制台兜底：未来若再误用 emoji，退化替换而不是抛 UnicodeEncodeError。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+
+def _snapshot(root: Path) -> dict:
+    """记录 root 下所有文件的 (size, mtime_ns)；root 不存在时返回 {}。"""
+    out = {}
+    if root.exists():
+        for path in root.rglob("*"):
+            if path.is_file():
+                try:
+                    st = path.stat()
+                    out[str(path.relative_to(root))] = (st.st_size, st.st_mtime_ns)
+                except OSError:
+                    continue
+    return out
+
+
+PROD_BEFORE = _snapshot(PROD_STATE)
 
 FAILURES: list[str] = []
 CHECKS = 0
@@ -49,7 +83,7 @@ def write_edits(records: list[dict]) -> None:
 
 def run_stop(payload: dict, env_extra: dict | None = None) -> dict:
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(REPO.parent)
+    env["CLAUDE_PROJECT_DIR"] = str(TMP_ROOT)
     if env_extra:
         env.update(env_extra)
     proc = subprocess.run(
@@ -73,7 +107,7 @@ def stop_payload(session: str, msg: str = "改完了", active: bool = False) -> 
     return {
         "session_id": session,
         "hook_event_name": "Stop",
-        "cwd": str(REPO.parent),
+        "cwd": str(REPO),
         "stop_hook_active": active,
         "last_assistant_message": msg,
     }
@@ -218,6 +252,8 @@ def main() -> int:
         (REPO / "scripts" / "docs" / "doc-map.json").write_text(
             original, encoding="utf-8", newline="\n"
         )
+    check("block-must 用例后 doc-map.json 已还原",
+          (REPO / "scripts" / "docs" / "doc-map.json").read_text(encoding="utf-8") == original)
 
     print("== 8. 会话累积与轮次游标（P0b 实测踩坑的回归）==")
     # 背景：edits.jsonl 按会话累积。若每轮读全量，则本会话早期碰过任意 .md 后，
@@ -348,13 +384,27 @@ def main() -> int:
     out = run_stop({})
     check("空 stdin → 静默", out == {}, str(out)[:200])
 
+    print("== 12. 隔离回归：selftest 不得写入生产状态目录 ==")
+    prod_after = _snapshot(PROD_STATE)
+    check(
+        "生产 .claude/doc-sync 未被 selftest 修改",
+        prod_after == PROD_BEFORE,
+        f"变化前 {len(PROD_BEFORE)} 文件 / 变化后 {len(prod_after)} 文件",
+    )
+    check(
+        "临时状态目录与生产状态目录不同",
+        STATE.resolve() != PROD_STATE.resolve(),
+        f"{STATE} vs {PROD_STATE}",
+    )
+    check("selftest 状态落在临时工程根", TMP_ROOT.resolve() != REPO.parent.resolve())
+
     print()
     print(f"共 {CHECKS} 项检查，失败 {len(FAILURES)} 项")
     if FAILURES:
         for name in FAILURES:
             print(f"  - {name}")
         return 1
-    print("全部通过 ✅")
+    print("全部通过 (all passed)")
     return 0
 
 
